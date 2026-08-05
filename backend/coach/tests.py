@@ -217,6 +217,52 @@ class StateTests(CoachTestCase):
         self.assertEqual(response.data["gate"], {"have": 1, "need": 1, "next_phase": "VALIDATION"})
         self.assertEqual(response.data["phases"], ["IDEA", "VALIDATION", "BUILD", "LAUNCH"])
 
+    def test_checkin_is_stamped_with_the_phase_it_was_made_in(self):
+        """The drill-in attributes proofs by this field, not by date math."""
+        goal = self.make_goal()
+        self.client.post("/api/coach/checkins/declare/", {"text": "write it"})
+        with mock.patch(
+            "coach.views.llm.complete",
+            return_value='{"verdict": "accept", "reaction": "ok"}',
+        ):
+            self.client.post("/api/coach/checkins/prove/", {"text": "written"})
+        self.assertEqual(CheckIn.objects.get(goal=goal).phase, "IDEA")
+
+        self.client.post(f"/api/coach/goals/{goal.pk}/advance/")
+        # A later day's check-in belongs to the phase it was declared in.
+        response = self.client.post(
+            "/api/coach/checkins/declare/", {"text": "talk to cooks", "date": "2026-09-01"}
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            CheckIn.objects.get(goal=goal, date="2026-09-01").phase, "VALIDATION"
+        )
+
+    def test_boundary_checkin_stays_with_the_phase_it_earned(self):
+        """A client-local date on the far side of the UTC date boundary — the
+        case that broke date-based attribution — must still resolve."""
+        goal = self.make_goal()
+        # Client says it's already tomorrow (IST after midnight); the server,
+        # and therefore the transition it earns, is still on the previous UTC day.
+        self.client.post(
+            "/api/coach/checkins/declare/", {"text": "late night push", "date": "2026-08-06"}
+        )
+        with mock.patch(
+            "coach.views.llm.complete",
+            return_value='{"verdict": "accept", "reaction": "ok"}',
+        ):
+            self.client.post(
+                "/api/coach/checkins/prove/", {"text": "done", "date": "2026-08-06"}
+            )
+        self.client.post(f"/api/coach/goals/{goal.pk}/advance/")
+
+        checkin = CheckIn.objects.get(goal=goal, date="2026-08-06")
+        transition = goal.transitions.get()
+        self.assertEqual(checkin.phase, "IDEA")
+        # The proof's client date is AHEAD of the transition's UTC date, which
+        # is exactly why the display must not compare the two.
+        self.assertGreater(str(checkin.date), str(transition.created_at.date()))
+
     def test_transitions_reflect_phase_advances(self):
         """The stepper drill-in relies on these boundaries — pin the shape."""
         goal = self.make_goal()

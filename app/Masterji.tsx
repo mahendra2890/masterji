@@ -445,18 +445,11 @@ export default function Masterji({ user }: { user: SessionUser }) {
       {viewPhase &&
         (() => {
           const win = phaseWindow(viewPhase, goal, transitions);
-          const startDate = win.start.slice(0, 10);
-          const endDate = win.end?.slice(0, 10) ?? null;
-          // Boundary days belong to the phase that ENDED that day — the
-          // day's check-in is the proof that earned the advance. So the
-          // end is inclusive, and a transition-entered start is exclusive
-          // (goal creation isn't a transition, so day one stays included).
-          const windowCheckins = checkins.filter((c) => {
-            const afterStart = win.enteredByTransition
-              ? c.date > startDate
-              : c.date >= startDate;
-            return afterStart && (!endDate || c.date <= endDate);
-          });
+          // Each check-in carries the phase it was made in, stamped
+          // server-side. Don't infer it from dates: CheckIn.date is the
+          // client's local date while transitions are server UTC, so the
+          // two disagree around a late-night advance.
+          const windowCheckins = checkins.filter((c) => c.phase === viewPhase);
           return (
             <div className={styles.modalOverlay} onClick={() => setViewPhase(null)}>
               <div className={styles.modal} onClick={(e) => e.stopPropagation()}>

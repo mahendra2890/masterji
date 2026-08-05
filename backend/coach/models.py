@@ -62,6 +62,11 @@ class CheckIn(SoftDeleteModel):
 
     goal = models.ForeignKey(Goal, on_delete=models.CASCADE, related_name="checkins")
     date = models.DateField()
+    # The phase this day's work belonged to, stamped when the row is created.
+    # `date` can't be used to infer it: dates come from the CLIENT's local
+    # clock while phase transitions are recorded in server UTC, so around a
+    # late-night advance the two disagree about which day it is.
+    phase = models.CharField(max_length=12, choices=Phase.choices, blank=True)
     am_declaration = models.TextField(blank=True)
     pm_proof_text = models.TextField(blank=True)
     proof_url = models.URLField(blank=True)

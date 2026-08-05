@@ -16,6 +16,7 @@ class CheckInSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "date",
+            "phase",
             "am_declaration",
             "pm_proof_text",
             "proof_url",

@@ -40,7 +40,8 @@ export type PhaseTransition = {
 
 export type CheckIn = {
   id: number;
-  date: string; // YYYY-MM-DD
+  date: string; // YYYY-MM-DD, from the CLIENT's local clock
+  phase: Phase | ""; // stamped server-side; "" only for pre-migration rows
   amDeclaration: string;
   pmProofText: string;
   proofUrl: string;
@@ -85,6 +86,7 @@ type ServerTransition = {
 type ServerCheckIn = {
   id: number;
   date: string;
+  phase: Phase | "";
   am_declaration: string;
   pm_proof_text: string;
   proof_url: string;
@@ -101,6 +103,7 @@ type ServerMessage = {
 const fromServerCheckIn = (c: ServerCheckIn): CheckIn => ({
   id: c.id,
   date: c.date,
+  phase: c.phase ?? "",
   amDeclaration: c.am_declaration,
   pmProofText: c.pm_proof_text,
   proofUrl: c.proof_url,
@@ -132,24 +135,23 @@ const fromServerMessage = (m: ServerMessage): ChatMessage => ({
   createdAt: m.created_at,
 });
 
-/** The date window a phase occupied: from the transition that entered it
- * (or the goal's creation, for the first phase) to the transition that
- * left it (or null, if it's the current phase — still open). Powers the
- * stepper drill-in; phases never regress, so each has at most one of each
- * transition. `enteredByTransition` lets the caller attribute a boundary
- * day correctly — check-ins are daily but transitions happen mid-day. */
+/** When a phase was occupied, for the drill-in's date label: from the
+ * transition that entered it (or the goal's creation, for the first phase)
+ * to the transition that left it (null while it's the current phase).
+ * Both ends are server timestamps, so rendering them through the browser's
+ * locale converts to the reader's own clock correctly.
+ *
+ * This is LABEL ONLY — which check-ins belong to a phase comes from each
+ * check-in's own stamped `phase`, never from comparing these timestamps to
+ * CheckIn.date (which is a client-local date, a different clock). */
 export function phaseWindow(
   phase: Phase,
   goal: Goal,
   transitions: PhaseTransition[]
-): { start: string; end: string | null; enteredByTransition: boolean } {
+): { start: string; end: string | null } {
   const into = transitions.find((t) => t.toPhase === phase);
   const outOf = transitions.find((t) => t.fromPhase === phase);
-  return {
-    start: into?.createdAt ?? goal.createdAt,
-    end: outOf?.createdAt ?? null,
-    enteredByTransition: Boolean(into),
-  };
+  return { start: into?.createdAt ?? goal.createdAt, end: outOf?.createdAt ?? null };
 }
 
 /* --- plumbing ------------------------------------------------------------ */

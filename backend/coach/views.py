@@ -162,7 +162,9 @@ class DeclareView(APIView):
             return Response(
                 {"detail": "Bad date."}, status=status.HTTP_400_BAD_REQUEST
             )
-        checkin, _ = CheckIn.objects.get_or_create(goal=goal, date=day)
+        checkin, _ = CheckIn.objects.get_or_create(
+            goal=goal, date=day, defaults={"phase": goal.phase}
+        )
         checkin.am_declaration = text
         checkin.save(update_fields=["am_declaration", "updated_at"])
         return Response(CheckInSerializer(checkin).data)
@@ -197,6 +199,10 @@ class ProveView(APIView):
             )
         checkin.pm_proof_text = text
         checkin.proof_url = (request.data.get("url") or "").strip()
+        # Rows created before the phase field existed (or by an older client)
+        # get stamped on their first proof rather than staying unattributed.
+        if not checkin.phase:
+            checkin.phase = goal.phase
 
         verdict, reaction = _react_to_proof(goal, checkin, request.user.tone)
         checkin.proof_status = (
