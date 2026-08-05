@@ -51,7 +51,19 @@ def _active_goal(user) -> Goal | None:
 
 
 def _parse_date(value) -> date:
-    return date.fromisoformat(value) if value else timezone.now().date()
+    """The client sends its LOCAL date — the server runs in UTC, so "today"
+    is genuinely the browser's to define. But it is still client input: left
+    unbounded it lets a builder mint a week of backdated check-ins in one
+    sitting and speed-run the phases. Real UTC offsets span UTC-12..UTC+14,
+    so anything more than a day from the server's date isn't a timezone,
+    it's a claim about another day.
+    """
+    if not value:
+        return timezone.now().date()
+    day = date.fromisoformat(value)
+    if abs((day - timezone.now().date()).days) > 1:
+        raise ValueError("date is not within a day of the server's date")
+    return day
 
 
 def _today_state(checkin: CheckIn | None) -> str:

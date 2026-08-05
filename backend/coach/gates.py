@@ -22,10 +22,19 @@ PROOFS_REQUIRED = {
 
 
 def accepted_proofs(goal: Goal) -> int:
+    """Proofs banked toward leaving the CURRENT phase.
+
+    Attribution is the check-in's stamped phase, written once when the row
+    is created and never rewritten. It used to be `updated_at >=
+    phase_entered_at`, which let a spent proof be recycled: re-submitting
+    proof on an already-accepted row bumped auto_now `updated_at` past the
+    new phase's start, so one extra click re-credited it to the phase it
+    had just unlocked. A stamp can't be re-earned by touching the row.
+    """
     return CheckIn.objects.filter(
         goal=goal,
+        phase=goal.phase,
         proof_status=CheckIn.ProofStatus.ACCEPTED,
-        updated_at__gte=goal.phase_entered_at,
     ).count()
 
 

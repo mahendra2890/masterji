@@ -8,7 +8,7 @@ prose. The stock-fallback path (LLM down → proof still accepted) is a
 feature and is tested as such.
 """
 
-from datetime import date
+from datetime import date, timedelta
 from unittest import mock
 
 from django.contrib.auth import get_user_model
@@ -36,10 +36,13 @@ class CoachTestCase(APITestCase):
         return Goal.objects.create(user=user or self.alice, **kwargs)
 
     def accept_proofs(self, goal: Goal, n: int):
+        """Bank n accepted proofs in the goal's CURRENT phase — the gate
+        attributes by the stamped phase, exactly as the views write it."""
         for i in range(n):
             CheckIn.objects.create(
                 goal=goal,
-                date=date(2026, 8, i + 1),
+                date=date.today() - timedelta(days=i),
+                phase=goal.phase,
                 am_declaration="talk to a customer",
                 pm_proof_text="notes from the talk",
                 proof_status=CheckIn.ProofStatus.ACCEPTED,
@@ -230,13 +233,13 @@ class StateTests(CoachTestCase):
 
         self.client.post(f"/api/coach/goals/{goal.pk}/advance/")
         # A later day's check-in belongs to the phase it was declared in.
+        tomorrow = date.today() + timedelta(days=1)
         response = self.client.post(
-            "/api/coach/checkins/declare/", {"text": "talk to cooks", "date": "2026-09-01"}
+            "/api/coach/checkins/declare/",
+            {"text": "talk to cooks", "date": tomorrow.isoformat()},
         )
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(
-            CheckIn.objects.get(goal=goal, date="2026-09-01").phase, "VALIDATION"
-        )
+        self.assertEqual(CheckIn.objects.get(goal=goal, date=tomorrow).phase, "VALIDATION")
 
     def test_boundary_checkin_stays_with_the_phase_it_earned(self):
         """A client-local date on the far side of the UTC date boundary — the
@@ -244,24 +247,74 @@ class StateTests(CoachTestCase):
         goal = self.make_goal()
         # Client says it's already tomorrow (IST after midnight); the server,
         # and therefore the transition it earns, is still on the previous UTC day.
+        tomorrow = (date.today() + timedelta(days=1)).isoformat()
         self.client.post(
-            "/api/coach/checkins/declare/", {"text": "late night push", "date": "2026-08-06"}
+            "/api/coach/checkins/declare/", {"text": "late night push", "date": tomorrow}
         )
         with mock.patch(
             "coach.views.llm.complete",
             return_value='{"verdict": "accept", "reaction": "ok"}',
         ):
-            self.client.post(
-                "/api/coach/checkins/prove/", {"text": "done", "date": "2026-08-06"}
-            )
+            self.client.post("/api/coach/checkins/prove/", {"text": "done", "date": tomorrow})
         self.client.post(f"/api/coach/goals/{goal.pk}/advance/")
 
-        checkin = CheckIn.objects.get(goal=goal, date="2026-08-06")
+        checkin = CheckIn.objects.get(goal=goal, date=tomorrow)
         transition = goal.transitions.get()
         self.assertEqual(checkin.phase, "IDEA")
         # The proof's client date is AHEAD of the transition's UTC date, which
         # is exactly why the display must not compare the two.
         self.assertGreater(str(checkin.date), str(transition.created_at.date()))
+
+
+class LoopholeTests(CoachTestCase):
+    """Two ways the gate could be walked past, both closed. These protect the
+    product's central claim, so they are regression tests, not nice-to-haves."""
+
+    def _prove(self, **extra):
+        with mock.patch(
+            "coach.views.llm.complete",
+            return_value='{"verdict": "accept", "reaction": "ok"}',
+        ):
+            return self.client.post(
+                "/api/coach/checkins/prove/", {"text": "real work", **extra}
+            )
+
+    def test_reproving_cannot_recycle_a_spent_proof(self):
+        """Double-submitting proof used to re-credit it to the phase it had
+        just unlocked — a second advance for one day's work, no API needed."""
+        goal = self.make_goal()
+        self.client.post("/api/coach/checkins/declare/", {"text": "problem statement"})
+        self._prove()
+        self.client.post(f"/api/coach/goals/{goal.pk}/advance/")
+        goal.refresh_from_db()
+        self.assertEqual(goal.phase, "VALIDATION")
+
+        self._prove()  # the extra click
+        response = self.client.get("/api/coach/state/")
+        self.assertEqual(response.data["gate"]["have"], 0)
+        goal.refresh_from_db()
+        self.assertEqual(goal.phase, "VALIDATION")
+
+    def test_backdated_checkins_are_refused(self):
+        """Minting a week of past check-ins in one sitting would let a builder
+        speed-run every phase; a real timezone is never more than a day off."""
+        self.make_goal()
+        for offset in (-3, -30, 5):
+            day = (date.today() + timedelta(days=offset)).isoformat()
+            response = self.client.post(
+                "/api/coach/checkins/declare/", {"text": "backdated", "date": day}
+            )
+            self.assertEqual(response.status_code, 400, day)
+
+    def test_real_timezone_offsets_still_accepted(self):
+        """±1 day must keep working — that's every real UTC offset."""
+        self.make_goal()
+        for offset in (-1, 0, 1):
+            day = (date.today() + timedelta(days=offset)).isoformat()
+            response = self.client.post(
+                "/api/coach/checkins/declare/", {"text": "legit", "date": day}
+            )
+            self.assertEqual(response.status_code, 200, day)
 
     def test_transitions_reflect_phase_advances(self):
         """The stepper drill-in relies on these boundaries — pin the shape."""
