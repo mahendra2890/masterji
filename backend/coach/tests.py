@@ -266,6 +266,69 @@ class StateTests(CoachTestCase):
         self.assertGreater(str(checkin.date), str(transition.created_at.date()))
 
 
+class SameDayCyclesTests(CoachTestCase):
+    """Real work counts when it happens. A builder who genuinely does more in
+    a day may run more declare→prove cycles; the coach argues about pace in
+    conversation rather than silently declining to count it."""
+
+    def _cycle(self, task: str, proof: str):
+        self.client.post("/api/coach/checkins/declare/", {"text": task})
+        with mock.patch(
+            "coach.views.llm.complete",
+            return_value='{"verdict": "accept", "reaction": "ok"}',
+        ):
+            return self.client.post("/api/coach/checkins/prove/", {"text": proof})
+
+    def test_two_phases_in_one_day(self):
+        goal = self.make_goal()
+        self._cycle("problem statement", "statement + 10 names")
+        self.client.post(f"/api/coach/goals/{goal.pk}/advance/")
+        goal.refresh_from_db()
+        self.assertEqual(goal.phase, "VALIDATION")
+
+        # VALIDATION wants 3 conversations — do all three the same afternoon.
+        for i in range(3):
+            response = self._cycle(f"conversation {i}", f"notes from person {i}")
+            self.assertEqual(response.status_code, 200, response.data)
+        response = self.client.post(f"/api/coach/goals/{goal.pk}/advance/")
+        self.assertEqual(response.status_code, 200, response.data)
+        goal.refresh_from_db()
+        self.assertEqual(goal.phase, "BUILD")
+
+        # Four cycles, one date, and the streak still counts it as ONE day.
+        self.assertEqual(CheckIn.objects.filter(goal=goal).count(), 4)
+        self.assertEqual(
+            CheckIn.objects.filter(goal=goal).values("date").distinct().count(), 1
+        )
+        self.assertEqual(self.client.get("/api/coach/state/").data["streak"], 1)
+
+    def test_only_one_cycle_open_at_a_time(self):
+        """Declaring twice without proving edits the task on the hook rather
+        than stacking a second one — and makes a double-tap idempotent."""
+        goal = self.make_goal()
+        self.client.post("/api/coach/checkins/declare/", {"text": "first wording"})
+        self.client.post("/api/coach/checkins/declare/", {"text": "better wording"})
+        self.assertEqual(CheckIn.objects.filter(goal=goal).count(), 1)
+        self.assertEqual(
+            CheckIn.objects.get(goal=goal).am_declaration, "better wording"
+        )
+
+    def test_pushed_back_proof_reopens_the_same_cycle(self):
+        goal = self.make_goal()
+        self.client.post("/api/coach/checkins/declare/", {"text": "make a plan"})
+        with mock.patch(
+            "coach.views.llm.complete",
+            return_value='{"verdict": "push_back", "reaction": "A plan is not proof."}',
+        ):
+            self.client.post("/api/coach/checkins/prove/", {"text": "wrote a plan"})
+        # Answering the pushback must not require starting a new cycle.
+        self._cycle("make a plan", "actually called two cooks")
+        self.assertEqual(CheckIn.objects.filter(goal=goal).count(), 1)
+        self.assertEqual(
+            CheckIn.objects.get(goal=goal).proof_status, CheckIn.ProofStatus.ACCEPTED
+        )
+
+
 class LoopholeTests(CoachTestCase):
     """Two ways the gate could be walked past, both closed. These protect the
     product's central claim, so they are regression tests, not nice-to-haves."""

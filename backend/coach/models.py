@@ -53,7 +53,14 @@ class Goal(SoftDeleteModel):
 
 
 class CheckIn(SoftDeleteModel):
-    """One row per goal per day: the AM declaration and the PM proof."""
+    """One declare→prove cycle: the task claimed, and the proof of it.
+
+    Usually one a day (the habit the coach is building), but a builder who
+    genuinely does more in a day may run more cycles — real work counts
+    when it happens. Only ONE may be open at a time per day, so there is
+    always exactly one task on the hook; Masterji does the pacing in
+    conversation, not by silently declining to count what you did.
+    """
 
     class ProofStatus(models.TextChoices):
         NONE = "NONE", "No proof yet"
@@ -80,10 +87,13 @@ class CheckIn(SoftDeleteModel):
     class Meta(SoftDeleteModel.Meta):
         ordering = ["-date"]
         constraints = [
+            # Many finished cycles a day are fine; two OPEN ones are not —
+            # that would mean two tasks on the hook at once, and it makes a
+            # double-tapped "Declare it" idempotent.
             models.UniqueConstraint(
                 fields=["goal", "date"],
-                condition=models.Q(deleted_at__isnull=True),
-                name="one_checkin_per_goal_per_day",
+                condition=models.Q(deleted_at__isnull=True, pm_proof_text=""),
+                name="one_open_checkin_per_goal_per_day",
             )
         ]
 

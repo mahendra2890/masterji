@@ -65,6 +65,8 @@ export default function Masterji({ user }: { user: SessionUser }) {
 
   // The stepper drill-in: which completed phase is being reviewed, if any.
   const [viewPhase, setViewPhase] = useState<Phase | null>(null);
+  // Opening a second cycle after today's proof already landed.
+  const [declaringAgain, setDeclaringAgain] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -107,6 +109,7 @@ export default function Masterji({ user }: { user: SessionUser }) {
       if (!amText.trim()) return;
       await declare(amText.trim());
       setAmText("");
+      setDeclaringAgain(false);
       await refresh();
     });
 
@@ -356,6 +359,32 @@ export default function Masterji({ user }: { user: SessionUser }) {
                   {" — "}
                   {today.coachReaction}
                 </p>
+                {/* Done for today doesn't have to mean done for the day. */}
+                {!declaringAgain ? (
+                  <button
+                    className={styles.secondaryBtn}
+                    onClick={() => setDeclaringAgain(true)}
+                  >
+                    Declare another task
+                  </button>
+                ) : (
+                  <>
+                    <textarea
+                      className={styles.textarea}
+                      rows={2}
+                      placeholder="Next up, I will…"
+                      value={amText}
+                      onChange={(e) => setAmText(e.target.value)}
+                    />
+                    <button
+                      className={styles.primaryBtn}
+                      disabled={busy}
+                      onClick={onDeclare}
+                    >
+                      Declare it
+                    </button>
+                  </>
+                )}
               </>
             )}
           </section>

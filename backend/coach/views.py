@@ -12,6 +12,7 @@ import json
 from datetime import date
 
 from django.conf import settings
+from django.db.models import Q
 from django.http import StreamingHttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -48,6 +49,25 @@ WELCOME = (
 
 def _active_goal(user) -> Goal | None:
     return Goal.objects.filter(user=user, status=Goal.Status.ACTIVE).first()
+
+
+def _open_checkin(goal: Goal, day: date) -> CheckIn | None:
+    """The cycle still awaiting proof on `day`, if any. A pushed-back proof
+    reopens the cycle — the builder gets to answer it, not start over."""
+    return (
+        CheckIn.objects.filter(goal=goal, date=day)
+        .filter(Q(pm_proof_text="") | Q(proof_status=CheckIn.ProofStatus.PUSHED_BACK))
+        .order_by("-created_at")
+        .first()
+    )
+
+
+def _latest_checkin(goal: Goal, day: date) -> CheckIn | None:
+    """What the dashboard shows for `day`: the open cycle if there is one,
+    else the most recently completed one."""
+    return _open_checkin(goal, day) or (
+        CheckIn.objects.filter(goal=goal, date=day).order_by("-created_at").first()
+    )
 
 
 def _parse_date(value) -> date:
@@ -92,7 +112,7 @@ class StateView(APIView):
         if goal is None:
             return Response({"goal": None, "tone": request.user.tone})
         today = timezone.now().date()
-        checkin = CheckIn.objects.filter(goal=goal, date=today).first()
+        checkin = _latest_checkin(goal, today)
         messages = list(goal.messages.order_by("-created_at")[:HISTORY_LIMIT])[::-1]
         return Response(
             {
@@ -174,9 +194,12 @@ class DeclareView(APIView):
             return Response(
                 {"detail": "Bad date."}, status=status.HTTP_400_BAD_REQUEST
             )
-        checkin, _ = CheckIn.objects.get_or_create(
-            goal=goal, date=day, defaults={"phase": goal.phase}
-        )
+        # Editing the task still on the hook updates it; declaring once the
+        # day's last cycle is proved opens a new one (see CheckIn's docstring
+        # — real work counts when it happens, not once per calendar day).
+        checkin = _open_checkin(goal, day)
+        if checkin is None:
+            checkin = CheckIn.objects.create(goal=goal, date=day, phase=goal.phase)
         checkin.am_declaration = text
         checkin.save(update_fields=["am_declaration", "updated_at"])
         return Response(CheckInSerializer(checkin).data)
@@ -203,7 +226,7 @@ class ProveView(APIView):
             return Response(
                 {"detail": "Bad date."}, status=status.HTTP_400_BAD_REQUEST
             )
-        checkin = CheckIn.objects.filter(goal=goal, date=day).first()
+        checkin = _open_checkin(goal, day)
         if checkin is None or not checkin.am_declaration:
             return Response(
                 {"detail": "No declaration this morning — proof of what, exactly?"},
@@ -275,7 +298,7 @@ class ChatView(APIView):
         Message.objects.create(goal=goal, role=Message.Role.USER, content=content)
 
         today = timezone.now().date()
-        checkin = CheckIn.objects.filter(goal=goal, date=today).first()
+        checkin = _latest_checkin(goal, today)
         system = prompts.build_system_prompt(
             goal,
             gates.gate_status(goal),
