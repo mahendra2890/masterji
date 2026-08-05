@@ -305,6 +305,15 @@
   flex-shrink: 0;
 }
 
+.historyPhase {
+  font-family: var(--font-mono), monospace;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  flex-shrink: 0;
+  width: 74px;
+}
+
 .historyText {
   flex: 1;
   min-width: 0;

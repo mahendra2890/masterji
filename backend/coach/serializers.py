@@ -44,6 +44,7 @@ class RetirementSerializer(serializers.ModelSerializer):
         model = GoalRetirement
         fields = [
             "id",
+            "goal",  # the closed goal's id, for fetching its day-by-day record
             "title",
             "outcome",
             "reads_as",

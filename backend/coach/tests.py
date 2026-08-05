@@ -555,6 +555,57 @@ class RetireTests(CoachTestCase):
         self.assertEqual(response.status_code, 400)
 
 
+class GoalHistoryTests(CoachTestCase):
+    """Reading back a closed idea's full record. Read-only by construction —
+    a pk-addressable endpoint is exactly where write access would leak."""
+
+    def test_closed_goal_history_is_readable(self):
+        goal = self.make_goal(phase="VALIDATION")
+        self.accept_proofs(goal, 2)
+        with mock.patch("coach.views.llm.complete", return_value="Noted."):
+            self.client.post(f"/api/coach/goals/{goal.pk}/retire/", {"reason": "Dead."})
+        response = self.client.get(f"/api/coach/goals/{goal.pk}/history/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data["checkins"]), 2)
+        self.assertEqual(response.data["retirement"]["reads_as"], "INVALIDATED")
+        self.assertEqual(response.data["goal"]["title"], "Tiffin app")
+
+    def test_active_goal_history_also_works(self):
+        goal = self.make_goal()
+        self.accept_proofs(goal, 1)
+        response = self.client.get(f"/api/coach/goals/{goal.pk}/history/")
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.data["retirement"])
+
+    def test_foreign_goal_history_404s(self):
+        bobs = self.make_goal(user=self.bob)
+        self.assertEqual(
+            self.client.get(f"/api/coach/goals/{bobs.pk}/history/").status_code, 404
+        )
+
+    def test_history_endpoint_is_read_only(self):
+        goal = self.make_goal()
+        for method in ("post", "patch", "delete"):
+            response = getattr(self.client, method)(
+                f"/api/coach/goals/{goal.pk}/history/"
+            )
+            self.assertEqual(response.status_code, 405, method)
+
+    def test_history_requires_auth(self):
+        goal = self.make_goal()
+        self.client.force_authenticate(None)
+        self.assertEqual(
+            self.client.get(f"/api/coach/goals/{goal.pk}/history/").status_code, 401
+        )
+
+    def test_archive_carries_the_goal_id_for_drilling_in(self):
+        goal = self.make_goal()
+        with mock.patch("coach.views.llm.complete", return_value="Noted."):
+            self.client.post(f"/api/coach/goals/{goal.pk}/retire/", {"reason": "Done."})
+        archive = self.client.get("/api/coach/state/").data["archive"]
+        self.assertEqual(archive[0]["goal"], goal.pk)
+
+
 class LoopholeTests(CoachTestCase):
     """Two ways the gate could be walked past, both closed. These protect the
     product's central claim, so they are regression tests, not nice-to-haves."""

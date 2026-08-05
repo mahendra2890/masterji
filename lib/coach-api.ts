@@ -58,6 +58,8 @@ export type ChatMessage = {
 
 export type Retirement = {
   id: number;
+  /** The closed goal's id — used to fetch its day-by-day record. */
+  goalId: number;
   title: string;
   outcome: "ABANDONED" | "COMPLETED";
   /** Derived server-side from earned proofs — never self-reported. Closing is
@@ -112,6 +114,7 @@ type ServerTransition = {
 };
 type ServerRetirement = {
   id: number;
+  goal: number;
   title: string;
   outcome: Retirement["outcome"];
   reads_as: Retirement["readsAs"];
@@ -165,6 +168,7 @@ const fromServerGoal = (g: ServerGoal): Goal => ({
 
 const fromServerRetirement = (r: ServerRetirement): Retirement => ({
   id: r.id,
+  goalId: r.goal,
   title: r.title,
   outcome: r.outcome,
   readsAs: r.reads_as,
@@ -293,6 +297,33 @@ export async function getState(): Promise<CoachState> {
     archive: (data.archive ?? []).map(fromServerRetirement),
     lifetimeDays: data.lifetime_days ?? 0,
     tone: data.tone,
+  };
+}
+
+export type GoalHistory = {
+  goal: Goal;
+  retirement: Retirement | null;
+  checkins: CheckIn[];
+  transitions: PhaseTransition[];
+  bestStreak: number;
+};
+
+/** The full day-by-day record of one goal, closed or current. Fetched lazily —
+ * it's a lot of rows for a panel that's usually shut. */
+export async function getGoalHistory(id: number): Promise<GoalHistory> {
+  const data = await request<{
+    goal: ServerGoal;
+    retirement: ServerRetirement | null;
+    checkins: ServerCheckIn[];
+    transitions: ServerTransition[];
+    streak: number;
+  }>(`goals/${id}/history/`);
+  return {
+    goal: fromServerGoal(data.goal),
+    retirement: data.retirement ? fromServerRetirement(data.retirement) : null,
+    checkins: data.checkins.map(fromServerCheckIn),
+    transitions: data.transitions.map(fromServerTransition),
+    bestStreak: data.streak,
   };
 }
 

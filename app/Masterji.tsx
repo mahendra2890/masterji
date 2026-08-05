@@ -7,6 +7,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { signOutAndLeave } from "@/components/AuthGate";
+import ClosedIdea from "./ClosedIdea";
 import { updateTone, type SessionUser } from "@/lib/auth-client";
 import {
   advanceGoal,
@@ -279,11 +280,17 @@ export default function Masterji({ user }: { user: SessionUser }) {
             <p className={styles.cardLabel}>Behind you</p>
             <ul className={styles.archiveList}>
               {state.archive.map((r) => (
-                <li key={r.id} className={styles.archiveRow}>
-                  <span className={styles.archiveTitle}>{r.title}</span>
-                  <span className={CLOSED_CHIP[r.readsAs].className(styles)}>
-                    {CLOSED_CHIP[r.readsAs].label}
-                  </span>
+                <li key={r.id}>
+                  <button
+                    className={styles.archiveButton}
+                    onClick={() => setViewClosed(r)}
+                    title="See how this one went"
+                  >
+                    <span className={styles.archiveTitle}>{r.title}</span>
+                    <span className={CLOSED_CHIP[r.readsAs].className(styles)}>
+                      {CLOSED_CHIP[r.readsAs].label}
+                    </span>
+                  </button>
                 </li>
               ))}
             </ul>
@@ -293,6 +300,10 @@ export default function Masterji({ user }: { user: SessionUser }) {
         <button className={styles.linkBtn} onClick={signOutAndLeave}>
           sign out
         </button>
+
+        {viewClosed && (
+          <ClosedIdea closed={viewClosed} onClose={() => setViewClosed(null)} />
+        )}
       </main>
     );
   }
@@ -658,45 +669,7 @@ export default function Masterji({ user }: { user: SessionUser }) {
       </div>
 
       {viewClosed && (
-        <div className={styles.modalOverlay} onClick={() => setViewClosed(null)}>
-          <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
-            <div className={styles.modalHeader}>
-              <h3>{viewClosed.title}</h3>
-              <button
-                className={styles.modalClose}
-                onClick={() => setViewClosed(null)}
-                aria-label="Close"
-              >
-                ×
-              </button>
-            </div>
-            <p className={styles.modalMeta}>
-              {viewClosed.outcome === "COMPLETED" ? "Achieved" : "Dropped"} on{" "}
-              {formatDate(viewClosed.createdAt)} · reached {viewClosed.phaseReached} ·{" "}
-              {viewClosed.acceptedProofs} proof
-              {viewClosed.acceptedProofs === 1 ? "" : "s"} banked
-              {/* The narrower count only earns a mention when it changes the
-                  reading — otherwise it reads as a scolding footnote. */}
-              {viewClosed.contactProofs > 0 &&
-                viewClosed.contactProofs !== viewClosed.acceptedProofs && (
-                  <> ({viewClosed.contactProofs} from real-world contact)</>
-                )}{" "}
-              · {viewClosed.daysActive} day{viewClosed.daysActive === 1 ? "" : "s"} ·
-              best streak {viewClosed.bestStreak}
-            </p>
-            <p className={styles.closedLabel}>What you said</p>
-            <p className={styles.closedReason}>{viewClosed.reason}</p>
-            {viewClosed.coachReaction && (
-              <>
-                <p className={styles.closedLabel}>What Masterji said</p>
-                <div className={styles.coachMsg}>
-                  <span className={styles.avatar}>म</span>
-                  <p className={styles.msgBody}>{viewClosed.coachReaction}</p>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
+        <ClosedIdea closed={viewClosed} onClose={() => setViewClosed(null)} />
       )}
 
       {viewPhase &&

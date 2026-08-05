@@ -158,6 +158,40 @@ class StateView(APIView):
         )
 
 
+class GoalHistoryView(APIView):
+    """The full record of one of the builder's goals — including closed ones.
+
+    Read-only and deliberately so: retired goals are write-immutable through
+    every other endpoint, and a pk-addressable endpoint is exactly where that
+    would leak. Scoped to request.user, so a foreign id 404s rather than 403s.
+
+    Kept out of StateView because every retired goal's day-by-day record in
+    every dashboard payload is a lot of rows to send for a panel that is
+    usually closed.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk: int):
+        goal = get_object_or_404(Goal.objects.filter(user=request.user), pk=pk)
+        retirement = GoalRetirement.objects.filter(goal=goal).first()
+        return Response(
+            {
+                "goal": GoalSerializer(goal).data,
+                "retirement": RetirementSerializer(retirement).data
+                if retirement
+                else None,
+                "checkins": CheckInSerializer(
+                    goal.checkins.all()[:CHECKIN_HISTORY], many=True
+                ).data,
+                "transitions": PhaseTransitionSerializer(
+                    goal.transitions.all(), many=True
+                ).data,
+                "streak": streaks.best_streak(goal),
+            }
+        )
+
+
 class GoalsView(APIView):
     permission_classes = [IsAuthenticated]
 
