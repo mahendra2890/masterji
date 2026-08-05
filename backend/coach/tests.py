@@ -203,10 +203,32 @@ class StateTests(CoachTestCase):
         self.accept_proofs(goal, 1)
         response = self.client.get("/api/coach/state/")
         self.assertEqual(response.status_code, 200)
-        for key in ["goal", "gate", "streak", "today", "checkins", "messages", "phases"]:
+        for key in [
+            "goal",
+            "gate",
+            "streak",
+            "today",
+            "checkins",
+            "transitions",
+            "messages",
+            "phases",
+        ]:
             self.assertIn(key, response.data)
         self.assertEqual(response.data["gate"], {"have": 1, "need": 1, "next_phase": "VALIDATION"})
         self.assertEqual(response.data["phases"], ["IDEA", "VALIDATION", "BUILD", "LAUNCH"])
+
+    def test_transitions_reflect_phase_advances(self):
+        """The stepper drill-in relies on these boundaries — pin the shape."""
+        goal = self.make_goal()
+        self.assertEqual(self.client.get("/api/coach/state/").data["transitions"], [])
+        self.accept_proofs(goal, 1)
+        self.client.post(f"/api/coach/goals/{goal.pk}/advance/")
+        response = self.client.get("/api/coach/state/")
+        self.assertEqual(len(response.data["transitions"]), 1)
+        transition = response.data["transitions"][0]
+        self.assertEqual(transition["from_phase"], "IDEA")
+        self.assertEqual(transition["to_phase"], "VALIDATION")
+        self.assertTrue(transition["created_at"])
 
 
 # --- chat ------------------------------------------------------------------------

@@ -27,9 +27,16 @@ export type Goal = {
   title: string;
   phase: Phase;
   status: string;
+  createdAt: string;
 };
 
 export type Gate = { have: number; need: number; nextPhase: Phase | null };
+
+export type PhaseTransition = {
+  fromPhase: Phase;
+  toPhase: Phase;
+  createdAt: string;
+};
 
 export type CheckIn = {
   id: number;
@@ -54,6 +61,7 @@ export type CoachState = {
   streak: number;
   today: CheckIn | null;
   checkins: CheckIn[];
+  transitions: PhaseTransition[];
   messages: ChatMessage[];
   phases: Phase[];
   tone: "ENGLISH" | "HINGLISH";
@@ -61,8 +69,19 @@ export type CoachState = {
 
 /* --- server shapes ------------------------------------------------------ */
 
-type ServerGoal = { id: number; title: string; phase: Phase; status: string };
+type ServerGoal = {
+  id: number;
+  title: string;
+  phase: Phase;
+  status: string;
+  created_at: string;
+};
 type ServerGate = { have: number; need: number; next_phase: Phase | null };
+type ServerTransition = {
+  from_phase: Phase;
+  to_phase: Phase;
+  created_at: string;
+};
 type ServerCheckIn = {
   id: number;
   date: string;
@@ -92,12 +111,46 @@ const fromServerCheckIn = (c: ServerCheckIn): CheckIn => ({
 const fromServerGate = (g: ServerGate | null): Gate | null =>
   g && { have: g.have, need: g.need, nextPhase: g.next_phase };
 
+const fromServerGoal = (g: ServerGoal): Goal => ({
+  id: g.id,
+  title: g.title,
+  phase: g.phase,
+  status: g.status,
+  createdAt: g.created_at,
+});
+
+const fromServerTransition = (t: ServerTransition): PhaseTransition => ({
+  fromPhase: t.from_phase,
+  toPhase: t.to_phase,
+  createdAt: t.created_at,
+});
+
 const fromServerMessage = (m: ServerMessage): ChatMessage => ({
   id: m.id,
   role: m.role,
   content: m.content,
   createdAt: m.created_at,
 });
+
+/** The date window a phase occupied: from the transition that entered it
+ * (or the goal's creation, for the first phase) to the transition that
+ * left it (or null, if it's the current phase — still open). Powers the
+ * stepper drill-in; phases never regress, so each has at most one of each
+ * transition. `enteredByTransition` lets the caller attribute a boundary
+ * day correctly — check-ins are daily but transitions happen mid-day. */
+export function phaseWindow(
+  phase: Phase,
+  goal: Goal,
+  transitions: PhaseTransition[]
+): { start: string; end: string | null; enteredByTransition: boolean } {
+  const into = transitions.find((t) => t.toPhase === phase);
+  const outOf = transitions.find((t) => t.fromPhase === phase);
+  return {
+    start: into?.createdAt ?? goal.createdAt,
+    end: outOf?.createdAt ?? null,
+    enteredByTransition: Boolean(into),
+  };
+}
 
 /* --- plumbing ------------------------------------------------------------ */
 
@@ -161,16 +214,18 @@ export async function getState(): Promise<CoachState> {
     streak?: number;
     today?: ServerCheckIn | null;
     checkins?: ServerCheckIn[];
+    transitions?: ServerTransition[];
     messages?: ServerMessage[];
     phases?: Phase[];
     tone: CoachState["tone"];
   }>("state/");
   return {
-    goal: data.goal,
+    goal: data.goal ? fromServerGoal(data.goal) : null,
     gate: fromServerGate(data.gate ?? null),
     streak: data.streak ?? 0,
     today: data.today ? fromServerCheckIn(data.today) : null,
     checkins: (data.checkins ?? []).map(fromServerCheckIn),
+    transitions: (data.transitions ?? []).map(fromServerTransition),
     messages: (data.messages ?? []).map(fromServerMessage),
     phases: data.phases ?? ["IDEA", "VALIDATION", "BUILD", "LAUNCH"],
     tone: data.tone,
@@ -178,10 +233,11 @@ export async function getState(): Promise<CoachState> {
 }
 
 export async function createGoal(title: string): Promise<Goal> {
-  return request<ServerGoal>("goals/", {
+  const data = await request<ServerGoal>("goals/", {
     method: "POST",
     body: JSON.stringify({ title }),
   });
+  return fromServerGoal(data);
 }
 
 /** The deterministic gate. 409 = refused (comes back as ApiError). */

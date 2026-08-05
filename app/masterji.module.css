@@ -193,6 +193,11 @@
   background: var(--surface-2);
   color: var(--good);
   text-decoration: line-through;
+  cursor: pointer;
+}
+
+.stepDone:hover {
+  background: var(--border);
 }
 
 .stepNow {
@@ -463,6 +468,62 @@
 
 .secondaryBtn:disabled {
   opacity: 0.5;
+}
+
+/* --- phase drill-in modal --------------------------------------------------------------------- */
+
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 50;
+}
+
+.modal {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px 20px;
+  width: min(480px, 100%);
+  max-height: min(70dvh, 560px);
+  overflow-y: auto;
+}
+
+.modalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.modalHeader h3 {
+  font-size: 18px;
+  letter-spacing: 0.04em;
+}
+
+.modalClose {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.modalMeta {
+  color: var(--muted);
+  font-size: 13px;
+  margin: 0 0 14px;
+}
+
+.modalEmpty {
+  color: var(--muted);
+  font-size: 14px;
 }
 
 /* --- responsive -------------------------------------------------------------------------------- */

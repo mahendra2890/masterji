@@ -14,11 +14,16 @@ import {
   createGoal,
   declare,
   getState,
+  phaseWindow,
   prove,
   streamChat,
   type CoachState,
+  type Phase,
 } from "@/lib/coach-api";
 import styles from "./masterji.module.css";
+
+const formatDate = (iso: string) =>
+  new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short" });
 
 const PHASE_HINTS: Record<string, string> = {
   IDEA: "Write the problem statement. Name 10 people who have it.",
@@ -57,6 +62,9 @@ export default function Masterji({ user }: { user: SessionUser }) {
   const [pmText, setPmText] = useState("");
   const [pmUrl, setPmUrl] = useState("");
   const [gateNote, setGateNote] = useState("");
+
+  // The stepper drill-in: which completed phase is being reviewed, if any.
+  const [viewPhase, setViewPhase] = useState<Phase | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -194,7 +202,7 @@ export default function Masterji({ user }: { user: SessionUser }) {
     );
   }
 
-  const { goal, gate, streak, today, checkins, messages, phases } = state;
+  const { goal, gate, streak, today, checkins, transitions, messages, phases } = state;
   const doneIdx = phases.indexOf(goal.phase);
 
   return (
@@ -241,6 +249,10 @@ export default function Masterji({ user }: { user: SessionUser }) {
                         ? styles.stepNow
                         : styles.stepTodo
                   }
+                  onClick={i < doneIdx ? () => setViewPhase(p) : undefined}
+                  role={i < doneIdx ? "button" : undefined}
+                  tabIndex={i < doneIdx ? 0 : undefined}
+                  title={i < doneIdx ? `See what happened in ${p}` : undefined}
                 >
                   {p}
                 </li>
@@ -429,6 +441,73 @@ export default function Masterji({ user }: { user: SessionUser }) {
           </div>
         </section>
       </div>
+
+      {viewPhase &&
+        (() => {
+          const win = phaseWindow(viewPhase, goal, transitions);
+          const startDate = win.start.slice(0, 10);
+          const endDate = win.end?.slice(0, 10) ?? null;
+          // Boundary days belong to the phase that ENDED that day — the
+          // day's check-in is the proof that earned the advance. So the
+          // end is inclusive, and a transition-entered start is exclusive
+          // (goal creation isn't a transition, so day one stays included).
+          const windowCheckins = checkins.filter((c) => {
+            const afterStart = win.enteredByTransition
+              ? c.date > startDate
+              : c.date >= startDate;
+            return afterStart && (!endDate || c.date <= endDate);
+          });
+          return (
+            <div className={styles.modalOverlay} onClick={() => setViewPhase(null)}>
+              <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
+                <div className={styles.modalHeader}>
+                  <h3>{viewPhase}</h3>
+                  <button
+                    className={styles.modalClose}
+                    onClick={() => setViewPhase(null)}
+                    aria-label="Close"
+                  >
+                    ×
+                  </button>
+                </div>
+                <p className={styles.modalMeta}>
+                  {formatDate(win.start)} — {win.end ? formatDate(win.end) : "now"}
+                </p>
+                {windowCheckins.length === 0 ? (
+                  <p className={styles.modalEmpty}>
+                    No check-ins recorded in this phase.
+                  </p>
+                ) : (
+                  <ul className={styles.history}>
+                    {windowCheckins.map((c) => (
+                      <li key={c.id} className={styles.historyRow}>
+                        <span className={styles.historyDate}>{c.date.slice(5)}</span>
+                        <span className={styles.historyText}>
+                          {c.amDeclaration || "—"}
+                        </span>
+                        <span
+                          className={
+                            c.proofStatus === "ACCEPTED"
+                              ? styles.chipGood
+                              : c.proofStatus === "PUSHED_BACK"
+                                ? styles.chipBad
+                                : styles.chipNone
+                          }
+                        >
+                          {c.proofStatus === "ACCEPTED"
+                            ? "✓"
+                            : c.proofStatus === "PUSHED_BACK"
+                              ? "✗"
+                              : "…"}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+          );
+        })()}
     </main>
   );
 }

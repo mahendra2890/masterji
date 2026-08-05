@@ -24,12 +24,19 @@ from rest_framework.views import APIView
 
 from . import gates, llm, prompts, streaks
 from .models import CheckIn, Goal, Message
-from .serializers import CheckInSerializer, GoalSerializer, MessageSerializer
+from .serializers import (
+    CheckInSerializer,
+    GoalSerializer,
+    MessageSerializer,
+    PhaseTransitionSerializer,
+)
 
 tracer = trace.get_tracer(__name__)
 
 HISTORY_LIMIT = 30
-CHECKIN_HISTORY = 14
+# Generous enough that a phase completed weeks ago still has its proofs
+# available for the stepper drill-in, not just the current phase's recent few.
+CHECKIN_HISTORY = 90
 
 WELCOME = (
     'Goal locked: "{title}". Rule one: one goal at a time, and this is yours '
@@ -83,6 +90,9 @@ class StateView(APIView):
                 "today": CheckInSerializer(checkin).data if checkin else None,
                 "checkins": CheckInSerializer(
                     goal.checkins.all()[:CHECKIN_HISTORY], many=True
+                ).data,
+                "transitions": PhaseTransitionSerializer(
+                    goal.transitions.all(), many=True
                 ).data,
                 "messages": MessageSerializer(messages, many=True).data,
                 "phases": [str(p) for p in gates.PHASE_ORDER],
