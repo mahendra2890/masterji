@@ -626,6 +626,77 @@
   white-space: pre-wrap;
 }
 
+/* --- a closed idea, day by day ------------------------------------------------------------------ */
+
+.dayList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.day {
+  border-left: 2px solid var(--border);
+  padding-left: 12px;
+}
+
+.dayHead {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0 0 5px;
+  flex-wrap: wrap;
+}
+
+.dayDate {
+  font-family: var(--font-mono), monospace;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.dayPhase {
+  font-family: var(--font-mono), monospace;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+/* Two columns, so a multi-line proof stays in its own column instead of
+   wrapping back under the label. */
+.dayLine {
+  display: flex;
+  gap: 10px;
+  margin: 0 0 5px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.dayWho {
+  flex: 0 0 62px;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding-top: 3px;
+}
+
+.dayBody {
+  flex: 1;
+  min-width: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.dayCoach {
+  color: var(--muted);
+  font-style: italic;
+}
+
 /* --- phase drill-in modal --------------------------------------------------------------------- */
 
 .modalOverlay {
@@ -644,9 +715,12 @@
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 18px 20px;
-  width: min(480px, 100%);
-  max-height: min(70dvh, 560px);
+  width: min(560px, 100%);
+  max-height: min(80dvh, 680px);
   overflow-y: auto;
+  /* The between-goals screen centres its text; a record has to read as a
+     document, so don't inherit that. */
+  text-align: left;
 }
 
 .modalHeader {
@@ -675,6 +749,15 @@
   color: var(--muted);
   font-size: 13px;
   margin: 0 0 14px;
+}
+
+.metaBit {
+  white-space: nowrap;
+}
+
+.metaBit:not(:last-child)::after {
+  content: " · ";
+  white-space: normal;
 }
 
 .modalEmpty {
