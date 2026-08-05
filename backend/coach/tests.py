@@ -329,6 +329,35 @@ class SameDayCyclesTests(CoachTestCase):
         )
 
 
+class HistoryDoesNotDriftTests(CoachTestCase):
+    """Rows record the phase they happened in. Reading it off the goal instead
+    made every past row appear to belong to whatever phase the goal reached —
+    history rewriting itself in the admin every time you advanced."""
+
+    def test_message_phase_is_frozen_at_write_time(self):
+        # Through the API, so the welcome message is written the real way.
+        self.client.post("/api/coach/goals/", {"title": "Tiffin app"})
+        goal = Goal.objects.get(user=self.alice)
+        welcome = goal.messages.get()
+        self.assertEqual(welcome.phase, "IDEA")
+
+        self.accept_proofs(goal, 1)
+        self.client.post(f"/api/coach/goals/{goal.pk}/advance/")
+
+        welcome.refresh_from_db()
+        self.assertEqual(welcome.phase, "IDEA")  # not VALIDATION
+        # The unlock announcement belongs to the phase it opened.
+        self.assertEqual(goal.messages.order_by("-created_at").first().phase, "VALIDATION")
+
+    def test_goal_label_carries_no_mutable_state(self):
+        """Goal.__str__ renders next to rows written phases ago, so it must not
+        embed the current phase."""
+        goal = self.make_goal()
+        self.assertEqual(str(goal), "Tiffin app")
+        goal.phase = "BUILD"
+        self.assertEqual(str(goal), "Tiffin app")
+
+
 class LoopholeTests(CoachTestCase):
     """Two ways the gate could be walked past, both closed. These protect the
     product's central claim, so they are regression tests, not nice-to-haves."""

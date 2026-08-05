@@ -148,6 +148,7 @@ class GoalsView(APIView):
         Message.objects.create(
             goal=goal,
             role=Message.Role.COACH,
+            phase=goal.phase,
             content=WELCOME.format(title=goal.title),
         )
         logger.info(f"Goal {goal.id} created for user {request.user.id}")
@@ -164,7 +165,11 @@ class AdvanceView(APIView):
             Goal.objects.filter(user=request.user, status=Goal.Status.ACTIVE), pk=pk
         )
         advanced, detail = gates.try_advance(goal)
-        Message.objects.create(goal=goal, role=Message.Role.COACH, content=detail)
+        # try_advance may have moved the goal on; the announcement of an
+        # unlock belongs to the phase it unlocked INTO, which goal.phase now is.
+        Message.objects.create(
+            goal=goal, role=Message.Role.COACH, phase=goal.phase, content=detail
+        )
         if not advanced:
             logger.info(f"Gate refused advance for goal {goal.id}: {detail}")
         return Response(
@@ -295,7 +300,9 @@ class ChatView(APIView):
             return Response(
                 {"detail": "Say something."}, status=status.HTTP_400_BAD_REQUEST
             )
-        Message.objects.create(goal=goal, role=Message.Role.USER, content=content)
+        Message.objects.create(
+            goal=goal, role=Message.Role.USER, phase=goal.phase, content=content
+        )
 
         today = timezone.now().date()
         checkin = _latest_checkin(goal, today)
@@ -360,6 +367,9 @@ class ChatView(APIView):
                 content = f"{content}\n\n{detail}".strip()
             if content:
                 Message.objects.create(
-                    goal=goal, role=Message.Role.COACH, content=content
+                    goal=goal,
+                    role=Message.Role.COACH,
+                    phase=goal.phase,
+                    content=content,
                 )
             yield line({"t": "done"})

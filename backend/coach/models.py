@@ -49,7 +49,12 @@ class Goal(SoftDeleteModel):
         ]
 
     def __str__(self):
-        return f"{self.title} [{self.phase}]"
+        # Title only — deliberately no phase. This label renders wherever a
+        # goal is referenced, including rows written phases ago, and mutable
+        # state in it reads as history being rewritten: a message sent during
+        # IDEA would show "[VALIDATION]" once the goal moved on. Per-row phase
+        # lives on the rows themselves (CheckIn.phase, Message.phase).
+        return self.title
 
 
 class CheckIn(SoftDeleteModel):
@@ -109,6 +114,9 @@ class Message(SoftDeleteModel):
     goal = models.ForeignKey(Goal, on_delete=models.CASCADE, related_name="messages")
     role = models.CharField(max_length=8, choices=Role.choices)
     content = models.TextField()
+    # The phase the conversation was in, stamped once. Reading it off the goal
+    # instead would report today's phase for a message sent weeks ago.
+    phase = models.CharField(max_length=12, choices=Phase.choices, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta(SoftDeleteModel.Meta):
