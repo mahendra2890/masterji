@@ -58,7 +58,7 @@ class RetirementSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_reads_as(self, obj) -> str:
-        return gates.reads_as(obj.goal)
+        return gates.reads_as(obj.goal, obj.outcome)
 
 
 class PhaseTransitionSerializer(serializers.ModelSerializer):

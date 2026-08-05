@@ -150,7 +150,7 @@ class StateView(APIView):
                 ).data,
                 "messages": MessageSerializer(messages, many=True).data,
                 "phases": [str(p) for p in gates.PHASE_ORDER],
-                "can_complete": gates.can_complete(goal)[0],
+                "at_finish_line": gates.at_finish_line(goal),
                 "archive": archive,
                 "lifetime_days": lifetime,
                 "tone": request.user.tone,
@@ -249,7 +249,7 @@ class RetireView(APIView):
         return self._retire(request, goal, reason)
 
     def _retire(self, request, goal: Goal, reason: str):
-        verdict = gates.reads_as(goal)
+        verdict = gates.reads_as(goal, self.outcome)
         retirement = GoalRetirement.objects.create(
             goal=goal,
             outcome=self.outcome,
@@ -283,9 +283,17 @@ class RetireView(APIView):
 
 
 class CompleteView(RetireView):
-    """Shipping is earned. Everything else in Masterji is the server's verdict;
-    if "done" were a label the builder assigns themselves, this would be a
-    to-do list with opinions."""
+    """Closing a goal you achieved, from whatever phase you were in.
+
+    Not gated on reaching LAUNCH: goals are the builder's own words, so whether
+    "10 paying customers" or "the school website is live" is done is not the
+    server's call — and refusing it would just move the dead end that gating
+    completion at LAUNCH was meant to remove.
+
+    What the server keeps is the reading: gates.reads_as returns ACHIEVED only
+    when there is real-world contact on the record, UNVERIFIED otherwise. So a
+    completion is never blocked and never silently flattering.
+    """
 
     outcome = GoalRetirement.Outcome.COMPLETED
 
@@ -296,17 +304,10 @@ class CompleteView(RetireView):
                 {"detail": f"That one's already closed ({goal.status.lower()})."},
                 status=status.HTTP_409_CONFLICT,
             )
-        allowed, detail = gates.can_complete(goal)
-        if not allowed:
-            Message.objects.create(
-                goal=goal, role=Message.Role.COACH, phase=goal.phase, content=detail
-            )
-            logger.info(f"Completion refused for goal {goal.id}: {detail}")
-            return Response({"detail": detail}, status=status.HTTP_409_CONFLICT)
         reason = (request.data.get("reason") or "").strip()
         if not reason:
             return Response(
-                {"detail": "What shipped, and who used it?"},
+                {"detail": "What did you finish, and who saw it?"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         return self._retire(request, goal, reason)
@@ -328,11 +329,12 @@ def _react_to_retirement(retirement, verdict: str, tone: str) -> str:
         return llm.complete(system, retirement.reason)
     except Exception as e:
         logger.error(f"Retirement reaction failed: {e}")
-        return (
+        stock = (
             prompts.STOCK_SHIPPED
             if retirement.outcome == GoalRetirement.Outcome.COMPLETED
-            else prompts.STOCK_RETIRED[verdict]
+            else prompts.STOCK_RETIRED
         )
+        return stock[verdict]
 
 
 class DeclareView(APIView):

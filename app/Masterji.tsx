@@ -24,6 +24,18 @@ import {
 } from "@/lib/coach-api";
 import styles from "./masterji.module.css";
 
+/** How each closed idea reads, in one chip. The wording states what the record
+ * shows, never a judgement of the person. */
+const CLOSED_CHIP: Record<
+  Retirement["readsAs"],
+  { label: string; className: (s: Record<string, string>) => string }
+> = {
+  ACHIEVED: { label: "achieved", className: (s) => s.chipGood },
+  UNVERIFIED: { label: "achieved · unverified", className: (s) => s.chipNone },
+  INVALIDATED: { label: "tested → dead", className: (s) => s.chipTested },
+  UNTESTED: { label: "untested", className: (s) => s.chipNone },
+};
+
 const formatDate = (iso: string) =>
   new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short" });
 
@@ -73,6 +85,8 @@ export default function Masterji({ user }: { user: SessionUser }) {
   const [retiring, setRetiring] = useState(false);
   const [retireReason, setRetireReason] = useState("");
   const [justRetired, setJustRetired] = useState<Retirement | null>(null);
+  // A closed idea being read back — available while a new goal is running.
+  const [viewClosed, setViewClosed] = useState<Retirement | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -213,7 +227,7 @@ export default function Masterji({ user }: { user: SessionUser }) {
             <p className={styles.closingWhich}>{closing.title}</p>
             <p
               className={
-                shipped || closing.readsAs === "INVALIDATED"
+                closing.readsAs === "ACHIEVED" || closing.readsAs === "INVALIDATED"
                   ? styles.closingWin
                   : styles.closingPlain
               }
@@ -267,20 +281,8 @@ export default function Masterji({ user }: { user: SessionUser }) {
               {state.archive.map((r) => (
                 <li key={r.id} className={styles.archiveRow}>
                   <span className={styles.archiveTitle}>{r.title}</span>
-                  <span
-                    className={
-                      r.outcome === "COMPLETED"
-                        ? styles.chipGood
-                        : r.readsAs === "INVALIDATED"
-                          ? styles.chipTested
-                          : styles.chipNone
-                    }
-                  >
-                    {r.outcome === "COMPLETED"
-                      ? "shipped"
-                      : r.readsAs === "INVALIDATED"
-                        ? "tested → dead"
-                        : "untested"}
+                  <span className={CLOSED_CHIP[r.readsAs].className(styles)}>
+                    {CLOSED_CHIP[r.readsAs].label}
                   </span>
                 </li>
               ))}
@@ -388,59 +390,54 @@ export default function Masterji({ user }: { user: SessionUser }) {
             )}
             {gateNote && <p className={styles.gateNote}>{gateNote}</p>}
 
-            {state.canComplete && !retiring && (
+            {/* At LAUNCH with proof on the record, finishing is the expected
+                move, so it gets a real button. Everywhere else it lives behind
+                the quiet link — available, just not advertised. */}
+            {state.atFinishLine && !retiring && (
               <button
                 className={styles.secondaryBtn}
                 onClick={() => setRetiring(true)}
               >
-                Mark it shipped
+                Close this out
               </button>
             )}
 
-            {/* A quiet link, never a button: retiring is allowed, but it is
-                not one of the day's actions. */}
             {!retiring ? (
               <button
                 className={styles.retireLink}
                 onClick={() => setRetiring(true)}
               >
-                retire this goal
+                close this goal
               </button>
             ) : (
               <div className={styles.retireBox}>
                 <p className={styles.retirePrompt}>
-                  {state.canComplete
-                    ? "What shipped, and who used it?"
-                    : "What happened? One honest sentence — it goes on the record."}
+                  What happened? One honest sentence — it goes on the record.
                 </p>
                 <textarea
                   className={styles.textarea}
                   rows={3}
-                  placeholder={
-                    state.canComplete
-                      ? "It's live at… and the first users were…"
-                      : "e.g. Talked to 6 hostel students — they already share a WhatsApp group for this and won't pay."
-                  }
+                  placeholder="e.g. Site is live and the school is using it for notices — or: talked to 6 students, they won't pay for this."
                   value={retireReason}
                   onChange={(e) => setRetireReason(e.target.value)}
                 />
                 <div className={styles.retireActions}>
+                  {/* Both exits, always. Achieving your goal from BUILD is not
+                      a thing the server gets to disallow. */}
                   <button
                     className={styles.primaryBtn}
                     disabled={busy || !retireReason.trim()}
+                    onClick={() => onRetire("COMPLETED")}
+                  >
+                    I achieved it
+                  </button>
+                  <button
+                    className={styles.secondaryBtn}
+                    disabled={busy || !retireReason.trim()}
                     onClick={() => onRetire("ABANDONED")}
                   >
-                    Retire it
+                    I&apos;m dropping it
                   </button>
-                  {state.canComplete && (
-                    <button
-                      className={styles.secondaryBtn}
-                      disabled={busy || !retireReason.trim()}
-                      onClick={() => onRetire("COMPLETED")}
-                    >
-                      Shipped
-                    </button>
-                  )}
                   <button
                     className={styles.linkBtn}
                     onClick={() => {
@@ -581,6 +578,31 @@ export default function Masterji({ user }: { user: SessionUser }) {
               </ul>
             </section>
           )}
+
+          {/* Closed ideas stay reachable while a new goal is running — the
+              record is the point, and it can't do its work if it's only
+              visible in the four seconds between goals. */}
+          {state.archive.length > 0 && (
+            <section className={styles.card}>
+              <p className={styles.cardLabel}>Behind you</p>
+              <ul className={styles.archiveList}>
+                {state.archive.map((r) => (
+                  <li key={r.id}>
+                    <button
+                      className={styles.archiveButton}
+                      onClick={() => setViewClosed(r)}
+                      title="See how this one ended"
+                    >
+                      <span className={styles.archiveTitle}>{r.title}</span>
+                      <span className={CLOSED_CHIP[r.readsAs].className(styles)}>
+                        {CLOSED_CHIP[r.readsAs].label}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
         </aside>
 
         {/* ------------------------------------------------ chat */}
@@ -634,6 +656,42 @@ export default function Masterji({ user }: { user: SessionUser }) {
           </div>
         </section>
       </div>
+
+      {viewClosed && (
+        <div className={styles.modalOverlay} onClick={() => setViewClosed(null)}>
+          <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <h3>{viewClosed.title}</h3>
+              <button
+                className={styles.modalClose}
+                onClick={() => setViewClosed(null)}
+                aria-label="Close"
+              >
+                ×
+              </button>
+            </div>
+            <p className={styles.modalMeta}>
+              {viewClosed.outcome === "COMPLETED" ? "Achieved" : "Dropped"} on{" "}
+              {formatDate(viewClosed.createdAt)} · reached {viewClosed.phaseReached} ·{" "}
+              {viewClosed.contactProofs} contact proof
+              {viewClosed.contactProofs === 1 ? "" : "s"} · {viewClosed.daysActive} day
+              {viewClosed.daysActive === 1 ? "" : "s"} · best streak{" "}
+              {viewClosed.bestStreak}
+            </p>
+            <p className={styles.closedLabel}>What you said</p>
+            <p className={styles.closedReason}>{viewClosed.reason}</p>
+            {viewClosed.coachReaction && (
+              <>
+                <p className={styles.closedLabel}>What Masterji said</p>
+                <div className={styles.coachMsg}>
+                  <span className={styles.avatar}>म</span>
+                  <p className={styles.msgBody}>{viewClosed.coachReaction}</p>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {viewPhase &&
         (() => {

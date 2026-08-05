@@ -58,32 +58,36 @@ def contact_proofs(goal: Goal) -> int:
     ).count()
 
 
-def reads_as(goal: Goal) -> str:
-    """How the record reads when a goal is retired — computed, never claimed.
+def reads_as(goal: Goal, outcome: str = "ABANDONED") -> str:
+    """How the record reads when a goal closes — computed, never claimed.
 
-    INVALIDATED: they made real contact and it said no. That is validation
-    working, and it gets called a win.
-    UNTESTED: the idea was dropped before the world got a vote. No verdict on
-    the person; a verdict on the evidence.
+    Closing is never blocked, in either direction: a builder who genuinely
+    achieved their goal must be able to say so from whatever phase they were
+    in, and a builder whose idea died must be able to bury it. What the server
+    owns is the honest reading, from proofs the builder had to earn.
+
+    ACHIEVED:    they finished it AND there is real-world contact on the record.
+    UNVERIFIED:  they say they finished, but nothing on the record shows anyone
+                 outside saw it. Not an accusation — just what the evidence says.
+    INVALIDATED: they made real contact and it said no. Validation working.
+    UNTESTED:    dropped before the world got a vote.
     """
-    return "INVALIDATED" if contact_proofs(goal) >= INVALIDATED_AT else "UNTESTED"
+    proofs = contact_proofs(goal)
+    if outcome == "COMPLETED":
+        return "ACHIEVED" if proofs else "UNVERIFIED"
+    return "INVALIDATED" if proofs >= INVALIDATED_AT else "UNTESTED"
 
 
-def can_complete(goal: Goal) -> tuple[bool, str]:
-    """Shipping is earned, not declared.
+def at_finish_line(goal: Goal) -> bool:
+    """Whether finishing is the EXPECTED move here — drives how prominent the
+    control is, and nothing else. Never a gate: gating completion on LAUNCH
+    just relocates the dead end it was meant to fix.
 
-    Deliberately NOT expressed as a PROOFS_REQUIRED[LAUNCH] entry: that would
-    give gate_status a next_phase to look up past the end of PHASE_ORDER and
-    500 the dashboard for exactly the builders who got furthest.
+    Deliberately not a PROOFS_REQUIRED[LAUNCH] entry either — that would give
+    gate_status a next_phase to look up past the end of PHASE_ORDER and 500
+    the dashboard for exactly the builders who got furthest.
     """
-    if Phase(goal.phase) is not Phase.LAUNCH:
-        return False, (
-            f"You're in {goal.phase}. Nothing ships from here — get to LAUNCH, "
-            "put it in front of strangers, then tell me it's done."
-        )
-    if not contact_proofs(goal):
-        return False, "No accepted proof on the record. Show me it's real first."
-    return True, "Shipped. That's the whole point — noted permanently."
+    return Phase(goal.phase) is Phase.LAUNCH and bool(contact_proofs(goal))
 
 
 def gate_status(goal: Goal) -> dict:

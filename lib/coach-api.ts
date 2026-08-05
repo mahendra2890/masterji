@@ -60,8 +60,9 @@ export type Retirement = {
   id: number;
   title: string;
   outcome: "ABANDONED" | "COMPLETED";
-  /** Derived server-side from earned proofs — never self-reported. */
-  readsAs: "INVALIDATED" | "UNTESTED";
+  /** Derived server-side from earned proofs — never self-reported. Closing is
+   * never blocked; this is what the record honestly says about it. */
+  readsAs: "ACHIEVED" | "UNVERIFIED" | "INVALIDATED" | "UNTESTED";
   reason: string;
   phaseReached: Phase;
   contactProofs: number;
@@ -80,7 +81,9 @@ export type CoachState = {
   transitions: PhaseTransition[];
   messages: ChatMessage[];
   phases: Phase[];
-  canComplete: boolean;
+  /** Finishing is the expected move here — affects prominence only, never
+   * permission: closing an achieved goal works from any phase. */
+  atFinishLine: boolean;
   /** Retired goals, newest first — the record that outlives each idea. */
   archive: Retirement[];
   /** Days declared-and-proved across every goal, so retiring an idea doesn't
@@ -267,7 +270,7 @@ export async function getState(): Promise<CoachState> {
     transitions?: ServerTransition[];
     messages?: ServerMessage[];
     phases?: Phase[];
-    can_complete?: boolean;
+    at_finish_line?: boolean;
     archive?: ServerRetirement[];
     lifetime_days?: number;
     tone: CoachState["tone"];
@@ -281,7 +284,7 @@ export async function getState(): Promise<CoachState> {
     transitions: (data.transitions ?? []).map(fromServerTransition),
     messages: (data.messages ?? []).map(fromServerMessage),
     phases: data.phases ?? ["IDEA", "VALIDATION", "BUILD", "LAUNCH"],
-    canComplete: data.can_complete ?? false,
+    atFinishLine: data.at_finish_line ?? false,
     archive: (data.archive ?? []).map(fromServerRetirement),
     lifetimeDays: data.lifetime_days ?? 0,
     tone: data.tone,

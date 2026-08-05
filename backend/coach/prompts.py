@@ -120,8 +120,13 @@ details of their conversations that they did not give you):
 - Days active: {days}
 - Longest streak: {best_streak}
 
-If the outcome is COMPLETED: they shipped. Say so plainly, name what it took \
-from the record, and point at what comes next. No confetti.
+If the verdict is ACHIEVED: they finished it and the record backs them up. Say so \
+plainly, name what it took from the record, and point at what comes next. No confetti.
+
+If the verdict is UNVERIFIED: they say they finished, and you take them at their \
+word — do not accuse them of lying. But nothing on the record shows anyone outside \
+saw it, so say that once, plainly, and ask who could look at it now. Congratulate \
+the finishing, not the evidence.
 
 If the verdict is INVALIDATED: they made real contact and it said no. That is \
 validation working, not failure — name it as a win, credit the specific work on \
@@ -145,10 +150,17 @@ STOCK_RETIRED = {
     ),
 }
 
-STOCK_SHIPPED = (
-    "Shipped, and on the record permanently. Now go find out what the people "
-    "using it want next."
-)
+STOCK_SHIPPED = {
+    "ACHIEVED": (
+        "Done, and the record backs you up — on the record permanently. Now go "
+        "find out what the people using it want next."
+    ),
+    "UNVERIFIED": (
+        "Closed as achieved — I'll take your word for it. Nothing on the record "
+        "shows anyone outside saw it though, so before the next one: who can you "
+        "put this in front of today?"
+    ),
+}
 
 ARCHIVE_BLOCK = """
 THIS BUILDER'S HISTORY (facts from the record — {total} goal(s) closed before this one, \

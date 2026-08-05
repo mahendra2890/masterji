@@ -583,6 +583,40 @@
   white-space: nowrap;
 }
 
+.archiveButton {
+  width: 100%;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  background: none;
+  border: none;
+  padding: 3px 0;
+  color: var(--text);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.archiveButton:hover .archiveTitle {
+  color: var(--accent);
+}
+
+.closedLabel {
+  margin: 14px 0 4px;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.closedReason {
+  margin: 0;
+  font-size: 14.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
 /* --- phase drill-in modal --------------------------------------------------------------------- */
 
 .modalOverlay {

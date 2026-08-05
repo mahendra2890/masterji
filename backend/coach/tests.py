@@ -428,20 +428,31 @@ class RetireTests(CoachTestCase):
         bobs = self.make_goal(user=self.bob)
         self.assertEqual(self._retire(bobs).status_code, 404)
 
-    def test_completion_must_be_earned(self):
-        """Shipping is the server's verdict, never a label the builder picks."""
-        goal = self.make_goal(phase="IDEA")
-        self.assertEqual(self._retire(goal, path="complete").status_code, 409)
-        goal.refresh_from_db()
-        self.assertEqual(goal.status, "ACTIVE")
-
-    def test_completion_at_launch_with_proof(self):
-        goal = self.make_goal(phase="LAUNCH")
+    def test_achieving_a_goal_is_never_blocked_by_phase(self):
+        """Goals are the builder's own words — whether "the school site is live"
+        is done isn't the server's call. Gating this on LAUNCH would just move
+        the dead end it was supposed to remove."""
+        goal = self.make_goal(phase="BUILD")
         self.accept_proofs(goal, 1)
-        response = self._retire(goal, reason="Live at x.in, 12 users", path="complete")
+        response = self._retire(goal, reason="Site is live, school uses it", path="complete")
         self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["reads_as"], "ACHIEVED")
         goal.refresh_from_db()
         self.assertEqual(goal.status, "COMPLETED")
+
+    def test_achieved_without_contact_reads_unverified(self):
+        """Never blocked, never silently flattering: the record says what it
+        can back up."""
+        goal = self.make_goal(phase="IDEA")
+        response = self._retire(goal, reason="Finished it", path="complete")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["reads_as"], "UNVERIFIED")
+        goal.refresh_from_db()
+        self.assertEqual(goal.status, "COMPLETED")
+
+    def test_completion_still_needs_a_reason(self):
+        goal = self.make_goal(phase="LAUNCH")
+        self.assertEqual(self._retire(goal, reason="  ", path="complete").status_code, 400)
 
     def test_launch_goal_state_does_not_500(self):
         """A LAUNCH goal has no next phase — gate_status must not walk off the
@@ -450,7 +461,31 @@ class RetireTests(CoachTestCase):
         self.accept_proofs(goal, 1)
         response = self.client.get("/api/coach/state/")
         self.assertEqual(response.status_code, 200)
-        self.assertTrue(response.data["can_complete"])
+        self.assertTrue(response.data["at_finish_line"])
+
+    def test_finish_line_is_prominence_not_permission(self):
+        goal = self.make_goal(phase="BUILD")
+        self.accept_proofs(goal, 1)
+        self.assertFalse(self.client.get("/api/coach/state/").data["at_finish_line"])
+        # ...and yet closing it as achieved works anyway.
+        self.assertEqual(
+            self._retire(goal, reason="Done and used", path="complete").status_code, 200
+        )
+
+    def test_archive_visible_while_a_new_goal_runs(self):
+        """The record can't do its work if it only exists between goals."""
+        old = self.make_goal(phase="VALIDATION")
+        self.accept_proofs(old, 2)
+        self._retire(old)
+        self.client.post("/api/coach/goals/", {"title": "Next idea"})
+        response = self.client.get("/api/coach/state/")
+        self.assertIsNotNone(response.data["goal"])
+        self.assertEqual(len(response.data["archive"]), 1)
+        closed = response.data["archive"][0]
+        # Enough to render the full story without another request.
+        for key in ["title", "reason", "coach_reaction", "reads_as", "best_streak"]:
+            self.assertIn(key, closed)
+        self.assertEqual(closed["reads_as"], "INVALIDATED")
 
     def test_llm_down_still_retires(self):
         goal = self.make_goal()
