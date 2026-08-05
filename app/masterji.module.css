@@ -254,6 +254,15 @@
   font-size: 14px;
 }
 
+.proofHint {
+  margin: 0 0 10px;
+  padding-left: 10px;
+  border-left: 2px solid var(--border);
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
 .accepted {
   color: var(--good);
   font-size: 14px;

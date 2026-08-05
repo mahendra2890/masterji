@@ -27,6 +27,19 @@ const PHASE_HINTS: Record<string, string> = {
   LAUNCH: "In front of strangers. Ask for commitment.",
 };
 
+// What actually counts as tonight's proof, spelled out — so nobody has to
+// ask Masterji in chat to find out. Mirrors gates.py's proof requirements
+// and the phase playbooks; keep these in sync if either changes.
+const PROOF_HINTS: Record<string, string> = {
+  IDEA: "What to submit: your one-paragraph problem statement + the list of 10 real people who have this problem.",
+  VALIDATION:
+    "What to submit: notes from ONE real conversation — who you spoke to, 3 things they said in their own words, what they last did about this problem, and what commitment you asked for (and got).",
+  BUILD:
+    "What to submit: a link to something live, or clear evidence a real user touched it (screenshot, log entry, message).",
+  LAUNCH:
+    "What to submit: a link to your public post, evidence of a new user's action (or payment), or a real rejection with the reason.",
+};
+
 export default function Masterji({ user }: { user: SessionUser }) {
   const [state, setState] = useState<CoachState | null>(null);
   const [error, setError] = useState("");
@@ -293,6 +306,7 @@ export default function Masterji({ user }: { user: SessionUser }) {
                 {today.proofStatus === "PUSHED_BACK" && (
                   <p className={styles.pushedBack}>{today.coachReaction}</p>
                 )}
+                <p className={styles.proofHint}>{PROOF_HINTS[goal.phase]}</p>
                 <textarea
                   className={styles.textarea}
                   rows={3}
