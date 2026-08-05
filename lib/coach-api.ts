@@ -56,6 +56,21 @@ export type ChatMessage = {
   createdAt: string;
 };
 
+export type Retirement = {
+  id: number;
+  title: string;
+  outcome: "ABANDONED" | "COMPLETED";
+  /** Derived server-side from earned proofs — never self-reported. */
+  readsAs: "INVALIDATED" | "UNTESTED";
+  reason: string;
+  phaseReached: Phase;
+  contactProofs: number;
+  daysActive: number;
+  bestStreak: number;
+  coachReaction: string;
+  createdAt: string;
+};
+
 export type CoachState = {
   goal: Goal | null;
   gate: Gate | null;
@@ -65,6 +80,12 @@ export type CoachState = {
   transitions: PhaseTransition[];
   messages: ChatMessage[];
   phases: Phase[];
+  canComplete: boolean;
+  /** Retired goals, newest first — the record that outlives each idea. */
+  archive: Retirement[];
+  /** Days declared-and-proved across every goal, so retiring an idea doesn't
+   * erase the fact that the work happened. */
+  lifetimeDays: number;
   tone: "ENGLISH" | "HINGLISH";
 };
 
@@ -81,6 +102,19 @@ type ServerGate = { have: number; need: number; next_phase: Phase | null };
 type ServerTransition = {
   from_phase: Phase;
   to_phase: Phase;
+  created_at: string;
+};
+type ServerRetirement = {
+  id: number;
+  title: string;
+  outcome: Retirement["outcome"];
+  reads_as: Retirement["readsAs"];
+  reason: string;
+  phase_reached: Phase;
+  contact_proofs: number;
+  days_active: number;
+  best_streak: number;
+  coach_reaction: string;
   created_at: string;
 };
 type ServerCheckIn = {
@@ -120,6 +154,20 @@ const fromServerGoal = (g: ServerGoal): Goal => ({
   phase: g.phase,
   status: g.status,
   createdAt: g.created_at,
+});
+
+const fromServerRetirement = (r: ServerRetirement): Retirement => ({
+  id: r.id,
+  title: r.title,
+  outcome: r.outcome,
+  readsAs: r.reads_as,
+  reason: r.reason,
+  phaseReached: r.phase_reached,
+  contactProofs: r.contact_proofs,
+  daysActive: r.days_active,
+  bestStreak: r.best_streak,
+  coachReaction: r.coach_reaction,
+  createdAt: r.created_at,
 });
 
 const fromServerTransition = (t: ServerTransition): PhaseTransition => ({
@@ -219,6 +267,9 @@ export async function getState(): Promise<CoachState> {
     transitions?: ServerTransition[];
     messages?: ServerMessage[];
     phases?: Phase[];
+    can_complete?: boolean;
+    archive?: ServerRetirement[];
+    lifetime_days?: number;
     tone: CoachState["tone"];
   }>("state/");
   return {
@@ -230,7 +281,31 @@ export async function getState(): Promise<CoachState> {
     transitions: (data.transitions ?? []).map(fromServerTransition),
     messages: (data.messages ?? []).map(fromServerMessage),
     phases: data.phases ?? ["IDEA", "VALIDATION", "BUILD", "LAUNCH"],
+    canComplete: data.can_complete ?? false,
+    archive: (data.archive ?? []).map(fromServerRetirement),
+    lifetimeDays: data.lifetime_days ?? 0,
     tone: data.tone,
+  };
+}
+
+/** Retire the active goal. Always permitted — a reason is required, and the
+ * server derives whether the idea was actually tested. */
+export async function retireGoal(
+  id: number,
+  reason: string,
+  outcome: "ABANDONED" | "COMPLETED" = "ABANDONED"
+): Promise<{ retirement: Retirement; readsAs: Retirement["readsAs"] }> {
+  const path = outcome === "COMPLETED" ? "complete" : "retire";
+  const data = await request<{
+    retirement: ServerRetirement;
+    reads_as: Retirement["readsAs"];
+  }>(`goals/${id}/${path}/`, {
+    method: "POST",
+    body: JSON.stringify({ reason }),
+  });
+  return {
+    retirement: fromServerRetirement(data.retirement),
+    readsAs: data.reads_as,
   };
 }
 

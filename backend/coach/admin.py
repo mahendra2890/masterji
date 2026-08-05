@@ -3,7 +3,7 @@ from django.utils.text import Truncator
 
 from common.soft_delete import SoftDeleteAdmin
 
-from .models import CheckIn, Goal, Message, PhaseTransition
+from .models import CheckIn, Goal, GoalRetirement, Message, PhaseTransition
 
 
 @admin.register(Goal)
@@ -30,6 +30,19 @@ class MessageAdmin(SoftDeleteAdmin):
         """Full coach replies make the changelist unscannable; the row links
         through to the whole thing."""
         return Truncator(obj.content).chars(120)
+
+
+@admin.register(GoalRetirement)
+class GoalRetirementAdmin(SoftDeleteAdmin):
+    list_display = [
+        "goal",
+        "outcome",
+        "phase_reached",
+        "contact_proofs",
+        "days_active",
+        "created_at",
+    ]
+    list_filter = ["outcome", "phase_reached"]
 
 
 @admin.register(PhaseTransition)

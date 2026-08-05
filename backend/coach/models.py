@@ -106,6 +106,46 @@ class CheckIn(SoftDeleteModel):
         return f"{self.goal_id} @ {self.date}"
 
 
+class GoalRetirement(SoftDeleteModel):
+    """A goal's last words, written when it stops being active.
+
+    The numbers are a SNAPSHOT taken at retirement, not a live query. Re-deriving
+    them later would read today's state onto a historical row — the same mistake
+    CheckIn.phase and Goal.__str__ already carry comments about.
+
+    Nothing here is a self-assigned verdict. The builder writes prose; whether
+    the idea was actually tested is computed from proofs they had to earn
+    (gates.reads_as), because a flaker asked to classify their own exit will
+    always pick the flattering label.
+    """
+
+    class Outcome(models.TextChoices):
+        ABANDONED = "ABANDONED", "Abandoned"
+        COMPLETED = "COMPLETED", "Completed"
+
+    goal = models.OneToOneField(
+        Goal, on_delete=models.CASCADE, related_name="retirement"
+    )
+    outcome = models.CharField(max_length=12, choices=Outcome.choices)
+    reason = models.TextField()
+    phase_reached = models.CharField(max_length=12, choices=Phase.choices)
+    # Accepted proofs from VALIDATION onward — real-world contact. IDEA proofs
+    # are desk work and are deliberately excluded: counting them would let a
+    # builder bank a few problem statements and have their exit read as
+    # "the idea was disproved" without ever talking to anyone.
+    contact_proofs = models.PositiveIntegerField(default=0)
+    days_active = models.PositiveIntegerField(default=0)
+    best_streak = models.PositiveIntegerField(default=0)
+    coach_reaction = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta(SoftDeleteModel.Meta):
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.goal_id}: {self.outcome}"
+
+
 class Message(SoftDeleteModel):
     class Role(models.TextChoices):
         USER = "USER", "User"

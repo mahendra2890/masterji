@@ -1,6 +1,7 @@
 from rest_framework import serializers
 
-from .models import CheckIn, Goal, Message, PhaseTransition
+from . import gates
+from .models import CheckIn, Goal, GoalRetirement, Message, PhaseTransition
 
 
 class GoalSerializer(serializers.ModelSerializer):
@@ -31,6 +32,33 @@ class MessageSerializer(serializers.ModelSerializer):
         model = Message
         fields = ["id", "role", "content", "created_at"]
         read_only_fields = fields
+
+
+class RetirementSerializer(serializers.ModelSerializer):
+    title = serializers.CharField(source="goal.title", read_only=True)
+    # Computed from earned proofs, never stored and never client-settable, so
+    # it can't drift or be forged into a flattering label.
+    reads_as = serializers.SerializerMethodField()
+
+    class Meta:
+        model = GoalRetirement
+        fields = [
+            "id",
+            "title",
+            "outcome",
+            "reads_as",
+            "reason",
+            "phase_reached",
+            "contact_proofs",
+            "days_active",
+            "best_streak",
+            "coach_reaction",
+            "created_at",
+        ]
+        read_only_fields = fields
+
+    def get_reads_as(self, obj) -> str:
+        return gates.reads_as(obj.goal)
 
 
 class PhaseTransitionSerializer(serializers.ModelSerializer):

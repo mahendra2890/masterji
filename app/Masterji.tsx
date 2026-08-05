@@ -16,9 +16,11 @@ import {
   getState,
   phaseWindow,
   prove,
+  retireGoal,
   streamChat,
   type CoachState,
   type Phase,
+  type Retirement,
 } from "@/lib/coach-api";
 import styles from "./masterji.module.css";
 
@@ -67,6 +69,10 @@ export default function Masterji({ user }: { user: SessionUser }) {
   const [viewPhase, setViewPhase] = useState<Phase | null>(null);
   // Opening a second cycle after today's proof already landed.
   const [declaringAgain, setDeclaringAgain] = useState(false);
+  // Retiring the current goal: the form, and what Masterji said about it.
+  const [retiring, setRetiring] = useState(false);
+  const [retireReason, setRetireReason] = useState("");
+  const [justRetired, setJustRetired] = useState<Retirement | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -140,6 +146,23 @@ export default function Masterji({ user }: { user: SessionUser }) {
       await refresh();
     });
 
+  const onRetire = (outcome: "ABANDONED" | "COMPLETED") =>
+    run(async () => {
+      if (!state?.goal || !retireReason.trim()) return;
+      const { retirement } = await retireGoal(
+        state.goal.id,
+        retireReason.trim(),
+        outcome
+      );
+      setRetireReason("");
+      setRetiring(false);
+      // Hold Masterji's reaction on screen. Without this the dashboard would
+      // vanish into an empty "One goal." form the instant the goal closed —
+      // the worst possible moment to be handed a blank input.
+      setJustRetired(retirement);
+      await refresh();
+    });
+
   const onToggleTone = () =>
     run(async () => {
       const next = state?.tone === "HINGLISH" ? "ENGLISH" : "HINGLISH";
@@ -174,20 +197,58 @@ export default function Masterji({ user }: { user: SessionUser }) {
     return <main className={styles.loading}>Masterji is on his way…</main>;
   }
 
-  /* --- onboarding: no goal yet ------------------------------------------ */
+  /* --- onboarding / just-retired ---------------------------------------- */
   if (!state.goal) {
+    const closing = justRetired ?? state.archive[0];
+    const shipped = closing?.outcome === "COMPLETED";
     return (
       <main className={styles.onboarding}>
         <p className={styles.wordmark}>मास्टरजी</p>
-        <h1 className={styles.onboardTitle}>One goal.</h1>
-        <p className={styles.onboardSub}>
-          Masterji coaches one thing at a time — pick the goal that matters
-          and commit. You can abandon it later, but he&apos;ll remember.
-        </p>
+
+        {closing ? (
+          <>
+            <h1 className={styles.onboardTitle}>
+              {shipped ? "Shipped." : "Closed."}
+            </h1>
+            <p className={styles.closingWhich}>{closing.title}</p>
+            <p
+              className={
+                shipped || closing.readsAs === "INVALIDATED"
+                  ? styles.closingWin
+                  : styles.closingPlain
+              }
+            >
+              {closing.coachReaction}
+            </p>
+            <p className={styles.closingStats}>
+              Reached {closing.phaseReached} · {closing.contactProofs} contact
+              proof{closing.contactProofs === 1 ? "" : "s"} · {closing.daysActive}{" "}
+              day{closing.daysActive === 1 ? "" : "s"} active
+              {state.lifetimeDays > 0 && (
+                <>
+                  {" · "}
+                  {state.lifetimeDays} day{state.lifetimeDays === 1 ? "" : "s"} of
+                  work on your record
+                </>
+              )}
+            </p>
+          </>
+        ) : (
+          <>
+            <h1 className={styles.onboardTitle}>One goal.</h1>
+            <p className={styles.onboardSub}>
+              Masterji coaches one thing at a time — pick the goal that matters
+              and commit. You can retire it later, but he&apos;ll remember.
+            </p>
+          </>
+        )}
+
         <div className={styles.onboardForm}>
           <input
             className={styles.input}
-            placeholder="e.g. Tiffin-delivery app for my college"
+            placeholder={
+              closing ? "So — what's next?" : "e.g. Tiffin-delivery app for my college"
+            }
             value={goalTitle}
             maxLength={200}
             onChange={(e) => setGoalTitle(e.target.value)}
@@ -198,6 +259,35 @@ export default function Masterji({ user }: { user: SessionUser }) {
           </button>
         </div>
         {error && <p className={styles.error}>{error}</p>}
+
+        {state.archive.length > 0 && (
+          <section className={styles.archive}>
+            <p className={styles.cardLabel}>Behind you</p>
+            <ul className={styles.archiveList}>
+              {state.archive.map((r) => (
+                <li key={r.id} className={styles.archiveRow}>
+                  <span className={styles.archiveTitle}>{r.title}</span>
+                  <span
+                    className={
+                      r.outcome === "COMPLETED"
+                        ? styles.chipGood
+                        : r.readsAs === "INVALIDATED"
+                          ? styles.chipTested
+                          : styles.chipNone
+                    }
+                  >
+                    {r.outcome === "COMPLETED"
+                      ? "shipped"
+                      : r.readsAs === "INVALIDATED"
+                        ? "tested → dead"
+                        : "untested"}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
         <button className={styles.linkBtn} onClick={signOutAndLeave}>
           sign out
         </button>
@@ -206,6 +296,7 @@ export default function Masterji({ user }: { user: SessionUser }) {
   }
 
   const { goal, gate, streak, today, checkins, transitions, messages, phases } = state;
+  void justRetired; // consumed by the no-goal branch above
   const doneIdx = phases.indexOf(goal.phase);
 
   return (
@@ -222,9 +313,16 @@ export default function Masterji({ user }: { user: SessionUser }) {
           >
             {state.tone === "HINGLISH" ? "हिं" : "EN"}
           </button>
-          <span className={styles.streak} title="Consecutive complete days">
+          <span className={styles.streak} title="Consecutive complete days on this goal">
             {streak} day{streak === 1 ? "" : "s"} 🔥
           </span>
+          {/* Survives retiring a goal — the streak is about this idea, the
+              lifetime count is about the builder. */}
+          {state.lifetimeDays > streak && (
+            <span className={styles.lifetime} title="Days worked across every goal">
+              {state.lifetimeDays} total
+            </span>
+          )}
           <span className={styles.who}>{user.username}</span>
           <button className={styles.linkBtn} onClick={signOutAndLeave}>
             sign out
@@ -289,6 +387,72 @@ export default function Masterji({ user }: { user: SessionUser }) {
               </>
             )}
             {gateNote && <p className={styles.gateNote}>{gateNote}</p>}
+
+            {state.canComplete && !retiring && (
+              <button
+                className={styles.secondaryBtn}
+                onClick={() => setRetiring(true)}
+              >
+                Mark it shipped
+              </button>
+            )}
+
+            {/* A quiet link, never a button: retiring is allowed, but it is
+                not one of the day's actions. */}
+            {!retiring ? (
+              <button
+                className={styles.retireLink}
+                onClick={() => setRetiring(true)}
+              >
+                retire this goal
+              </button>
+            ) : (
+              <div className={styles.retireBox}>
+                <p className={styles.retirePrompt}>
+                  {state.canComplete
+                    ? "What shipped, and who used it?"
+                    : "What happened? One honest sentence — it goes on the record."}
+                </p>
+                <textarea
+                  className={styles.textarea}
+                  rows={3}
+                  placeholder={
+                    state.canComplete
+                      ? "It's live at… and the first users were…"
+                      : "e.g. Talked to 6 hostel students — they already share a WhatsApp group for this and won't pay."
+                  }
+                  value={retireReason}
+                  onChange={(e) => setRetireReason(e.target.value)}
+                />
+                <div className={styles.retireActions}>
+                  <button
+                    className={styles.primaryBtn}
+                    disabled={busy || !retireReason.trim()}
+                    onClick={() => onRetire("ABANDONED")}
+                  >
+                    Retire it
+                  </button>
+                  {state.canComplete && (
+                    <button
+                      className={styles.secondaryBtn}
+                      disabled={busy || !retireReason.trim()}
+                      onClick={() => onRetire("COMPLETED")}
+                    >
+                      Shipped
+                    </button>
+                  )}
+                  <button
+                    className={styles.linkBtn}
+                    onClick={() => {
+                      setRetiring(false);
+                      setRetireReason("");
+                    }}
+                  >
+                    keep going
+                  </button>
+                </div>
+              </div>
+            )}
           </section>
 
           <section className={styles.card}>

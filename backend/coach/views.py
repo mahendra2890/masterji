@@ -12,6 +12,7 @@ import json
 from datetime import date
 
 from django.conf import settings
+from django.db import IntegrityError
 from django.db.models import Q
 from django.http import StreamingHttpResponse
 from django.shortcuts import get_object_or_404
@@ -24,12 +25,13 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from . import gates, llm, prompts, streaks
-from .models import CheckIn, Goal, Message
+from .models import CheckIn, Goal, GoalRetirement, Message
 from .serializers import (
     CheckInSerializer,
     GoalSerializer,
     MessageSerializer,
     PhaseTransitionSerializer,
+    RetirementSerializer,
 )
 
 tracer = trace.get_tracer(__name__)
@@ -97,6 +99,13 @@ def _today_state(checkin: CheckIn | None) -> str:
     )
 
 
+def _archive(user) -> list[dict]:
+    """Retired goals, newest first — the memory that makes quitting cost
+    something. Read-only everywhere; nothing writes to a retired goal."""
+    retirements = GoalRetirement.objects.filter(goal__user=user).select_related("goal")
+    return RetirementSerializer(retirements, many=True).data
+
+
 def _gate_payload(goal: Goal) -> dict:
     g = gates.gate_status(goal)
     return {**g, "next_phase": g["next_phase"] and str(g["next_phase"])}
@@ -109,8 +118,21 @@ class StateView(APIView):
 
     def get(self, request):
         goal = _active_goal(request.user)
+        archive = _archive(request.user)
+        lifetime = streaks.lifetime_days(request.user)
         if goal is None:
-            return Response({"goal": None, "tone": request.user.tone})
+            # The no-goal screen is also the after-a-retirement screen. It must
+            # carry the record forward, or the app forgets the work the moment
+            # the idea ends — and the onboarding copy's promise ("he'll
+            # remember") becomes a bluff.
+            return Response(
+                {
+                    "goal": None,
+                    "archive": archive,
+                    "lifetime_days": lifetime,
+                    "tone": request.user.tone,
+                }
+            )
         today = timezone.now().date()
         checkin = _latest_checkin(goal, today)
         messages = list(goal.messages.order_by("-created_at")[:HISTORY_LIMIT])[::-1]
@@ -128,6 +150,9 @@ class StateView(APIView):
                 ).data,
                 "messages": MessageSerializer(messages, many=True).data,
                 "phases": [str(p) for p in gates.PHASE_ORDER],
+                "can_complete": gates.can_complete(goal)[0],
+                "archive": archive,
+                "lifetime_days": lifetime,
                 "tone": request.user.tone,
             }
         )
@@ -144,7 +169,17 @@ class GoalsView(APIView):
             )
         serializer = GoalSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        goal = serializer.save(user=request.user)
+        try:
+            goal = serializer.save(user=request.user)
+        except IntegrityError:
+            # The check above is a read; the constraint is the truth. Two
+            # near-simultaneous creates (a double tap, or the API client's
+            # 401→refresh→replay) would otherwise 500. Retiring makes goal
+            # creation routine rather than once-ever, so this matters now.
+            return Response(
+                {"detail": "One goal at a time — that's the whole point."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         Message.objects.create(
             goal=goal,
             role=Message.Role.COACH,
@@ -175,6 +210,128 @@ class AdvanceView(APIView):
         return Response(
             {"advanced": advanced, "phase": goal.phase, "detail": detail},
             status=status.HTTP_200_OK if advanced else status.HTTP_409_CONFLICT,
+        )
+
+
+class RetireView(APIView):
+    """Retiring a goal is always allowed. It is never silent.
+
+    No cooling-off, no minimum age, no minimum proof count — every one of those
+    is an invisible refusal, and the builder whose Tuesday conversations killed
+    the idea has to be able to start the next thing on Wednesday. What it costs
+    is an honest sentence on the record, and Masterji's reaction to it.
+
+    Whether the idea was actually tested is NOT the builder's to declare: it is
+    computed from proofs they had to earn (gates.reads_as).
+    """
+
+    permission_classes = [IsAuthenticated]
+    outcome = GoalRetirement.Outcome.ABANDONED
+
+    def _resolve(self, request, pk: int) -> Goal:
+        # Filter by user only, then check status — so a double-tap gets a
+        # voiced 409 rather than a bewildering 404. Foreign ids still 404.
+        return get_object_or_404(Goal.objects.filter(user=request.user), pk=pk)
+
+    def post(self, request, pk: int):
+        goal = self._resolve(request, pk)
+        if goal.status != Goal.Status.ACTIVE:
+            return Response(
+                {"detail": f"That one's already closed ({goal.status.lower()})."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        reason = (request.data.get("reason") or "").strip()
+        if not reason:
+            return Response(
+                {"detail": "Say what happened. You don't have to be proud of it."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return self._retire(request, goal, reason)
+
+    def _retire(self, request, goal: Goal, reason: str):
+        verdict = gates.reads_as(goal)
+        retirement = GoalRetirement.objects.create(
+            goal=goal,
+            outcome=self.outcome,
+            reason=reason,
+            phase_reached=goal.phase,
+            contact_proofs=gates.contact_proofs(goal),
+            days_active=(timezone.now().date() - goal.created_at.date()).days + 1,
+            best_streak=streaks.best_streak(goal),
+        )
+        goal.status = (
+            Goal.Status.COMPLETED
+            if self.outcome == GoalRetirement.Outcome.COMPLETED
+            else Goal.Status.ABANDONED
+        )
+        goal.save(update_fields=["status", "updated_at"])
+
+        reaction = _react_to_retirement(retirement, verdict, request.user.tone)
+        retirement.coach_reaction = reaction
+        retirement.save(update_fields=["coach_reaction"])
+        Message.objects.create(
+            goal=goal, role=Message.Role.COACH, phase=goal.phase, content=reaction
+        )
+        logger.info(f"Goal {goal.id} retired as {goal.status} ({verdict})")
+        return Response(
+            {
+                "retirement": RetirementSerializer(retirement).data,
+                "reads_as": verdict,
+                "reaction": reaction,
+            }
+        )
+
+
+class CompleteView(RetireView):
+    """Shipping is earned. Everything else in Masterji is the server's verdict;
+    if "done" were a label the builder assigns themselves, this would be a
+    to-do list with opinions."""
+
+    outcome = GoalRetirement.Outcome.COMPLETED
+
+    def post(self, request, pk: int):
+        goal = self._resolve(request, pk)
+        if goal.status != Goal.Status.ACTIVE:
+            return Response(
+                {"detail": f"That one's already closed ({goal.status.lower()})."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        allowed, detail = gates.can_complete(goal)
+        if not allowed:
+            Message.objects.create(
+                goal=goal, role=Message.Role.COACH, phase=goal.phase, content=detail
+            )
+            logger.info(f"Completion refused for goal {goal.id}: {detail}")
+            return Response({"detail": detail}, status=status.HTTP_409_CONFLICT)
+        reason = (request.data.get("reason") or "").strip()
+        if not reason:
+            return Response(
+                {"detail": "What shipped, and who used it?"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return self._retire(request, goal, reason)
+
+
+def _react_to_retirement(retirement, verdict: str, tone: str) -> str:
+    """LLM garnish over a deterministic floor, same as _react_to_proof: if the
+    model is down the goal still retires, with a stock line."""
+    try:
+        system = prompts.RETIREMENT_SYSTEM.format(
+            tone_rule=prompts.HINGLISH_RULE if tone == "HINGLISH" else "",
+            outcome=retirement.outcome,
+            verdict=verdict,
+            phase=retirement.phase_reached,
+            contact_proofs=retirement.contact_proofs,
+            days=retirement.days_active,
+            best_streak=retirement.best_streak,
+        )
+        return llm.complete(system, retirement.reason)
+    except Exception as e:
+        logger.error(f"Retirement reaction failed: {e}")
+        return (
+            prompts.STOCK_SHIPPED
+            if retirement.outcome == GoalRetirement.Outcome.COMPLETED
+            else prompts.STOCK_RETIRED[verdict]
         )
 
 
@@ -312,6 +469,8 @@ class ChatView(APIView):
             streaks.current_streak(goal, today),
             _today_state(checkin),
             request.user.tone,
+            archive=_archive(request.user),
+            lifetime=streaks.lifetime_days(request.user),
         )
         history = [
             {

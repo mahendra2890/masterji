@@ -38,6 +38,54 @@ def accepted_proofs(goal: Goal) -> int:
     ).count()
 
 
+CONTACT_PHASES = [Phase.VALIDATION, Phase.BUILD, Phase.LAUNCH]
+# Enough real-world contact that "this idea didn't survive testing" is a fact
+# about the record rather than a flattering self-description.
+INVALIDATED_AT = 2
+
+
+def contact_proofs(goal: Goal) -> int:
+    """Accepted proofs from VALIDATION onward, across the goal's whole life.
+
+    Deliberately excludes IDEA: a problem statement is desk work. Counting it
+    would let a builder bank a couple of write-ups, never speak to anyone, and
+    have their exit read as "the idea was disproved".
+    """
+    return CheckIn.objects.filter(
+        goal=goal,
+        phase__in=CONTACT_PHASES,
+        proof_status=CheckIn.ProofStatus.ACCEPTED,
+    ).count()
+
+
+def reads_as(goal: Goal) -> str:
+    """How the record reads when a goal is retired — computed, never claimed.
+
+    INVALIDATED: they made real contact and it said no. That is validation
+    working, and it gets called a win.
+    UNTESTED: the idea was dropped before the world got a vote. No verdict on
+    the person; a verdict on the evidence.
+    """
+    return "INVALIDATED" if contact_proofs(goal) >= INVALIDATED_AT else "UNTESTED"
+
+
+def can_complete(goal: Goal) -> tuple[bool, str]:
+    """Shipping is earned, not declared.
+
+    Deliberately NOT expressed as a PROOFS_REQUIRED[LAUNCH] entry: that would
+    give gate_status a next_phase to look up past the end of PHASE_ORDER and
+    500 the dashboard for exactly the builders who got furthest.
+    """
+    if Phase(goal.phase) is not Phase.LAUNCH:
+        return False, (
+            f"You're in {goal.phase}. Nothing ships from here — get to LAUNCH, "
+            "put it in front of strangers, then tell me it's done."
+        )
+    if not contact_proofs(goal):
+        return False, "No accepted proof on the record. Show me it's real first."
+    return True, "Shipped. That's the whole point — noted permanently."
+
+
 def gate_status(goal: Goal) -> dict:
     """How far the builder is from unlocking the next phase."""
     need = PROOFS_REQUIRED.get(Phase(goal.phase))

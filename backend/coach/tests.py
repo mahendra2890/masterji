@@ -14,6 +14,7 @@ from unittest import mock
 from django.contrib.auth import get_user_model
 from rest_framework.test import APITestCase
 
+from . import gates
 from .models import CheckIn, Goal
 
 User = get_user_model()
@@ -356,6 +357,157 @@ class HistoryDoesNotDriftTests(CoachTestCase):
         self.assertEqual(str(goal), "Tiffin app")
         goal.phase = "BUILD"
         self.assertEqual(str(goal), "Tiffin app")
+
+
+class RetireTests(CoachTestCase):
+    """Retiring is always allowed and never silent. The verdict on whether the
+    idea was actually tested is the server's, computed from earned proofs."""
+
+    def _retire(self, goal, reason="Talked to 6 students, they won't pay.", path="retire"):
+        with mock.patch("coach.views.llm.complete", return_value="Noted."):
+            return self.client.post(f"/api/coach/goals/{goal.pk}/{path}/", {"reason": reason})
+
+    def test_retiring_frees_the_slot(self):
+        goal = self.make_goal()
+        response = self._retire(goal)
+        self.assertEqual(response.status_code, 200)
+        goal.refresh_from_db()
+        self.assertEqual(goal.status, "ABANDONED")
+        # And the builder can start the next idea immediately — no cooldown.
+        self.assertEqual(
+            self.client.post("/api/coach/goals/", {"title": "Next idea"}).status_code, 201
+        )
+
+    def test_reason_is_required(self):
+        goal = self.make_goal()
+        self.assertEqual(self._retire(goal, reason="   ").status_code, 400)
+        goal.refresh_from_db()
+        self.assertEqual(goal.status, "ACTIVE")
+
+    def test_no_minimum_age_or_proof_count(self):
+        """The ten-minute mistake and the honest Tuesday-night kill must both
+        be allowed; a gate here would be an invisible refusal."""
+        goal = self.make_goal()
+        self.assertEqual(gates.contact_proofs(goal), 0)
+        self.assertEqual(self._retire(goal).status_code, 200)
+
+    def test_untested_when_nobody_was_asked(self):
+        goal = self.make_goal()
+        self.assertEqual(self._retire(goal).data["reads_as"], "UNTESTED")
+
+    def test_invalidated_when_the_work_was_done(self):
+        """Contact with the world that said no is validation working — it must
+        read differently from dropping the idea."""
+        goal = self.make_goal(phase="VALIDATION")
+        self.accept_proofs(goal, 2)
+        self.assertEqual(self._retire(goal).data["reads_as"], "INVALIDATED")
+
+    def test_desk_work_cannot_forge_the_verdict(self):
+        """IDEA proofs are write-ups, not contact. Banking them must not buy an
+        'idea disproved' label."""
+        goal = self.make_goal(phase="IDEA")
+        self.accept_proofs(goal, 3)  # all stamped IDEA
+        self.assertEqual(self._retire(goal).data["reads_as"], "UNTESTED")
+
+    def test_retiring_twice_is_a_voiced_conflict_not_a_404(self):
+        goal = self.make_goal()
+        self._retire(goal)
+        again = self._retire(goal)
+        self.assertEqual(again.status_code, 409)
+
+    def test_a_past_goal_cannot_be_relabelled_a_win(self):
+        """The confirmed abuse vector: history is not a toggle."""
+        goal = self.make_goal()
+        self._retire(goal)
+        response = self._retire(goal, reason="Actually we shipped it", path="complete")
+        self.assertEqual(response.status_code, 409)
+        goal.refresh_from_db()
+        self.assertEqual(goal.status, "ABANDONED")
+
+    def test_foreign_goal_still_404s(self):
+        bobs = self.make_goal(user=self.bob)
+        self.assertEqual(self._retire(bobs).status_code, 404)
+
+    def test_completion_must_be_earned(self):
+        """Shipping is the server's verdict, never a label the builder picks."""
+        goal = self.make_goal(phase="IDEA")
+        self.assertEqual(self._retire(goal, path="complete").status_code, 409)
+        goal.refresh_from_db()
+        self.assertEqual(goal.status, "ACTIVE")
+
+    def test_completion_at_launch_with_proof(self):
+        goal = self.make_goal(phase="LAUNCH")
+        self.accept_proofs(goal, 1)
+        response = self._retire(goal, reason="Live at x.in, 12 users", path="complete")
+        self.assertEqual(response.status_code, 200)
+        goal.refresh_from_db()
+        self.assertEqual(goal.status, "COMPLETED")
+
+    def test_launch_goal_state_does_not_500(self):
+        """A LAUNCH goal has no next phase — gate_status must not walk off the
+        end of PHASE_ORDER."""
+        goal = self.make_goal(phase="LAUNCH")
+        self.accept_proofs(goal, 1)
+        response = self.client.get("/api/coach/state/")
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data["can_complete"])
+
+    def test_llm_down_still_retires(self):
+        goal = self.make_goal()
+        with mock.patch("coach.views.llm.complete", side_effect=RuntimeError("down")):
+            response = self.client.post(
+                f"/api/coach/goals/{goal.pk}/retire/", {"reason": "Dropping it."}
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data["reaction"])
+        goal.refresh_from_db()
+        self.assertEqual(goal.status, "ABANDONED")
+
+    def test_retired_goal_is_write_immutable(self):
+        goal = self.make_goal()
+        self._retire(goal)
+        for path, payload in [
+            ("checkins/declare/", {"text": "sneak"}),
+            ("checkins/prove/", {"text": "sneak"}),
+            ("chat/", {"content": "hi"}),
+        ]:
+            self.assertEqual(
+                self.client.post(f"/api/coach/{path}", payload).status_code, 400, path
+            )
+        self.assertEqual(
+            self.client.post(f"/api/coach/goals/{goal.pk}/advance/").status_code, 404
+        )
+
+    def test_archive_and_lifetime_survive_the_goal(self):
+        """The work outlives the idea — otherwise retiring reads as punishment
+        for doing the right thing."""
+        goal = self.make_goal(phase="VALIDATION")
+        self.accept_proofs(goal, 2)
+        self._retire(goal)
+        response = self.client.get("/api/coach/state/")
+        self.assertIsNone(response.data["goal"])
+        self.assertEqual(len(response.data["archive"]), 1)
+        self.assertEqual(response.data["archive"][0]["reads_as"], "INVALIDATED")
+        self.assertEqual(response.data["lifetime_days"], 2)
+
+    def test_new_goal_starts_clean_but_keeps_the_record(self):
+        old = self.make_goal(phase="VALIDATION")
+        self.accept_proofs(old, 2)
+        self._retire(old)
+        self.client.post("/api/coach/goals/", {"title": "Next idea"})
+        response = self.client.get("/api/coach/state/")
+        self.assertEqual(response.data["gate"], {"have": 0, "need": 1, "next_phase": "VALIDATION"})
+        self.assertEqual(response.data["streak"], 0)  # per-goal: this idea is new
+        self.assertEqual(response.data["lifetime_days"], 2)  # per-user: work remembered
+        self.assertEqual(len(response.data["archive"]), 1)
+
+    def test_concurrent_goal_creation_is_a_400_not_a_500(self):
+        """Retire makes goal creation routine, so the read-then-write race in
+        GoalsView stops being theoretical."""
+        self.make_goal()
+        with mock.patch("coach.views._active_goal", return_value=None):
+            response = self.client.post("/api/coach/goals/", {"title": "Race"})
+        self.assertEqual(response.status_code, 400)
 
 
 class LoopholeTests(CoachTestCase):
