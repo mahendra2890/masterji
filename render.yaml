@@ -1,0 +1,57 @@
+# Render Blueprint — deploys the Django API as a free Docker web service.
+# In the Render dashboard: New → Blueprint → pick this repo. Values marked
+# sync: false are prompted for at creation time (see DEPLOY.md).
+#
+# The database is NOT provisioned here on purpose: Render's free Postgres
+# expires 30 days after creation. Use Neon (free, persistent) and paste its
+# connection string as DATABASE_URL.
+
+services:
+  - type: web
+    name: masterji-api
+    runtime: docker
+    plan: free
+    region: singapore # closest to Neon ap-southeast-1
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    healthCheckPath: /api/health/
+    envVars:
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
+      - key: DJANGO_DEBUG
+        value: "0"
+      # Neon connection string (postgres://...?sslmode=require)
+      - key: DATABASE_URL
+        sync: false
+      # https://masterji.mscsoftwares.in (+ the .vercel.app host)
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false
+      - key: CSRF_TRUSTED_ORIGINS
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
+      - key: DJANGO_ALLOWED_HOSTS
+        sync: false
+      # Google OAuth (client must allow both callback URLs — see DEPLOY.md)
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      # The coach's brain: litellm model string + that provider's key
+      - key: LLM_MODEL
+        value: openai/gpt-5.4-mini
+      - key: OPENAI_API_KEY
+        sync: false
+      # First-boot admin user
+      - key: DJANGO_SUPERUSER_USERNAME
+        sync: false
+      - key: DJANGO_SUPERUSER_EMAIL
+        sync: false
+      - key: DJANGO_SUPERUSER_PASSWORD
+        sync: false
+      # Optional OpenTelemetry (no-op when unset)
+      # - key: OTEL_EXPORTER_OTLP_ENDPOINT
+      #   sync: false
+      # - key: OTEL_EXPORTER_OTLP_API_KEY
+      #   sync: false
+      # ALLOWED_HOSTS also auto-trusts RENDER_EXTERNAL_HOSTNAME.

@@ -1,0 +1,62 @@
+/* Masterji — one committed look: chalkboard dark, marigold accent.
+   A coach's slate, not a SaaS dashboard. */
+
+:root {
+  --bg: #10151a;
+  --surface: #171e24;
+  --surface-2: #1d262e;
+  --border: #2b3640;
+  --text: #f0ead9; /* chalk */
+  --muted: #93a1ac;
+  --accent: #e8a13c; /* marigold */
+  --accent-ink: #221503;
+  --good: #8fbf6f;
+  --bad: #e06552;
+  --radius: 10px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-body), system-ui, sans-serif;
+  font-size: 16px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-display), Georgia, serif;
+  font-weight: 600;
+  margin: 0;
+}
+
+a {
+  color: var(--accent);
+}
+
+button {
+  font-family: inherit;
+}
+
+input,
+textarea {
+  font-family: inherit;
+  color: var(--text);
+}
+
+::selection {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
