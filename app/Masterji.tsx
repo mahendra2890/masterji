@@ -235,8 +235,8 @@ export default function Masterji({ user }: { user: SessionUser }) {
               {closing.coachReaction}
             </p>
             <p className={styles.closingStats}>
-              Reached {closing.phaseReached} · {closing.contactProofs} contact
-              proof{closing.contactProofs === 1 ? "" : "s"} · {closing.daysActive}{" "}
+              Reached {closing.phaseReached} · {closing.acceptedProofs} proof
+              {closing.acceptedProofs === 1 ? "" : "s"} banked · {closing.daysActive}{" "}
               day{closing.daysActive === 1 ? "" : "s"} active
               {state.lifetimeDays > 0 && (
                 <>
@@ -673,10 +673,16 @@ export default function Masterji({ user }: { user: SessionUser }) {
             <p className={styles.modalMeta}>
               {viewClosed.outcome === "COMPLETED" ? "Achieved" : "Dropped"} on{" "}
               {formatDate(viewClosed.createdAt)} · reached {viewClosed.phaseReached} ·{" "}
-              {viewClosed.contactProofs} contact proof
-              {viewClosed.contactProofs === 1 ? "" : "s"} · {viewClosed.daysActive} day
-              {viewClosed.daysActive === 1 ? "" : "s"} · best streak{" "}
-              {viewClosed.bestStreak}
+              {viewClosed.acceptedProofs} proof
+              {viewClosed.acceptedProofs === 1 ? "" : "s"} banked
+              {/* The narrower count only earns a mention when it changes the
+                  reading — otherwise it reads as a scolding footnote. */}
+              {viewClosed.contactProofs > 0 &&
+                viewClosed.contactProofs !== viewClosed.acceptedProofs && (
+                  <> ({viewClosed.contactProofs} from real-world contact)</>
+                )}{" "}
+              · {viewClosed.daysActive} day{viewClosed.daysActive === 1 ? "" : "s"} ·
+              best streak {viewClosed.bestStreak}
             </p>
             <p className={styles.closedLabel}>What you said</p>
             <p className={styles.closedReason}>{viewClosed.reason}</p>

@@ -440,9 +440,19 @@ class RetireTests(CoachTestCase):
         goal.refresh_from_db()
         self.assertEqual(goal.status, "COMPLETED")
 
-    def test_achieved_without_contact_reads_unverified(self):
-        """Never blocked, never silently flattering: the record says what it
-        can back up."""
+    def test_any_accepted_proof_counts_as_achieved(self):
+        """Work done while still in IDEA is still work. Talking to the principal
+        during IDEA must not be reported back as "0 proofs"."""
+        goal = self.make_goal(phase="IDEA")
+        self.accept_proofs(goal, 1)  # stamped IDEA
+        response = self._retire(goal, reason="Site is live", path="complete")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["reads_as"], "ACHIEVED")
+        self.assertEqual(response.data["retirement"]["accepted_proofs"], 1)
+
+    def test_achieved_with_nothing_banked_reads_unverified(self):
+        """Never blocked, never silently flattering: with nothing accepted at
+        all there is simply nothing to point at."""
         goal = self.make_goal(phase="IDEA")
         response = self._retire(goal, reason="Finished it", path="complete")
         self.assertEqual(response.status_code, 200)

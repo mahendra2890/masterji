@@ -65,6 +65,9 @@ export type Retirement = {
   readsAs: "ACHIEVED" | "UNVERIFIED" | "INVALIDATED" | "UNTESTED";
   reason: string;
   phaseReached: Phase;
+  /** Every accepted proof banked — what the builder actually did. */
+  acceptedProofs: number;
+  /** The VALIDATION-onward subset; only qualifies the INVALIDATED reading. */
   contactProofs: number;
   daysActive: number;
   bestStreak: number;
@@ -114,6 +117,7 @@ type ServerRetirement = {
   reads_as: Retirement["readsAs"];
   reason: string;
   phase_reached: Phase;
+  accepted_proofs: number;
   contact_proofs: number;
   days_active: number;
   best_streak: number;
@@ -166,6 +170,7 @@ const fromServerRetirement = (r: ServerRetirement): Retirement => ({
   readsAs: r.reads_as,
   reason: r.reason,
   phaseReached: r.phase_reached,
+  acceptedProofs: r.accepted_proofs,
   contactProofs: r.contact_proofs,
   daysActive: r.days_active,
   bestStreak: r.best_streak,

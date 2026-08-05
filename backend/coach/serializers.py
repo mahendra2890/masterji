@@ -49,6 +49,7 @@ class RetirementSerializer(serializers.ModelSerializer):
             "reads_as",
             "reason",
             "phase_reached",
+            "accepted_proofs",
             "contact_proofs",
             "days_active",
             "best_streak",

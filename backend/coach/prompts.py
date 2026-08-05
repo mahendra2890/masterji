@@ -116,7 +116,8 @@ details of their conversations that they did not give you):
 - Outcome: {outcome}
 - How the evidence reads: {verdict}
 - Phase reached: {phase}
-- Accepted proofs from real-world contact: {contact_proofs}
+- Accepted proofs banked: {accepted_proofs}
+- Of those, from real-world contact (VALIDATION onward): {contact_proofs}
 - Days active: {days}
 - Longest streak: {best_streak}
 

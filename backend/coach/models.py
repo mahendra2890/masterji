@@ -129,10 +129,12 @@ class GoalRetirement(SoftDeleteModel):
     outcome = models.CharField(max_length=12, choices=Outcome.choices)
     reason = models.TextField()
     phase_reached = models.CharField(max_length=12, choices=Phase.choices)
-    # Accepted proofs from VALIDATION onward — real-world contact. IDEA proofs
-    # are desk work and are deliberately excluded: counting them would let a
-    # builder bank a few problem statements and have their exit read as
-    # "the idea was disproved" without ever talking to anyone.
+    # Every accepted proof, whatever phase stamped it — what the builder
+    # actually banked, and what the archive shows them.
+    accepted_proofs = models.PositiveIntegerField(default=0)
+    # The VALIDATION-onward subset. Narrower on purpose, and used for exactly
+    # one thing: whether "the idea was disproved" holds up. That claim means
+    # real people said no, so IDEA write-ups can't buy it.
     contact_proofs = models.PositiveIntegerField(default=0)
     days_active = models.PositiveIntegerField(default=0)
     best_streak = models.PositiveIntegerField(default=0)

@@ -44,12 +44,26 @@ CONTACT_PHASES = [Phase.VALIDATION, Phase.BUILD, Phase.LAUNCH]
 INVALIDATED_AT = 2
 
 
-def contact_proofs(goal: Goal) -> int:
-    """Accepted proofs from VALIDATION onward, across the goal's whole life.
+def accepted_proofs_total(goal: Goal) -> int:
+    """Every accepted proof this goal ever banked, whatever phase stamped it.
 
-    Deliberately excludes IDEA: a problem statement is desk work. Counting it
-    would let a builder bank a couple of write-ups, never speak to anyone, and
-    have their exit read as "the idea was disproved".
+    The honest measure of work done. A builder who talked to the principal
+    while still in IDEA did real work, and the phase their check-in happens to
+    carry must not be used to say otherwise.
+    """
+    return CheckIn.objects.filter(
+        goal=goal, proof_status=CheckIn.ProofStatus.ACCEPTED
+    ).count()
+
+
+def contact_proofs(goal: Goal) -> int:
+    """Accepted proofs from VALIDATION onward.
+
+    Used for ONE question only: does "the idea was disproved" hold up? That
+    claim means real people said no, so it needs proofs from the phase whose
+    entire job is talking to them. Counting IDEA write-ups here would hand a
+    win label to a builder who never spoke to anyone — flattery, not accuracy.
+    Everywhere else, use accepted_proofs_total.
     """
     return CheckIn.objects.filter(
         goal=goal,
@@ -66,16 +80,16 @@ def reads_as(goal: Goal, outcome: str = "ABANDONED") -> str:
     in, and a builder whose idea died must be able to bury it. What the server
     owns is the honest reading, from proofs the builder had to earn.
 
-    ACHIEVED:    they finished it AND there is real-world contact on the record.
-    UNVERIFIED:  they say they finished, but nothing on the record shows anyone
-                 outside saw it. Not an accusation — just what the evidence says.
+    ACHIEVED:    they finished it and there is banked work behind it — any
+                 accepted proof counts, whatever phase stamped it.
+    UNVERIFIED:  they say they finished with nothing accepted on the record.
+                 Not an accusation — just what there is to point at.
     INVALIDATED: they made real contact and it said no. Validation working.
     UNTESTED:    dropped before the world got a vote.
     """
-    proofs = contact_proofs(goal)
     if outcome == "COMPLETED":
-        return "ACHIEVED" if proofs else "UNVERIFIED"
-    return "INVALIDATED" if proofs >= INVALIDATED_AT else "UNTESTED"
+        return "ACHIEVED" if accepted_proofs_total(goal) else "UNVERIFIED"
+    return "INVALIDATED" if contact_proofs(goal) >= INVALIDATED_AT else "UNTESTED"
 
 
 def at_finish_line(goal: Goal) -> bool:
@@ -87,7 +101,7 @@ def at_finish_line(goal: Goal) -> bool:
     gate_status a next_phase to look up past the end of PHASE_ORDER and 500
     the dashboard for exactly the builders who got furthest.
     """
-    return Phase(goal.phase) is Phase.LAUNCH and bool(contact_proofs(goal))
+    return Phase(goal.phase) is Phase.LAUNCH and bool(accepted_proofs_total(goal))
 
 
 def gate_status(goal: Goal) -> dict:

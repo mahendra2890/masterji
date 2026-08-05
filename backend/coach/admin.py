@@ -38,6 +38,7 @@ class GoalRetirementAdmin(SoftDeleteAdmin):
         "goal",
         "outcome",
         "phase_reached",
+        "accepted_proofs",
         "contact_proofs",
         "days_active",
         "created_at",
