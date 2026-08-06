@@ -181,6 +181,34 @@ FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:3000")
 
 LLM_MODEL = os.environ.get("LLM_MODEL", "openai/gpt-5.4-mini")
 
+# Reading a screenshot needs a vision-capable model, which is not necessarily
+# the cheap one that handles chat. Its own setting so the two can diverge
+# without a code change — same seam philosophy as LLM_MODEL.
+LLM_VISION_MODEL = os.environ.get("LLM_VISION_MODEL", LLM_MODEL)
+
+# --- Proof screenshots: Cloudflare R2 (S3-compatible) -----------------------
+# Entirely optional. With these unset, screenshot proofs are simply off and
+# every other path behaves exactly as before — so production keeps working
+# until the bucket exists. Chosen over Neon Object Storage (Aug 2026) because
+# that is still in beta with unpublished limits; S3 compatibility means
+# switching later is an endpoint change, not a rewrite.
+
+R2_ACCOUNT_ID = os.environ.get("R2_ACCOUNT_ID", "")
+R2_ACCESS_KEY_ID = os.environ.get("R2_ACCESS_KEY_ID", "")
+R2_SECRET_ACCESS_KEY = os.environ.get("R2_SECRET_ACCESS_KEY", "")
+R2_BUCKET = os.environ.get("R2_BUCKET", "")
+R2_ENDPOINT = (
+    os.environ.get("R2_ENDPOINT")
+    or (R2_ACCOUNT_ID and f"https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com")
+    or ""
+)
+
+# Bounds on what a builder may upload as proof. Small on purpose: a screenshot
+# of a chat, a commit or a dashboard is well under this, and anything larger
+# is not the evidence we asked for.
+PROOF_IMAGE_MAX_BYTES = 5 * 1024 * 1024
+PROOF_IMAGE_TYPES = ("image/png", "image/jpeg", "image/webp")
+
 # --- Observability (optional; no-op when the endpoint is unset) ------------
 
 OTEL_EXPORTER_OTLP_ENDPOINT = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", "")

@@ -6,6 +6,7 @@ understands (OPENAI_API_KEY, ANTHROPIC_API_KEY, ...). Nothing provider-
 specific may leak out of this module.
 """
 
+import base64
 from collections.abc import Iterator
 from typing import cast
 
@@ -38,6 +39,42 @@ def stream_chat(
                 tool_names.append(name)
     for name in tool_names:
         yield "tool_call", name
+
+
+def complete_with_image(
+    system: str, user_text: str, image: bytes, content_type: str
+) -> str:
+    """Same contract as complete(), with a screenshot attached.
+
+    The image is inlined as a data URL rather than passed as a link: the
+    bucket is private, and handing a model a presigned URL would mean minting
+    a publicly-fetchable link to a builder's private work record every time a
+    proof is graded. Uses LLM_VISION_MODEL, which defaults to LLM_MODEL.
+    """
+    b64 = base64.b64encode(image).decode()
+    response = cast(
+        ModelResponse,
+        litellm.completion(
+            model=settings.LLM_VISION_MODEL,
+            messages=[
+                {"role": "system", "content": system},
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": user_text},
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:{content_type};base64,{b64}"},
+                        },
+                    ],
+                },
+            ],
+            num_retries=2,
+        ),
+    )
+    content = response.choices[0].message.content
+    assert content is not None
+    return content.strip()
 
 
 def complete(system: str, user_text: str) -> str:

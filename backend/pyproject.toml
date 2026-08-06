@@ -15,12 +15,13 @@ dependencies = [
     "requests>=2.32",
     "python-dotenv>=1.0",
     "litellm>=1.83",
-    "tenacity>=9.1",  # litellm's num_retries imports it lazily
+    "tenacity>=9.1", # litellm's num_retries imports it lazily
     "loguru>=0.7.3",
     "opentelemetry-exporter-otlp>=1.41",
     "opentelemetry-instrumentation-django>=0.62b0",
     "opentelemetry-instrumentation-psycopg>=0.62b0",
     "opentelemetry-instrumentation-requests>=0.62b0",
+    "boto3>=1.35",
 ]
 
 [dependency-groups]
