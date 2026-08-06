@@ -44,8 +44,9 @@ CHECKIN_HISTORY = 90
 WELCOME = (
     'Goal locked: "{title}". Rule one: one goal at a time, and this is yours '
     "now. You start in IDEA — write a one-paragraph problem statement and "
-    "name 10 real people who have this problem. Declare today's task "
-    "above, and bring me proof tonight."
+    "list 10 real people who have this problem. Just the list; you won't "
+    "message anyone until VALIDATION. Declare today's task above, and bring "
+    "me proof tonight."
 )
 
 

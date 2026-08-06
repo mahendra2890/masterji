@@ -25,6 +25,12 @@ If you can't fill in all four honestly, you have an idea, not a problem
 statement. Go find the fourth thing before writing a line of code.
 
 ## Finding the ten people
+This is a list, not a campaign. You are not messaging anyone in IDEA — no
+outreach, no "would you use this?", no asking anyone to say they need it.
+That's VALIDATION's work, and there the bar is three conversations, not ten.
+Ten here is the size that proves you know WHO has the problem: if you can't
+name ten, you don't know your segment yet.
+
 They don't need contact details yet — you need to be able to name them and
 know where to reach them tomorrow. Start absurdly close: your hostel floor,
 your class WhatsApp group, your family's shop, your college's E-Cell. Ten
