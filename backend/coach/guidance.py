@@ -16,7 +16,7 @@ from .models import Phase
 
 # One line under the goal title. What this phase is for, in the imperative.
 PHASE_HINT = {
-    Phase.IDEA: "Write the problem statement. Name 10 people who have it.",
+    Phase.IDEA: "Write the problem statement. List 10 people who have it — no outreach yet.",
     Phase.VALIDATION: "Talk to real customers. Bring notes, not opinions.",
     Phase.BUILD: "Smallest thing a real user can touch this week.",
     Phase.LAUNCH: "In front of strangers. Ask for commitment.",
@@ -27,8 +27,9 @@ PHASE_HINT = {
 # check-in form cannot promise something the playbook doesn't teach.
 PROOF_HINT = {
     Phase.IDEA: (
-        "What to submit: your one-paragraph problem statement, plus the list "
-        "of 10 real people who have this problem."
+        "What to submit: your one-paragraph problem statement, plus a list of "
+        "10 real people who have this problem. Just names you could reach — "
+        "you are not messaging anyone yet; conversations are VALIDATION's work."
     ),
     Phase.VALIDATION: (
         "What to submit: notes from ONE real conversation — who you spoke to, "
@@ -86,7 +87,9 @@ PROOF_EXAMPLES = {
 GATE_NUDGE = {
     Phase.IDEA: (
         "One paragraph: who has this problem, what they do about it today, "
-        "and why that's bad. Then ten names — real ones you could message."
+        "and why that's bad. Then ten names — real people you could message, "
+        "though you won't message anyone until VALIDATION. Desk work; one "
+        "evening."
     ),
     Phase.VALIDATION: (
         "One conversation. Ten minutes, someone who already has the problem. "
