@@ -147,6 +147,14 @@
   flex-direction: column;
   gap: 14px;
   min-width: 0;
+  /* Same cap as .chat, so the two columns scroll independently. Without it
+     the sidebar — goal + gate + retire form + today + record + archive — is
+     unbounded and drags the whole page down past the chat, which has its own
+     scroll and stays put. */
+  max-height: calc(100dvh - 110px);
+  overflow-y: auto;
+  /* Hold the gutter open so cards don't reflow the moment it overflows. */
+  scrollbar-gutter: stable;
 }
 
 .card {
@@ -775,6 +783,14 @@
   .chat {
     max-height: none;
     min-height: 60dvh;
+  }
+
+  /* Stacked single column: a pane that scrolls inside the page scroll is a
+     trap on a phone. Let the sidebar run its full height again. */
+  .side {
+    max-height: none;
+    overflow-y: visible;
+    scrollbar-gutter: auto;
   }
 
   .header {
