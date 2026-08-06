@@ -14,6 +14,7 @@ import {
   ApiError,
   createGoal,
   declare,
+  judgeDeclaration,
   getState,
   phaseWindow,
   prove,
@@ -40,32 +41,16 @@ const CLOSED_CHIP: Record<
 const formatDate = (iso: string) =>
   new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short" });
 
-const PHASE_HINTS: Record<string, string> = {
-  IDEA: "Write the problem statement. Name 10 people who have it.",
-  VALIDATION: "Talk to real customers. Bring notes, not opinions.",
-  BUILD: "Smallest thing a real user can touch this week.",
-  LAUNCH: "In front of strangers. Ask for commitment.",
-};
-
-// What actually counts as tonight's proof, spelled out — so nobody has to
-// ask Masterji in chat to find out. Mirrors gates.py's proof requirements
-// and the phase playbooks; keep these in sync if either changes.
-const PROOF_HINTS: Record<string, string> = {
-  IDEA: "What to submit: your one-paragraph problem statement + the list of 10 real people who have this problem.",
-  VALIDATION:
-    "What to submit: notes from ONE real conversation — who you spoke to, 3 things they said in their own words, what they last did about this problem, and what commitment you asked for (and got).",
-  BUILD:
-    "What to submit: a link to something live, or clear evidence a real user touched it (screenshot, log entry, message).",
-  LAUNCH:
-    "What to submit: a link to your public post, evidence of a new user's action (or payment), or a real rejection with the reason.",
-};
-
 export default function Masterji({ user }: { user: SessionUser }) {
   const [state, setState] = useState<CoachState | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
   // chat
+  // Masterji is reading this morning's task. Not part of `busy`: the form
+  // stays fully usable while it runs.
+  const [judging, setJudging] = useState(false);
+  const declaring = useRef(false);
   const [draft, setDraft] = useState("");
   const [streamingText, setStreamingText] = useState<string | null>(null);
   const [pendingUserMsg, setPendingUserMsg] = useState<string | null>(null);
@@ -76,6 +61,7 @@ export default function Masterji({ user }: { user: SessionUser }) {
   const [amText, setAmText] = useState("");
   const [pmText, setPmText] = useState("");
   const [pmUrl, setPmUrl] = useState("");
+  const [pmImage, setPmImage] = useState<File | null>(null);
   const [gateNote, setGateNote] = useState("");
 
   // The stepper drill-in: which completed phase is being reviewed, if any.
@@ -127,19 +113,42 @@ export default function Masterji({ user }: { user: SessionUser }) {
 
   const onDeclare = () =>
     run(async () => {
-      if (!amText.trim()) return;
-      await declare(amText.trim());
-      setAmText("");
-      setDeclaringAgain(false);
-      await refresh();
+      // `disabled={busy}` can't guard this alone — setBusy is async, so two
+      // clicks in one tick both get through. The DB constraint keeps that
+      // idempotent, but declaring also CLEARS the judgement fields, so a
+      // second write landing after the judge response would erase Masterji's
+      // read of the task. A ref flips synchronously; state doesn't.
+      if (!amText.trim() || declaring.current) return;
+      declaring.current = true;
+      try {
+        const checkin = await declare(amText.trim());
+        setAmText("");
+        setDeclaringAgain(false);
+        await refresh();
+        // Outside the awaited path on purpose: the task is already on the
+        // record and the form is already usable. Masterji's read of it
+        // arrives when it arrives, and a failure here leaves the check-in
+        // UNJUDGED rather than leaving the builder staring at a spinner.
+        setJudging(true);
+        judgeDeclaration(checkin.id)
+          .then(refresh)
+          // Swallowed deliberately, not dropped: the failure IS the UNJUDGED
+          // state the form already handles. Surfacing it as an error would
+          // report a broken declaration that isn't broken. The server logs it.
+          .catch(() => {})
+          .finally(() => setJudging(false));
+      } finally {
+        declaring.current = false;
+      }
     });
 
   const onProve = () =>
     run(async () => {
       if (!pmText.trim()) return;
-      await prove(pmText.trim(), pmUrl.trim());
+      await prove(pmText.trim(), pmUrl.trim(), pmImage);
       setPmText("");
       setPmUrl("");
+      setPmImage(null);
       await refresh();
     });
 
@@ -308,7 +317,8 @@ export default function Masterji({ user }: { user: SessionUser }) {
     );
   }
 
-  const { goal, gate, streak, today, checkins, transitions, messages, phases } = state;
+  const { goal, gate, streak, today, checkins, transitions, messages, phases, guidance } =
+    state;
   void justRetired; // consumed by the no-goal branch above
   const doneIdx = phases.indexOf(goal.phase);
 
@@ -372,7 +382,7 @@ export default function Masterji({ user }: { user: SessionUser }) {
                 </li>
               ))}
             </ol>
-            <p className={styles.phaseHint}>{PHASE_HINTS[goal.phase]}</p>
+            <p className={styles.phaseHint}>{guidance?.phaseHint}</p>
 
             {gate && gate.need > 0 && (
               <>
@@ -493,7 +503,40 @@ export default function Masterji({ user }: { user: SessionUser }) {
                 {today.proofStatus === "PUSHED_BACK" && (
                   <p className={styles.pushedBack}>{today.coachReaction}</p>
                 )}
-                <p className={styles.proofHint}>{PROOF_HINTS[goal.phase]}</p>
+                {/* What Masterji made of this morning's task. Off-phase work
+                    is flagged, never blocked — the phase gate is what makes
+                    a day spent sideways cost something, not this line. */}
+                {today.declarationReaction && (
+                  <p
+                    className={
+                      today.declarationFit === "OFF_PHASE"
+                        ? styles.offPhase
+                        : styles.sharpen
+                    }
+                  >
+                    {today.declarationReaction}
+                  </p>
+                )}
+                {judging && !today.declarationReaction && (
+                  <p className={styles.judging}>Masterji is reading it…</p>
+                )}
+                {(today.proofAsk || guidance) && (
+                  <div className={styles.proofHint}>
+                    {/* The tailored ask when there is one; the phase's static
+                        ask when the model was unreachable at declare time. */}
+                    <p>{today.proofAsk || guidance?.proofHint}</p>
+                    {guidance && guidance.proofExamples.length > 0 && (
+                      <details className={styles.proofExamples}>
+                        <summary>Show me one that was accepted</summary>
+                        {guidance.proofExamples.map((ex, i) => (
+                          <p key={i} className={styles.proofExample}>
+                            {ex}
+                          </p>
+                        ))}
+                      </details>
+                    )}
+                  </div>
+                )}
                 <textarea
                   className={styles.textarea}
                   rows={3}
@@ -507,12 +550,26 @@ export default function Masterji({ user }: { user: SessionUser }) {
                   value={pmUrl}
                   onChange={(e) => setPmUrl(e.target.value)}
                 />
+                {/* Only offered when the bucket is actually wired, so the form
+                    never promises to take something the server would drop. */}
+                {state.uploadsEnabled && (
+                  <label className={styles.attach}>
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp"
+                      onChange={(e) => setPmImage(e.target.files?.[0] ?? null)}
+                    />
+                    <span>
+                      {pmImage ? `📎 ${pmImage.name}` : "📎 Attach a screenshot"}
+                    </span>
+                  </label>
+                )}
                 <button
                   className={styles.primaryBtn}
                   disabled={busy}
                   onClick={onProve}
                 >
-                  Submit proof
+                  {busy && pmImage ? "Masterji is looking…" : "Submit proof"}
                 </button>
               </>
             ) : (
@@ -531,6 +588,16 @@ export default function Masterji({ user }: { user: SessionUser }) {
                   {" — "}
                   {today.coachReaction}
                 </p>
+                {today.proofImageUrl && (
+                  /* eslint-disable-next-line @next/next/no-img-element --
+                     next/image can't optimise a presigned URL that changes
+                     every read, and the host isn't known at build time. */
+                  <img
+                    className={styles.proofImage}
+                    src={today.proofImageUrl}
+                    alt="The screenshot submitted as proof"
+                  />
+                )}
                 {/* Done for today doesn't have to mean done for the day. */}
                 {!declaringAgain ? (
                   <button
