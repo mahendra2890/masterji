@@ -12,6 +12,7 @@ import {
   type GoalHistory,
   type Retirement,
 } from "@/lib/coach-api";
+import FailedTries from "@/components/FailedTries";
 import styles from "./masterji.module.css";
 
 const formatDate = (iso: string) =>
@@ -157,6 +158,8 @@ export default function ClosedIdea({
                     />
                   </p>
                 )}
+
+                <FailedTries attempts={c.attempts} />
 
                 {c.coachReaction && (
                   <p className={styles.dayLine}>

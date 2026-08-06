@@ -38,6 +38,19 @@ export type PhaseTransition = {
   createdAt: string;
 };
 
+/** A proof submission Masterji pushed back, kept when the builder answered
+ * it with a new one. The check-in's own fields are always the CURRENT
+ * proof; these are the tries before it, oldest first. */
+export type ProofAttempt = {
+  id: number;
+  text: string;
+  url: string;
+  /** Signed, short-lived; "" when the try had no image. */
+  imageUrl: string;
+  reaction: string;
+  createdAt: string;
+};
+
 export type CheckIn = {
   id: number;
   date: string; // YYYY-MM-DD, from the CLIENT's local clock
@@ -59,6 +72,7 @@ export type CheckIn = {
   proofImageUrl: string;
   proofStatus: "NONE" | "ACCEPTED" | "PUSHED_BACK";
   coachReaction: string;
+  attempts: ProofAttempt[];
 };
 
 export type ChatMessage = {
@@ -166,6 +180,14 @@ type ServerCheckIn = {
   proof_image_url?: string;
   proof_status: CheckIn["proofStatus"];
   coach_reaction: string;
+  attempts?: {
+    id: number;
+    text: string;
+    url: string;
+    image_url: string;
+    reaction: string;
+    created_at: string;
+  }[];
 };
 type ServerMessage = {
   id: number;
@@ -187,6 +209,14 @@ const fromServerCheckIn = (c: ServerCheckIn): CheckIn => ({
   proofImageUrl: c.proof_image_url ?? "",
   proofStatus: c.proof_status,
   coachReaction: c.coach_reaction,
+  attempts: (c.attempts ?? []).map((a) => ({
+    id: a.id,
+    text: a.text,
+    url: a.url,
+    imageUrl: a.image_url,
+    reaction: a.reaction,
+    createdAt: a.created_at,
+  })),
 });
 
 const fromServerGate = (g: ServerGate | null): Gate | null =>

@@ -188,6 +188,38 @@ class Message(SoftDeleteModel):
         return f"{self.role}: {self.content[:40]}"
 
 
+class ProofAttempt(SoftDeleteModel):
+    """A proof submission Masterji pushed back, preserved when the builder
+    answers it with a new one.
+
+    The check-in's own proof fields always hold the CURRENT submission; this
+    table is the trail of the tries before it. Written archive-before-
+    overwrite in the prove view, so the happy path (first proof accepted)
+    never creates a row. Every row here is by construction a pushed-back try
+    — an accepted proof closes the cycle and can never be overwritten.
+
+    This table is also what keeps evidence honestly attributed: before it
+    existed, a resubmission overwrote the text but left the old image key on
+    the check-in, so an accepted proof could end up wearing the screenshot
+    of the rejected try.
+    """
+
+    checkin = models.ForeignKey(
+        CheckIn, on_delete=models.CASCADE, related_name="attempts"
+    )
+    text = models.TextField()
+    url = models.URLField(blank=True)
+    image_key = models.CharField(max_length=200, blank=True)
+    reaction = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta(SoftDeleteModel.Meta):
+        ordering = ["created_at"]
+
+    def __str__(self):
+        return f"pushed-back try on {self.checkin_id}"
+
+
 class PhaseTransition(SoftDeleteModel):
     goal = models.ForeignKey(
         Goal, on_delete=models.CASCADE, related_name="transitions"

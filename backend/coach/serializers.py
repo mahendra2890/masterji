@@ -1,7 +1,14 @@
 from rest_framework import serializers
 
 from . import gates, storage
-from .models import CheckIn, Goal, GoalRetirement, Message, PhaseTransition
+from .models import (
+    CheckIn,
+    Goal,
+    GoalRetirement,
+    Message,
+    PhaseTransition,
+    ProofAttempt,
+)
 
 
 class GoalSerializer(serializers.ModelSerializer):
@@ -11,7 +18,24 @@ class GoalSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "phase", "status", "phase_entered_at", "created_at"]
 
 
+class ProofAttemptSerializer(serializers.ModelSerializer):
+    image_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ProofAttempt
+        fields = ["id", "text", "url", "image_url", "reaction", "created_at"]
+        read_only_fields = fields
+
+    def get_image_url(self, obj: ProofAttempt) -> str:
+        if not obj.image_key or not storage.is_configured():
+            return ""
+        return storage.view_url(obj.image_key)
+
+
 class CheckInSerializer(serializers.ModelSerializer):
+    # The pushed-back tries behind this check-in's current proof, oldest
+    # first. Callers serializing many rows should prefetch "attempts".
+    attempts = ProofAttemptSerializer(many=True, read_only=True)
     # Signed on read, never stored: the bucket is private and these links
     # expire in minutes, so a proof image can't leak by being pasted anywhere.
     proof_image_url = serializers.SerializerMethodField()
@@ -31,6 +55,7 @@ class CheckInSerializer(serializers.ModelSerializer):
             "proof_image_url",
             "proof_status",
             "coach_reaction",
+            "attempts",
         ]
         read_only_fields = fields
 

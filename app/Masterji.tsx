@@ -7,6 +7,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { signOutAndLeave } from "@/components/AuthGate";
+import FailedTries from "@/components/FailedTries";
 import ClosedIdea from "./ClosedIdea";
 import { updateTone, type SessionUser } from "@/lib/auth-client";
 import {
@@ -503,6 +504,7 @@ export default function Masterji({ user }: { user: SessionUser }) {
                 {today.proofStatus === "PUSHED_BACK" && (
                   <p className={styles.pushedBack}>{today.coachReaction}</p>
                 )}
+                <FailedTries attempts={today.attempts} />
                 {/* What Masterji made of this morning's task. Off-phase work
                     is flagged, never blocked — the phase gate is what makes
                     a day spent sideways cost something, not this line. */}
@@ -598,6 +600,9 @@ export default function Masterji({ user }: { user: SessionUser }) {
                     alt="The screenshot submitted as proof"
                   />
                 )}
+                {/* Only the proof that stands is shown above; the misses
+                    fold away here rather than reading as part of it. */}
+                <FailedTries attempts={today.attempts} />
                 {/* Done for today doesn't have to mean done for the day. */}
                 {!declaringAgain ? (
                   <button

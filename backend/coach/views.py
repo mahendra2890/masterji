@@ -25,7 +25,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from . import gates, guidance, llm, prompts, storage, streaks
-from .models import CheckIn, Goal, GoalRetirement, Message, Phase
+from .models import CheckIn, Goal, GoalRetirement, Message, Phase, ProofAttempt
 from .serializers import (
     CheckInSerializer,
     GoalSerializer,
@@ -143,7 +143,8 @@ class StateView(APIView):
                 "streak": streaks.current_streak(goal, today),
                 "today": CheckInSerializer(checkin).data if checkin else None,
                 "checkins": CheckInSerializer(
-                    goal.checkins.all()[:CHECKIN_HISTORY], many=True
+                    goal.checkins.prefetch_related("attempts")[:CHECKIN_HISTORY],
+                    many=True,
                 ).data,
                 "transitions": PhaseTransitionSerializer(
                     goal.transitions.all(), many=True
@@ -186,7 +187,8 @@ class GoalHistoryView(APIView):
                 if retirement
                 else None,
                 "checkins": CheckInSerializer(
-                    goal.checkins.all()[:CHECKIN_HISTORY], many=True
+                    goal.checkins.prefetch_related("attempts")[:CHECKIN_HISTORY],
+                    many=True,
                 ).data,
                 "transitions": PhaseTransitionSerializer(
                     goal.transitions.all(), many=True
@@ -548,6 +550,20 @@ class ProveView(APIView):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             image_bytes = upload.read()
+
+        # A resubmission is the builder answering a push-back. Move the failed
+        # try onto the trail before overwriting: the record is the product,
+        # and clearing the image key here is what stops an accepted proof
+        # from wearing the screenshot of the try that was rejected.
+        if checkin.pm_proof_text and checkin.proof_status == CheckIn.ProofStatus.PUSHED_BACK:
+            ProofAttempt.objects.create(
+                checkin=checkin,
+                text=checkin.pm_proof_text,
+                url=checkin.proof_url,
+                image_key=checkin.proof_image_key,
+                reaction=checkin.coach_reaction,
+            )
+            checkin.proof_image_key = ""
 
         checkin.pm_proof_text = text
         checkin.proof_url = (request.data.get("url") or "").strip()
