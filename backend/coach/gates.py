@@ -9,6 +9,7 @@ both roads lead here, and here only the database counts.
 from django.utils import timezone
 from loguru import logger
 
+from . import guidance
 from .models import CheckIn, Goal, Phase, PhaseTransition
 
 PHASE_ORDER = [Phase.IDEA, Phase.VALIDATION, Phase.BUILD, Phase.LAUNCH]
@@ -125,10 +126,15 @@ def try_advance(goal: Goal) -> tuple[bool, str]:
 
     if status["have"] < status["need"]:
         missing = status["need"] - status["have"]
-        return False, (
+        refusal = (
             f"Not yet. {status['have']}/{status['need']} accepted proofs in "
             f"{goal.phase} — {missing} more before {status['next_phase']} unlocks."
         )
+        # A bare count is a locked door with no sign on it. The dashboard's
+        # advance button reaches this with no LLM in the loop, so if the
+        # refusal doesn't name the next action, nothing does.
+        nudge = guidance.GATE_NUDGE.get(Phase(goal.phase))
+        return False, f"{refusal} {nudge}" if nudge else refusal
 
     from_phase = goal.phase
     goal.phase = status["next_phase"]

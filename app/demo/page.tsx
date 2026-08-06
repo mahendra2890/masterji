@@ -29,7 +29,7 @@ const MESSAGES = [
   {
     role: "COACH",
     content:
-      "Feelings aren't proofs. Let me check the ledger…\n\nNot yet. 2/3 accepted proofs in VALIDATION — 1 more before BUILD unlocks.",
+      "Feelings aren't proofs. Let me check the ledger…\n\nNot yet. 2/3 accepted proofs in VALIDATION — 1 more before BUILD unlocks. One conversation. Ten minutes, someone who already has the problem. Ask what they did the last time it happened — not whether they'd use your app. Notes tonight.",
   },
 ] as const;
 
@@ -84,7 +84,8 @@ export default function DemoPage() {
             </div>
             <p className={app.gateNote}>
               Not yet. 2/3 accepted proofs in VALIDATION — 1 more before BUILD
-              unlocks.
+              unlocks. One conversation. Ten minutes, someone who already has
+              the problem.
             </p>
           </section>
 
