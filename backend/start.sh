@@ -10,12 +10,16 @@ if [ -n "$DJANGO_SUPERUSER_EMAIL" ]; then
   python manage.py ensure_admin || true
 fi
 
-# gthread workers: a streaming chat response holds a thread, not a whole
-# worker — with sync workers, Render free's 2 workers would cap the service
-# at 2 concurrent chats and starve the health check.
+# gthread: a streaming chat response holds a thread, not a whole worker.
+# ONE worker process, sized for Render's free instance (512MB / 0.1 CPU):
+# the workload is I/O-bound (LLM calls, Neon, R2), so concurrency comes from
+# threads, which share one copy of Django+litellm instead of paying for it
+# per process. Two workers put the box close enough to the memory ceiling
+# that a busy spell failed the 5-second health probe and Render restarted
+# the instance. More CPU later → raise GUNICORN_WORKERS, not threads.
 exec gunicorn config.wsgi:application \
   --bind "0.0.0.0:${PORT:-8000}" \
-  --workers "${GUNICORN_WORKERS:-2}" \
+  --workers "${GUNICORN_WORKERS:-1}" \
   --worker-class gthread \
-  --threads "${GUNICORN_THREADS:-8}" \
+  --threads "${GUNICORN_THREADS:-12}" \
   --access-logfile -

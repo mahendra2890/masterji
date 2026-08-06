@@ -186,6 +186,13 @@ LLM_MODEL = os.environ.get("LLM_MODEL", "openai/gpt-5.4-mini")
 # without a code change — same seam philosophy as LLM_MODEL.
 LLM_VISION_MODEL = os.environ.get("LLM_VISION_MODEL", LLM_MODEL)
 
+# Ceiling on any single model call, in seconds. Without one, a hung provider
+# call holds a gunicorn thread indefinitely — on the free instance that is how
+# the health check starts timing out. Every LLM path here has a deterministic
+# fallback, so timing out is always safe: the caller degrades, the thread
+# comes back.
+LLM_TIMEOUT_S = int(os.environ.get("LLM_TIMEOUT_S", "60"))
+
 # --- Proof screenshots: Cloudflare R2 (S3-compatible) -----------------------
 # Entirely optional. With these unset, screenshot proofs are simply off and
 # every other path behaves exactly as before — so production keeps working

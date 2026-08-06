@@ -14,7 +14,7 @@ from unittest import mock
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from rest_framework.test import APITestCase
 
 from . import gates, guidance
@@ -60,6 +60,54 @@ class CoachTestCase(APITestCase):
                 pm_proof_text="notes from the talk",
                 proof_status=CheckIn.ProofStatus.ACCEPTED,
             )
+
+
+# --- the LLM seam ------------------------------------------------------------
+
+
+class LlmSeamTests(SimpleTestCase):
+    """Every model call must carry a timeout. Without one, a hung provider
+    holds a gunicorn thread until the health check starts failing — that is
+    an outage, discovered the hard way on the free instance.
+
+    Deliberately NOT a CoachTestCase: that base patches llm.complete away,
+    and these tests exist to exercise the real seam functions."""
+
+    def fake_response(self):
+        message = mock.Mock()
+        message.content = "ok"
+        choice = mock.Mock()
+        choice.message = message
+        response = mock.Mock()
+        response.choices = [choice]
+        return response
+
+    def test_complete_is_bounded(self):
+        from django.conf import settings as s
+
+        from . import llm
+
+        with mock.patch("coach.llm.litellm.completion", return_value=self.fake_response()) as call:
+            llm.complete("system", "user")
+        self.assertEqual(call.call_args.kwargs["timeout"], s.LLM_TIMEOUT_S)
+
+    def test_complete_with_image_is_bounded(self):
+        from django.conf import settings as s
+
+        from . import llm
+
+        with mock.patch("coach.llm.litellm.completion", return_value=self.fake_response()) as call:
+            llm.complete_with_image("system", "user", b"\x89PNG", "image/png")
+        self.assertEqual(call.call_args.kwargs["timeout"], s.LLM_TIMEOUT_S)
+
+    def test_stream_chat_is_bounded(self):
+        from django.conf import settings as s
+
+        from . import llm
+
+        with mock.patch("coach.llm.litellm.completion", return_value=iter([])) as call:
+            list(llm.stream_chat("system", []))
+        self.assertEqual(call.call_args.kwargs["timeout"], s.LLM_TIMEOUT_S)
 
 
 # --- auth ------------------------------------------------------------------

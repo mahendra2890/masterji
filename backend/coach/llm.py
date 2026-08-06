@@ -26,6 +26,7 @@ def stream_chat(
         tools=tools,
         stream=True,
         num_retries=2,
+        timeout=settings.LLM_TIMEOUT_S,
     )
     tool_names: list[str] = []
     for chunk in response:
@@ -70,6 +71,7 @@ def complete_with_image(
                 },
             ],
             num_retries=2,
+            timeout=settings.LLM_TIMEOUT_S,
         ),
     )
     content = response.choices[0].message.content
@@ -87,6 +89,7 @@ def complete(system: str, user_text: str) -> str:
                 {"role": "user", "content": user_text},
             ],
             num_retries=2,
+            timeout=settings.LLM_TIMEOUT_S,
         ),
     )
     content = response.choices[0].message.content

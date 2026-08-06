@@ -13,8 +13,6 @@ screenshots and has to keep working without them.
 import uuid
 from functools import lru_cache
 
-import boto3
-from botocore.config import Config
 from django.conf import settings
 from loguru import logger
 
@@ -35,6 +33,14 @@ def is_configured() -> bool:
 
 @lru_cache(maxsize=1)
 def _client():
+    # Imported here, not at module top: boto3 costs real resident memory per
+    # worker, and this module is imported at boot by views/serializers on
+    # every deploy — including ones with no bucket configured, which would
+    # otherwise pay for a client they can never use. On a 512MB instance
+    # that rent is noticeable.
+    import boto3
+    from botocore.config import Config
+
     return boto3.client(
         "s3",
         endpoint_url=settings.R2_ENDPOINT,
