@@ -16,7 +16,7 @@ PLAYBOOKS_DIR = Path(__file__).resolve().parent / "playbooks"
 PLAYBOOKS_BY_PHASE = {
     Phase.IDEA: ["problem-statement"],
     Phase.VALIDATION: ["customer-conversations"],
-    Phase.BUILD: ["over-engineering", "mvp-scoping"],
+    Phase.BUILD: ["over-engineering", "mvp-scoping", "shipping-cadence"],
     Phase.LAUNCH: ["launch-checklist"],
 }
 
