@@ -19,9 +19,35 @@ intent-to-execution gap exists, but it's locked inside elite incubators.
 The long tail of tier-2/3 builders gets courses, templates and toolkits —
 consumption dressed as progress.
 
-Masterji is that mentor, minus the gatekeeping: a coach that refuses to
-discuss tech stacks until you've talked to customers, demands proof of work
-every evening, and won't let you advance until the evidence is in.
+Masterji is not that mentor. It's the part of mentorship that can be
+mechanised: a referee that refuses to discuss tech stacks until you've
+talked to customers, demands proof of work every evening, and won't open
+the next phase until the evidence is in. The judgment is borrowed. The
+enforcement is the product.
+
+## Who's holding the gate
+
+A coaching product invites the obvious question: why trust this coach?
+
+Not on my track record. I have not built something that thousands of
+people use, and Masterji makes no claim to founder wisdom — be suspicious
+of any tool that does. Its authority is procedural, and it rests on two
+things you can audit:
+
+- **The method is borrowed, in the open.** The gates encode *The Mom
+  Test*, *The Lean Startup*, *MAKE* and Lean Canvas / JTBD — credited by
+  name, distilled in my own words in
+  [backend/coach/playbooks/](backend/coach/playbooks/) because this repo
+  is public. A referee doesn't need to be a better player than the
+  players. Every refusal Masterji makes traces to a condition you can
+  read in [backend/coach/gates.py](backend/coach/gates.py) and a test
+  that pins it.
+- **The gates were pointed at me first.** I ran the rest of this
+  hackathon through Masterji — one goal, declared each morning, proof
+  each evening, phases I could not skip without editing my own database.
+  <!-- TODO before submission: N days of check-ins, link the screencast -->
+  That isn't a success story. It's a record, and it's the only kind of
+  credibility a first build earns.
 
 ## How it works — the LLM has no authority here
 
