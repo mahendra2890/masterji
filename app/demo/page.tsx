@@ -44,8 +44,16 @@ export default function DemoPage() {
     <main className={app.app}>
       <div className={styles.banner}>
         This is a canned demo — the gate refusals you see are real product
-        behavior, enforced by the server. <Link href="/login/">Sign in</Link>{" "}
-        to get your own Masterji.
+        behavior, enforced by the server. Everything he judges by is public:{" "}
+        <a
+          href="https://github.com/mahendra2890/masterji/tree/main/backend/coach/playbooks"
+          target="_blank"
+          rel="noreferrer"
+        >
+          read the method
+        </a>{" "}
+        in ten minutes. <Link href="/login/">Sign in</Link> to get your own
+        Masterji.
       </div>
 
       <header className={app.header}>
