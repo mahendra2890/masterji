@@ -69,7 +69,11 @@ The product's spine is a **server-enforced state machine**, not a prompt:
   distillations of the lean-execution canon (crediting *The Mom Test*,
   *The Lean Startup* and *MAKE* by name) in
   [backend/coach/playbooks/](backend/coach/playbooks/). No vector DB:
-  relevance is decided by the phase, so retrieval is a dict lookup.
+  relevance is decided by the phase, so retrieval is a dict lookup. The
+  corpus is deliberately small enough to read in ten minutes; how a
+  method earns its way in — and why scraped tweets never will — is
+  written down in the
+  [curation policy](backend/coach/playbooks/README.md).
 - **Hinglish toggle** — Masterji speaks natural Hindi-English if you want
   him to. ("Kaam dikhao, baatein nahi.")
 
@@ -122,8 +126,9 @@ streaks, grounded chat, Hinglish, demo mode.
 
 **Phase 2 (Product Month):** Telegram-bot channel · missed check-in
 nudges · pgvector memory over past check-ins · screenshot proofs with
-VLM grading · ₹99–199/mo via UPI (free for students) · incubator/E-Cell
-dashboards.
+VLM grading · citation-per-refusal (every pushback names the playbook
+and `gates.py` condition that grounded it) · ₹99–199/mo via UPI (free
+for students) · incubator/E-Cell dashboards.
 
 **vs. the field:** Overlord (YC) enforces generic habits at $12.99/mo;
 Pre (YC S24) coaches funded US founders. Neither encodes a lean-startup
