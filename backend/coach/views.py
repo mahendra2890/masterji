@@ -24,8 +24,8 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from . import gates, llm, prompts, streaks
-from .models import CheckIn, Goal, GoalRetirement, Message
+from . import gates, guidance, llm, prompts, storage, streaks
+from .models import CheckIn, Goal, GoalRetirement, Message, Phase
 from .serializers import (
     CheckInSerializer,
     GoalSerializer,
@@ -150,6 +150,10 @@ class StateView(APIView):
                 ).data,
                 "messages": MessageSerializer(messages, many=True).data,
                 "phases": [str(p) for p in gates.PHASE_ORDER],
+                "guidance": guidance.for_phase(Phase(goal.phase)),
+                # The client hides the upload control when storage isn't
+                # wired, so an unconfigured deploy offers nothing it can't do.
+                "uploads_enabled": storage.is_configured(),
                 "at_finish_line": gates.at_finish_line(goal),
                 "archive": archive,
                 "lifetime_days": lifetime,
@@ -373,6 +377,43 @@ def _react_to_retirement(retirement, verdict: str, tone: str) -> str:
         return stock[verdict]
 
 
+def _react_to_declaration(goal: Goal, text: str, tone: str) -> tuple[str, str, str]:
+    """Read this morning's task: does it belong to the phase, and what would
+    prove it tonight? Returns (fit, reaction, proof_ask).
+
+    Advisory only, by design. Declaring is never refused — a builder is
+    allowed to spend a day off-phase, and the gate at the end of the phase is
+    what makes that cost something. Blocking here would hand the model a veto
+    it must not have, and turn a coaching moment into an invisible refusal.
+
+    Same deterministic floor as _react_to_proof: any failure logs and leaves
+    the check-in UNJUDGED with no tailored ask, so the form falls back to the
+    phase's static proof hint rather than showing nothing.
+    """
+    try:
+        system = prompts.DECLARATION_SYSTEM.format(
+            tone_rule=prompts.HINGLISH_RULE if tone == "HINGLISH" else "",
+            phase=goal.phase,
+            phase_rules=prompts.PHASE_RULES[Phase(goal.phase)],
+            proof_hint=guidance.PROOF_HINT[Phase(goal.phase)],
+        )
+        raw = llm.complete(system, text)
+        payload = json.loads(raw[raw.index("{") : raw.rindex("}") + 1])
+        fit = (
+            CheckIn.DeclarationFit.OFF_PHASE
+            if payload.get("fit") == "off_phase"
+            else CheckIn.DeclarationFit.ON_PHASE
+        )
+        return (
+            fit,
+            str(payload.get("reaction") or ""),
+            str(payload.get("proof_ask") or ""),
+        )
+    except Exception as e:
+        logger.error(f"Declaration reaction failed: {e}")
+        return CheckIn.DeclarationFit.UNJUDGED, "", ""
+
+
 class DeclareView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -401,7 +442,66 @@ class DeclareView(APIView):
         if checkin is None:
             checkin = CheckIn.objects.create(goal=goal, date=day, phase=goal.phase)
         checkin.am_declaration = text
-        checkin.save(update_fields=["am_declaration", "updated_at"])
+        # Declaring stays a pure write — it is the most repeated action in the
+        # product and must not wait on a model. JudgeDeclarationView is the
+        # second half. Clearing the three judgement fields matters on an EDIT:
+        # a verdict on wording the builder has since changed is worse than no
+        # verdict, and the tailored proof ask would be asking for the old task.
+        checkin.declaration_fit = CheckIn.DeclarationFit.UNJUDGED
+        checkin.declaration_reaction = ""
+        checkin.proof_ask = ""
+        checkin.save(
+            update_fields=[
+                "am_declaration",
+                "declaration_fit",
+                "declaration_reaction",
+                "proof_ask",
+                "updated_at",
+            ]
+        )
+        return Response(CheckInSerializer(checkin).data)
+
+
+class JudgeDeclarationView(APIView):
+    """The half of declaring that needs a model, on its own round-trip.
+
+    Split from DeclareView so the morning write returns instantly. Everything
+    here is optional by construction: an UNJUDGED check-in is a complete,
+    usable state, so if the client never calls this, or it fails, or the
+    builder proves their work before it lands, nothing is broken — the proof
+    form falls back to the phase's static ask.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk: int):
+        checkin = get_object_or_404(
+            CheckIn.objects.filter(goal__user=request.user), pk=pk
+        )
+        if not checkin.am_declaration or checkin.pm_proof_text:
+            return Response(
+                {"detail": "Nothing on the hook to read."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        (
+            checkin.declaration_fit,
+            checkin.declaration_reaction,
+            checkin.proof_ask,
+        ) = _react_to_declaration(
+            checkin.goal, checkin.am_declaration, request.user.tone
+        )
+        checkin.save(
+            update_fields=[
+                "declaration_fit",
+                "declaration_reaction",
+                "proof_ask",
+                "updated_at",
+            ]
+        )
+        logger.info(
+            f"Declaration {checkin.declaration_fit} for goal {checkin.goal_id} "
+            f"on {checkin.date}"
+        )
         return Response(CheckInSerializer(checkin).data)
 
 
@@ -432,6 +532,23 @@ class ProveView(APIView):
                 {"detail": "No declaration this morning — proof of what, exactly?"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        upload = request.FILES.get("image")
+        image_bytes = content_type = None
+        if upload is not None:
+            content_type = (upload.content_type or "").lower()
+            if content_type not in settings.PROOF_IMAGE_TYPES:
+                return Response(
+                    {"detail": "Screenshots only — PNG, JPEG or WebP."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if upload.size > settings.PROOF_IMAGE_MAX_BYTES:
+                mb = settings.PROOF_IMAGE_MAX_BYTES // (1024 * 1024)
+                return Response(
+                    {"detail": f"That image is over {mb}MB. Crop it and try again."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            image_bytes = upload.read()
+
         checkin.pm_proof_text = text
         checkin.proof_url = (request.data.get("url") or "").strip()
         # Rows created before the phase field existed (or by an older client)
@@ -439,7 +556,17 @@ class ProveView(APIView):
         if not checkin.phase:
             checkin.phase = goal.phase
 
-        verdict, reaction = _react_to_proof(goal, checkin, request.user.tone)
+        # Store it if we can, but never let storage decide whether the work
+        # counted: the written proof is the record, the screenshot corroborates
+        # it. A dead bucket costs the image, not the day.
+        if image_bytes and storage.is_configured():
+            key = storage.proof_key(goal.id, checkin.id, content_type)
+            if storage.put_image(key, image_bytes, content_type):
+                checkin.proof_image_key = key
+
+        verdict, reaction = _react_to_proof(
+            goal, checkin, request.user.tone, image_bytes, content_type or ""
+        )
         checkin.proof_status = (
             CheckIn.ProofStatus.ACCEPTED
             if verdict == "accept"
@@ -457,20 +584,40 @@ class ProveView(APIView):
         )
 
 
-def _react_to_proof(goal: Goal, checkin: CheckIn, tone: str) -> tuple[str, str]:
+def _react_to_proof(
+    goal: Goal,
+    checkin: CheckIn,
+    tone: str,
+    image: bytes | None = None,
+    content_type: str = "",
+) -> tuple[str, str]:
     """LLM garnish with a deterministic floor (transcriber's fix_punctuation
     pattern): any failure logs and falls back to accept + stock reaction, so
-    the daily loop never breaks because a model call flaked."""
+    the daily loop never breaks because a model call flaked.
+
+    A screenshot, when there is one, is read by the vision model in this same
+    call — one judgement over the text and the image together, because they
+    are one claim about one day's work.
+    """
     try:
         system = prompts.PROOF_REACTION_SYSTEM.format(
             tone_rule=prompts.HINGLISH_RULE if tone == "HINGLISH" else "",
             phase=goal.phase,
             declared=checkin.am_declaration,
+            asked_for=prompts.PROOF_ASKED_FOR.format(proof_ask=checkin.proof_ask)
+            if checkin.proof_ask
+            else "",
         )
+        if image:
+            system += prompts.PROOF_IMAGE_RULE
         user_text = checkin.pm_proof_text
         if checkin.proof_url:
             user_text += f"\nLink: {checkin.proof_url}"
-        raw = llm.complete(system, user_text)
+        raw = (
+            llm.complete_with_image(system, user_text, image, content_type)
+            if image
+            else llm.complete(system, user_text)
+        )
         payload = json.loads(raw[raw.index("{") : raw.rindex("}") + 1])
         verdict = payload.get("verdict", "accept")
         if verdict not in ("accept", "push_back"):

@@ -10,6 +10,11 @@ urlpatterns = [
     path("goals/<int:pk>/retire/", views.RetireView.as_view(), name="coach_retire"),
     path("goals/<int:pk>/complete/", views.CompleteView.as_view(), name="coach_complete"),
     path("checkins/declare/", views.DeclareView.as_view(), name="coach_declare"),
+    path(
+        "checkins/<int:pk>/judge/",
+        views.JudgeDeclarationView.as_view(),
+        name="coach_judge_declaration",
+    ),
     path("checkins/prove/", views.ProveView.as_view(), name="coach_prove"),
     path("chat/", views.ChatView.as_view(), name="coach_chat"),
 ]

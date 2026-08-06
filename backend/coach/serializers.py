@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from . import gates
+from . import gates, storage
 from .models import CheckIn, Goal, GoalRetirement, Message, PhaseTransition
 
 
@@ -12,6 +12,10 @@ class GoalSerializer(serializers.ModelSerializer):
 
 
 class CheckInSerializer(serializers.ModelSerializer):
+    # Signed on read, never stored: the bucket is private and these links
+    # expire in minutes, so a proof image can't leak by being pasted anywhere.
+    proof_image_url = serializers.SerializerMethodField()
+
     class Meta:
         model = CheckIn
         fields = [
@@ -19,12 +23,21 @@ class CheckInSerializer(serializers.ModelSerializer):
             "date",
             "phase",
             "am_declaration",
+            "declaration_fit",
+            "declaration_reaction",
+            "proof_ask",
             "pm_proof_text",
             "proof_url",
+            "proof_image_url",
             "proof_status",
             "coach_reaction",
         ]
         read_only_fields = fields
+
+    def get_proof_image_url(self, obj: CheckIn) -> str:
+        if not obj.proof_image_key or not storage.is_configured():
+            return ""
+        return storage.view_url(obj.proof_image_key)
 
 
 class MessageSerializer(serializers.ModelSerializer):

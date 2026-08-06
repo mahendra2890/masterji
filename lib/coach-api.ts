@@ -43,8 +43,20 @@ export type CheckIn = {
   date: string; // YYYY-MM-DD, from the CLIENT's local clock
   phase: Phase | ""; // stamped server-side; "" only for pre-migration rows
   amDeclaration: string;
+  /** Whether this morning's task is the work the phase is for. Advisory —
+   * an off-phase task is still allowed and still earns its proof.
+   * UNJUDGED means the model was unreachable, not that it passed. */
+  declarationFit: "UNJUDGED" | "ON_PHASE" | "OFF_PHASE";
+  declarationReaction: string;
+  /** What tonight's proof must show for THIS task. Empty when unjudged —
+   * fall back to the phase's static ask in CoachState.guidance. */
+  proofAsk: string;
   pmProofText: string;
   proofUrl: string;
+  /** Signed, short-lived link to the screenshot backing this proof. Minted
+   * per read and expires in minutes — never persist or share it. "" when
+   * there's no image or storage isn't configured. */
+  proofImageUrl: string;
   proofStatus: "NONE" | "ACCEPTED" | "PUSHED_BACK";
   coachReaction: string;
 };
@@ -77,9 +89,23 @@ export type Retirement = {
   createdAt: string;
 };
 
+/** Per-phase builder-facing copy, served rather than duplicated here: the
+ * backend owns these strings because gates.py is what actually enforces
+ * them, and a second copy in the client is a promise nothing keeps. */
+export type Guidance = {
+  phaseHint: string;
+  proofHint: string;
+  proofExamples: string[];
+};
+
 export type CoachState = {
   goal: Goal | null;
   gate: Gate | null;
+  /** Null only on the no-goal screen, which has no phase to speak about. */
+  guidance: Guidance | null;
+  /** Whether object storage is wired. False hides the upload control, so an
+   * unconfigured deploy never offers something it can't accept. */
+  uploadsEnabled: boolean;
   streak: number;
   today: CheckIn | null;
   checkins: CheckIn[];
@@ -132,8 +158,12 @@ type ServerCheckIn = {
   date: string;
   phase: Phase | "";
   am_declaration: string;
+  declaration_fit?: CheckIn["declarationFit"];
+  declaration_reaction?: string;
+  proof_ask?: string;
   pm_proof_text: string;
   proof_url: string;
+  proof_image_url?: string;
   proof_status: CheckIn["proofStatus"];
   coach_reaction: string;
 };
@@ -149,8 +179,12 @@ const fromServerCheckIn = (c: ServerCheckIn): CheckIn => ({
   date: c.date,
   phase: c.phase ?? "",
   amDeclaration: c.am_declaration,
+  declarationFit: c.declaration_fit ?? "UNJUDGED",
+  declarationReaction: c.declaration_reaction ?? "",
+  proofAsk: c.proof_ask ?? "",
   pmProofText: c.pm_proof_text,
   proofUrl: c.proof_url,
+  proofImageUrl: c.proof_image_url ?? "",
   proofStatus: c.proof_status,
   coachReaction: c.coach_reaction,
 });
@@ -227,17 +261,25 @@ async function refreshSession(): Promise<boolean> {
 async function request<T>(
   path: string,
   init: RequestInit = {},
-  retried = false
+  retried = false,
+  timeoutMs = TIMEOUT_MS
 ): Promise<T> {
   const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  const t = setTimeout(() => ctrl.abort(), timeoutMs);
   let res: Response;
   try {
     res = await fetch(`${API_URL}/api/coach/${path}`, {
       credentials: "include",
       signal: ctrl.signal,
       ...init,
-      headers: { "Content-Type": "application/json", ...init.headers },
+      headers: {
+        // FormData sets its own Content-Type: the multipart boundary is
+        // generated per body, and a hardcoded header makes it unparseable.
+        ...(init.body instanceof FormData
+          ? {}
+          : { "Content-Type": "application/json" }),
+        ...init.headers,
+      },
     });
   } catch {
     throw new Error("Couldn't reach Masterji — check your connection.");
@@ -245,7 +287,8 @@ async function request<T>(
     clearTimeout(t);
   }
   if (res.status === 401) {
-    if (!retried && (await refreshSession())) return request<T>(path, init, true);
+    if (!retried && (await refreshSession()))
+      return request<T>(path, init, true, timeoutMs);
     throw new ApiError("Your session expired — sign in again.", 401);
   }
   if (!res.ok) {
@@ -279,6 +322,12 @@ export async function getState(): Promise<CoachState> {
     transitions?: ServerTransition[];
     messages?: ServerMessage[];
     phases?: Phase[];
+    guidance?: {
+      phase_hint: string;
+      proof_hint: string;
+      proof_examples: string[];
+    };
+    uploads_enabled?: boolean;
     at_finish_line?: boolean;
     archive?: ServerRetirement[];
     lifetime_days?: number;
@@ -287,12 +336,20 @@ export async function getState(): Promise<CoachState> {
   return {
     goal: data.goal ? fromServerGoal(data.goal) : null,
     gate: fromServerGate(data.gate ?? null),
+    guidance: data.guidance
+      ? {
+          phaseHint: data.guidance.phase_hint,
+          proofHint: data.guidance.proof_hint,
+          proofExamples: data.guidance.proof_examples,
+        }
+      : null,
     streak: data.streak ?? 0,
     today: data.today ? fromServerCheckIn(data.today) : null,
     checkins: (data.checkins ?? []).map(fromServerCheckIn),
     transitions: (data.transitions ?? []).map(fromServerTransition),
     messages: (data.messages ?? []).map(fromServerMessage),
     phases: data.phases ?? ["IDEA", "VALIDATION", "BUILD", "LAUNCH"],
+    uploadsEnabled: data.uploads_enabled ?? false,
     atFinishLine: data.at_finish_line ?? false,
     archive: (data.archive ?? []).map(fromServerRetirement),
     lifetimeDays: data.lifetime_days ?? 0,
@@ -378,18 +435,47 @@ export async function declare(text: string): Promise<CheckIn> {
   return fromServerCheckIn(data);
 }
 
+/** Ask Masterji to read a declaration already on the record. Deliberately a
+ * second call: `declare` returns before any model runs, so the task appears
+ * the instant it's typed. Fire this after and refresh when it lands — if it
+ * never does, the check-in stays UNJUDGED, which is a valid state. */
+export async function judgeDeclaration(id: number): Promise<CheckIn> {
+  const data = await request<ServerCheckIn>(`checkins/${id}/judge/`, {
+    method: "POST",
+  });
+  return fromServerCheckIn(data);
+}
+
+/** Uploading and grading a screenshot is slower than a text proof — the
+ * bytes go up, then a vision model reads them, possibly on a cold dyno. */
+const PROVE_WITH_IMAGE_TIMEOUT_MS = 60000;
+
 export async function prove(
   text: string,
-  url: string
+  url: string,
+  image?: File | null
 ): Promise<{ checkin: CheckIn; gate: Gate | null; streak: number }> {
+  let body: BodyInit;
+  if (image) {
+    const form = new FormData();
+    form.set("text", text);
+    form.set("url", url);
+    form.set("date", localDate());
+    form.set("image", image);
+    body = form;
+  } else {
+    body = JSON.stringify({ text, url, date: localDate() });
+  }
   const data = await request<{
     checkin: ServerCheckIn;
     gate: ServerGate;
     streak: number;
-  }>("checkins/prove/", {
-    method: "POST",
-    body: JSON.stringify({ text, url, date: localDate() }),
-  });
+  }>(
+    "checkins/prove/",
+    { method: "POST", body },
+    false,
+    image ? PROVE_WITH_IMAGE_TIMEOUT_MS : TIMEOUT_MS
+  );
   return {
     checkin: fromServerCheckIn(data.checkin),
     gate: fromServerGate(data.gate),

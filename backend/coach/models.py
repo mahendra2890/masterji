@@ -80,8 +80,28 @@ class CheckIn(SoftDeleteModel):
     # late-night advance the two disagree about which day it is.
     phase = models.CharField(max_length=12, choices=Phase.choices, blank=True)
     am_declaration = models.TextField(blank=True)
+    # Whether this morning's task is the work this phase is actually for.
+    # Advisory, never a veto: the builder may do whatever they declared, and
+    # a task judged off-phase still earns its proof. UNJUDGED is the honest
+    # state when the model was unreachable — not a silent "fine".
+    class DeclarationFit(models.TextChoices):
+        UNJUDGED = "UNJUDGED", "Not judged"
+        ON_PHASE = "ON_PHASE", "On phase"
+        OFF_PHASE = "OFF_PHASE", "Off phase"
+
+    declaration_fit = models.CharField(
+        max_length=12, choices=DeclarationFit.choices, default=DeclarationFit.UNJUDGED
+    )
+    declaration_reaction = models.TextField(blank=True)
+    # What tonight's proof must show FOR THIS TASK. Falls back to the phase's
+    # static ask (guidance.PROOF_HINT) when empty, so the form is never blank.
+    proof_ask = models.TextField(blank=True)
     pm_proof_text = models.TextField(blank=True)
     proof_url = models.URLField(blank=True)
+    # Opaque object-storage key for a screenshot backing tonight's proof.
+    # Corroboration, never the proof itself: a failed upload must not cost the
+    # builder their check-in, so this stays blank and the text still counts.
+    proof_image_key = models.CharField(max_length=200, blank=True)
     proof_status = models.CharField(
         max_length=12, choices=ProofStatus.choices, default=ProofStatus.NONE
     )

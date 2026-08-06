@@ -11,11 +11,14 @@ feature and is tested as such.
 from datetime import date, timedelta
 from unittest import mock
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import override_settings
 from rest_framework.test import APITestCase
 
-from . import gates
-from .models import CheckIn, Goal
+from . import gates, guidance
+from .models import CheckIn, Goal, Phase
 
 User = get_user_model()
 
@@ -31,6 +34,15 @@ class CoachTestCase(APITestCase):
         self.alice = make_user("alice")
         self.bob = make_user("bob")
         self.client.force_authenticate(self.alice)
+        # No test reaches the network. Failing by default is deliberate: every
+        # path that calls a model has a deterministic floor, and this makes
+        # the whole suite exercise it unless a test says otherwise. Tests that
+        # want a specific reply patch this again — the inner patch wins.
+        patcher = mock.patch(
+            "coach.views.llm.complete", side_effect=RuntimeError("no LLM in tests")
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def make_goal(self, user=None, **kwargs) -> Goal:
         kwargs.setdefault("title", "Tiffin app")
@@ -139,6 +151,20 @@ class GateTests(CoachTestCase):
         response = self.client.post(f"/api/coach/goals/{goal.pk}/advance/")
         self.assertEqual(response.status_code, 409)
 
+    def test_refusal_names_the_next_action(self):
+        """A refusal reaches the builder through the dashboard button with no
+        LLM in the loop. If it doesn't say what to do tonight, nothing does."""
+        goal = self.make_goal(phase="VALIDATION")
+        self.accept_proofs(goal, 1)
+        _, message = gates.try_advance(goal)
+        self.assertIn("1/3 accepted proofs", message)
+        self.assertIn(guidance.GATE_NUDGE[Phase.VALIDATION], message)
+
+    def test_every_gated_phase_has_a_nudge(self):
+        """PROOFS_REQUIRED and GATE_NUDGE have to cover the same phases — a
+        phase that can refuse but has no nudge is the silent door again."""
+        self.assertEqual(set(gates.PROOFS_REQUIRED), set(guidance.GATE_NUDGE))
+
 
 # --- daily loop ----------------------------------------------------------------
 
@@ -196,6 +222,228 @@ class CheckInTests(CoachTestCase):
 # --- state ---------------------------------------------------------------------
 
 
+class DeclarationTests(CoachTestCase):
+    """Declaring is coached, never refused. The model may object to what the
+    builder picked; only gates.py may actually stop them."""
+
+    JUDGEMENT = (
+        '{"fit": "off_phase", "reaction": "That is BUILD talk and you have '
+        'zero conversations.", "proof_ask": "Send me the three names and what '
+        'each one said."}'
+    )
+
+    def declare(self, text="ship the landing page"):
+        return self.client.post("/api/coach/checkins/declare/", {"text": text})
+
+    def judge(self, pk):
+        with mock.patch("coach.views.llm.complete", return_value=self.JUDGEMENT):
+            return self.client.post(f"/api/coach/checkins/{pk}/judge/")
+
+    def test_declaring_never_calls_a_model(self):
+        """The morning write is the most repeated action in the product. If a
+        model call creeps back into it, declaring gets slow again."""
+        self.make_goal(phase="VALIDATION")
+        with mock.patch("coach.views.llm.complete") as complete:
+            response = self.declare()
+        self.assertEqual(response.status_code, 200)
+        complete.assert_not_called()
+        self.assertEqual(response.data["declaration_fit"], "UNJUDGED")
+
+    def test_off_phase_task_is_recorded_not_refused(self):
+        goal = self.make_goal(phase="VALIDATION")
+        declared = self.declare()
+        self.assertEqual(declared.status_code, 200)
+        response = self.judge(declared.data["id"])
+        self.assertEqual(response.status_code, 200)
+        checkin = CheckIn.objects.get(goal=goal)
+        self.assertEqual(checkin.am_declaration, "ship the landing page")
+        self.assertEqual(checkin.declaration_fit, "OFF_PHASE")
+
+    def test_proof_ask_is_tailored_to_the_declared_task(self):
+        self.make_goal(phase="VALIDATION")
+        response = self.judge(self.declare().data["id"])
+        self.assertEqual(
+            response.data["proof_ask"],
+            "Send me the three names and what each one said.",
+        )
+
+    def test_llm_down_leaves_it_unjudged(self):
+        """No tailored ask is honest — a silent ON_PHASE would not be. The
+        default patch in setUp already makes every model call fail."""
+        goal = self.make_goal(phase="VALIDATION")
+        declared = self.declare("talk to 3 shopkeepers")
+        response = self.client.post(f"/api/coach/checkins/{declared.data['id']}/judge/")
+        self.assertEqual(response.status_code, 200)
+        checkin = CheckIn.objects.get(goal=goal)
+        self.assertEqual(checkin.declaration_fit, "UNJUDGED")
+        self.assertEqual(checkin.proof_ask, "")
+        self.assertEqual(checkin.am_declaration, "talk to 3 shopkeepers")
+
+    def test_editing_the_task_clears_a_stale_judgement(self):
+        """A verdict on wording the builder has since replaced is worse than
+        none — and the tailored ask would be asking for the old task."""
+        goal = self.make_goal(phase="VALIDATION")
+        self.judge(self.declare().data["id"])
+        self.assertEqual(CheckIn.objects.get(goal=goal).declaration_fit, "OFF_PHASE")
+
+        self.declare("talk to 3 shopkeepers instead")
+        checkin = CheckIn.objects.get(goal=goal)
+        self.assertEqual(checkin.declaration_fit, "UNJUDGED")
+        self.assertEqual(checkin.declaration_reaction, "")
+        self.assertEqual(checkin.proof_ask, "")
+
+    def test_judging_a_foreign_checkin_404s(self):
+        bobs_goal = self.make_goal(user=self.bob, phase="VALIDATION")
+        checkin = CheckIn.objects.create(
+            goal=bobs_goal,
+            date=date.today(),
+            phase="VALIDATION",
+            am_declaration="bob's task",
+        )
+        response = self.client.post(f"/api/coach/checkins/{checkin.pk}/judge/")
+        self.assertEqual(response.status_code, 404)
+
+    def test_declaring_banks_no_proof(self):
+        """Advisory means advisory: the morning judgement must not move the
+        gate in either direction."""
+        goal = self.make_goal(phase="VALIDATION")
+        self.judge(self.declare().data["id"])
+        self.assertEqual(gates.accepted_proofs(goal), 0)
+        self.assertEqual(
+            CheckIn.objects.get(goal=goal).proof_status, CheckIn.ProofStatus.NONE
+        )
+
+
+@override_settings(
+    # Real settings rather than a patched is_configured(), so these tests
+    # exercise the actual configured/unconfigured branch. Only the two calls
+    # that would touch the network are mocked.
+    R2_ENDPOINT="https://acct.r2.cloudflarestorage.com",
+    R2_BUCKET="test-proofs",
+    R2_ACCESS_KEY_ID="key",
+    R2_SECRET_ACCESS_KEY="secret",
+)
+class ProofImageTests(CoachTestCase):
+    """Screenshots corroborate a proof; they never decide one. Storage being
+    absent, misconfigured or broken must cost the image and nothing else."""
+
+    PNG = b"\x89PNG\r\n\x1a\n" + b"0" * 64
+
+    def upload(self, content_type="image/png", data=None, name="proof.png"):
+        return SimpleUploadedFile(name, data or self.PNG, content_type=content_type)
+
+    def declare_today(self):
+        self.make_goal()
+        self.client.post("/api/coach/checkins/declare/", {"text": "ship the form"})
+
+    def prove(self, **extra):
+        return self.client.post("/api/coach/checkins/prove/", {"text": "done", **extra})
+
+    def test_image_is_stored_and_keyed_to_the_goal(self):
+        self.declare_today()
+        with mock.patch("coach.storage.put_image", return_value=True) as put:
+            response = self.prove(image=self.upload())
+        self.assertEqual(response.status_code, 200)
+        key = CheckIn.objects.get().proof_image_key
+        self.assertTrue(key.startswith("proofs/"))
+        self.assertEqual(put.call_args.args[0], key)
+
+    def test_a_dead_bucket_costs_the_image_not_the_proof(self):
+        """The written proof is the record. If the upload fails the check-in
+        still counts — otherwise object storage becomes a gate nobody voted
+        for."""
+        self.declare_today()
+        with mock.patch("coach.storage.put_image", return_value=False):
+            response = self.prove(image=self.upload())
+        self.assertEqual(response.status_code, 200)
+        checkin = CheckIn.objects.get()
+        self.assertEqual(checkin.proof_image_key, "")
+        self.assertEqual(checkin.proof_status, CheckIn.ProofStatus.ACCEPTED)
+
+    @override_settings(R2_ENDPOINT="", R2_BUCKET="")
+    def test_unconfigured_storage_still_accepts_the_proof(self):
+        self.declare_today()
+        response = self.prove(image=self.upload())
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(CheckIn.objects.get().proof_image_key, "")
+        self.assertFalse(self.client.get("/api/coach/state/").data["uploads_enabled"])
+
+    def test_non_image_is_refused(self):
+        self.declare_today()
+        response = self.prove(
+            image=self.upload(content_type="application/pdf", name="proof.pdf")
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_oversized_image_is_refused(self):
+        self.declare_today()
+        big = b"0" * (settings.PROOF_IMAGE_MAX_BYTES + 1)
+        response = self.prove(image=self.upload(data=big))
+        self.assertEqual(response.status_code, 400)
+
+    def test_the_vision_model_grades_when_an_image_is_attached(self):
+        self.declare_today()
+        with (
+            mock.patch("coach.storage.put_image", return_value=True),
+            mock.patch(
+                "coach.views.llm.complete_with_image",
+                return_value='{"verdict": "push_back", "reaction": "That is your own '
+                'draft, not a reply from anyone."}',
+            ) as vision,
+            mock.patch("coach.views.llm.complete") as text_only,
+        ):
+            self.prove(image=self.upload())
+        vision.assert_called_once()
+        text_only.assert_not_called()
+        self.assertEqual(
+            CheckIn.objects.get().proof_status, CheckIn.ProofStatus.PUSHED_BACK
+        )
+
+    def test_text_only_proof_does_not_reach_the_vision_model(self):
+        """Vision costs more per call than text. No image, no vision."""
+        self.declare_today()
+        with (
+            mock.patch("coach.views.llm.complete_with_image") as vision,
+            mock.patch("coach.views.llm.complete", return_value="Noted.") as text_only,
+        ):
+            self.prove()
+        vision.assert_not_called()
+        text_only.assert_called_once()
+
+    def test_vision_failure_falls_back_to_accept(self):
+        """Same floor as every other model call — the day still counts."""
+        self.declare_today()
+        with (
+            mock.patch("coach.storage.put_image", return_value=True),
+            mock.patch(
+                "coach.views.llm.complete_with_image",
+                side_effect=RuntimeError("vision down"),
+            ),
+        ):
+            response = self.prove(image=self.upload())
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            CheckIn.objects.get().proof_status, CheckIn.ProofStatus.ACCEPTED
+        )
+
+    def test_image_url_is_signed_on_read_never_stored(self):
+        """The key is what's persisted; the URL is minted per read and expires.
+        Note the dashboard signs the same row more than once — it appears both
+        as `today` and in `checkins` — which is fine because presigning is
+        local HMAC work, not an API call."""
+        self.declare_today()
+        with mock.patch("coach.storage.put_image", return_value=True):
+            self.prove(image=self.upload())
+        key = CheckIn.objects.get().proof_image_key
+        with mock.patch(
+            "coach.storage.view_url", return_value="https://signed"
+        ) as signer:
+            response = self.client.get("/api/coach/state/")
+        self.assertEqual(response.data["today"]["proof_image_url"], "https://signed")
+        signer.assert_called_with(key)
+        self.assertNotIn(key, str(response.data["today"]))
+
+
 class StateTests(CoachTestCase):
     def test_no_goal_state(self):
         response = self.client.get("/api/coach/state/")
@@ -220,6 +468,27 @@ class StateTests(CoachTestCase):
             self.assertIn(key, response.data)
         self.assertEqual(response.data["gate"], {"have": 1, "need": 1, "next_phase": "VALIDATION"})
         self.assertEqual(response.data["phases"], ["IDEA", "VALIDATION", "BUILD", "LAUNCH"])
+
+    def test_state_carries_the_phase_guidance(self):
+        """The dashboard renders these strings; it must not own a copy of
+        them. Served from one place, so what the form promises and what the
+        gate enforces cannot drift apart."""
+        self.make_goal(phase="VALIDATION")
+        response = self.client.get("/api/coach/state/")
+        served = response.data["guidance"]
+        self.assertEqual(served["phase_hint"], guidance.PHASE_HINT[Phase.VALIDATION])
+        self.assertEqual(served["proof_hint"], guidance.PROOF_HINT[Phase.VALIDATION])
+        self.assertTrue(served["proof_examples"])
+
+    def test_guidance_covers_every_phase(self):
+        """State is fetched for whatever phase the builder is in — a missing
+        key is a 500 on the dashboard, not a missing paragraph."""
+        for phase in Phase:
+            with self.subTest(phase=phase):
+                bundle = guidance.for_phase(phase)
+                self.assertTrue(bundle["phase_hint"])
+                self.assertTrue(bundle["proof_hint"])
+                self.assertTrue(bundle["proof_examples"])
 
     def test_checkin_is_stamped_with_the_phase_it_was_made_in(self):
         """The drill-in attributes proofs by this field, not by date math."""

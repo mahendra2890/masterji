@@ -144,6 +144,20 @@ export default function ClosedIdea({
                   </p>
                 )}
 
+                {c.proofImageUrl && (
+                  <p className={styles.dayLine}>
+                    <span className={styles.dayWho}>Shot</span>
+                    {/* eslint-disable-next-line @next/next/no-img-element --
+                        presigned URL, re-signed on every read; no static host
+                        for next/image to optimise against. */}
+                    <img
+                      className={styles.dayImage}
+                      src={c.proofImageUrl}
+                      alt="The screenshot submitted as proof that day"
+                    />
+                  </p>
+                )}
+
                 {c.coachReaction && (
                   <p className={styles.dayLine}>
                     <span className={styles.dayWho}>Masterji</span>
