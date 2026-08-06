@@ -3,7 +3,14 @@ from django.utils.text import Truncator
 
 from common.soft_delete import SoftDeleteAdmin
 
-from .models import CheckIn, Goal, GoalRetirement, Message, PhaseTransition
+from .models import (
+    CheckIn,
+    Goal,
+    GoalRetirement,
+    Message,
+    PhaseTransition,
+    ProofAttempt,
+)
 
 
 @admin.register(Goal)
@@ -49,3 +56,12 @@ class GoalRetirementAdmin(SoftDeleteAdmin):
 @admin.register(PhaseTransition)
 class PhaseTransitionAdmin(SoftDeleteAdmin):
     list_display = ["goal", "from_phase", "to_phase", "created_at"]
+
+
+@admin.register(ProofAttempt)
+class ProofAttemptAdmin(SoftDeleteAdmin):
+    list_display = ["checkin", "excerpt", "created_at", "is_deleted"]
+
+    @admin.display(description="text")
+    def excerpt(self, obj):
+        return Truncator(obj.text).chars(120)

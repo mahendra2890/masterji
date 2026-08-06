@@ -492,6 +492,88 @@ class ProofImageTests(CoachTestCase):
         self.assertNotIn(key, str(response.data["today"]))
 
 
+@override_settings(
+    R2_ENDPOINT="https://acct.r2.cloudflarestorage.com",
+    R2_BUCKET="test-proofs",
+    R2_ACCESS_KEY_ID="key",
+    R2_SECRET_ACCESS_KEY="secret",
+)
+class ProofResubmissionTests(CoachTestCase):
+    """A pushed-back proof reopens the cycle; the retry must not erase the
+    failed try, and must never inherit its evidence."""
+
+    PUSH_BACK = '{"verdict": "push_back", "reaction": "That is your own ticket, not a user."}'
+    ACCEPT = '{"verdict": "accept", "reaction": "Good. Real outreach."}'
+
+    PNG = b"\x89PNG\r\n\x1a\n" + b"0" * 64
+
+    def declare(self):
+        self.make_goal()
+        self.client.post("/api/coach/checkins/declare/", {"text": "share the POC"})
+
+    def submit(self, reply, text, with_image=False):
+        payload = {"text": text}
+        if with_image:
+            payload["image"] = SimpleUploadedFile("shot.png", self.PNG, "image/png")
+        with (
+            mock.patch("coach.views.llm.complete", return_value=reply),
+            mock.patch("coach.views.llm.complete_with_image", return_value=reply),
+            mock.patch("coach.storage.put_image", return_value=True),
+        ):
+            return self.client.post("/api/coach/checkins/prove/", payload)
+
+    def test_the_failed_try_moves_to_the_trail_with_its_image(self):
+        self.declare()
+        self.submit(self.PUSH_BACK, "made a ticket", with_image=True)
+        rejected_key = CheckIn.objects.get().proof_image_key
+        self.assertTrue(rejected_key)
+
+        self.submit(self.ACCEPT, "DMed 4 builders, 2 replied")
+        checkin = CheckIn.objects.get()
+        attempt = checkin.attempts.get()
+        self.assertEqual(attempt.text, "made a ticket")
+        self.assertEqual(attempt.image_key, rejected_key)
+        self.assertEqual(attempt.reaction, "That is your own ticket, not a user.")
+
+    def test_accepted_proof_never_wears_the_rejected_image(self):
+        """The bug as found in prod: resubmit without an image after a
+        pushed-back image proof, and the old screenshot stayed attributed
+        to the accepted proof."""
+        self.declare()
+        self.submit(self.PUSH_BACK, "made a ticket", with_image=True)
+        self.submit(self.ACCEPT, "DMed 4 builders, 2 replied")
+        checkin = CheckIn.objects.get()
+        self.assertEqual(checkin.proof_image_key, "")
+        self.assertEqual(checkin.proof_status, CheckIn.ProofStatus.ACCEPTED)
+        self.assertEqual(checkin.pm_proof_text, "DMed 4 builders, 2 replied")
+
+    def test_first_accept_leaves_no_trail(self):
+        self.declare()
+        self.submit(self.ACCEPT, "DMed 4 builders")
+        self.assertEqual(CheckIn.objects.get().attempts.count(), 0)
+
+    def test_every_pushed_back_try_stacks(self):
+        self.declare()
+        self.submit(self.PUSH_BACK, "made a ticket")
+        self.submit(self.PUSH_BACK, "made a nicer ticket")
+        self.submit(self.ACCEPT, "actually talked to someone")
+        texts = list(
+            CheckIn.objects.get().attempts.values_list("text", flat=True)
+        )
+        self.assertEqual(texts, ["made a ticket", "made a nicer ticket"])
+
+    def test_attempts_ride_the_state_payload(self):
+        self.declare()
+        self.submit(self.PUSH_BACK, "made a ticket", with_image=True)
+        self.submit(self.ACCEPT, "talked to someone")
+        with mock.patch("coach.storage.view_url", return_value="https://signed"):
+            response = self.client.get("/api/coach/state/")
+        attempts = response.data["today"]["attempts"]
+        self.assertEqual(len(attempts), 1)
+        self.assertEqual(attempts[0]["text"], "made a ticket")
+        self.assertEqual(attempts[0]["image_url"], "https://signed")
+
+
 class StateTests(CoachTestCase):
     def test_no_goal_state(self):
         response = self.client.get("/api/coach/state/")
