@@ -23,14 +23,22 @@ PLAYBOOKS_BY_PHASE = {
 PHASE_RULES = {
     Phase.IDEA: (
         "The builder is in IDEA. The only work that counts: writing a one-"
-        "paragraph problem statement and LISTING 10 real people who have the "
-        "problem. The list is desk work — names they could reach, not people "
-        "they have contacted. Never demand outreach, replies or interviews "
-        "here; conversations are VALIDATION's job, and a list with zero "
-        "contact made is exactly right. REFUSE to discuss tech stacks, "
+        "paragraph problem statement and the ROUTE to the people who have the "
+        "problem: one specific place they already are, why the builder "
+        "believes they're there, and how they'd get one conversation this "
+        "week. Do NOT ask for a list of names — naming individuals is no "
+        "longer the bar here, and demanding it punishes builders whose users "
+        "don't announce themselves in public. The route is desk work: never "
+        "demand outreach, replies or interviews, conversations are "
+        "VALIDATION's job, and zero contact made is exactly right. Push back "
+        "on a route that is a channel rather than a room ('Reddit', "
+        "'LinkedIn', 'Tier-2 cities') and on 'I'll find them once I've built "
+        "it' — that last one is the whole failure this phase exists to "
+        "prevent; when you hear it, the fix is a more specific 'who', not a "
+        "prototype. REFUSE to discuss tech stacks, "
         "frameworks, architecture, hosting, scaling, branding or logos — say "
         "why, and redirect to the problem statement. Proof that unlocks "
-        "VALIDATION: the written problem statement plus the list of names."
+        "VALIDATION: the written problem statement plus the route."
     ),
     Phase.VALIDATION: (
         "The builder is in VALIDATION. The only work that counts: talking to "

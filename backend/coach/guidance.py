@@ -16,7 +16,7 @@ from .models import Phase
 
 # One line under the goal title. What this phase is for, in the imperative.
 PHASE_HINT = {
-    Phase.IDEA: "Write the problem statement. List 10 people who have it — no outreach yet.",
+    Phase.IDEA: "Write the problem statement, and where you'd find these people — no outreach yet.",
     Phase.VALIDATION: "Talk to real customers. Bring notes, not opinions.",
     Phase.BUILD: "Smallest thing a real user can touch this week.",
     Phase.LAUNCH: "In front of strangers. Ask for commitment.",
@@ -27,9 +27,11 @@ PHASE_HINT = {
 # check-in form cannot promise something the playbook doesn't teach.
 PROOF_HINT = {
     Phase.IDEA: (
-        "What to submit: your one-paragraph problem statement, plus a list of "
-        "10 real people who have this problem. Just names you could reach — "
-        "you are not messaging anyone yet; conversations are VALIDATION's work."
+        "What to submit: your one-paragraph problem statement, plus the route "
+        "to these people — one specific place they already are, what makes "
+        "you think they're there, and how you'd get one conversation this "
+        "week. No names needed. You are not messaging anyone yet; "
+        "conversations are VALIDATION's work."
     ),
     Phase.VALIDATION: (
         "What to submit: notes from ONE real conversation — who you spoke to, "
@@ -49,11 +51,27 @@ PROOF_HINT = {
 # Worked examples. A builder stuck at the gate rarely needs the rule restated —
 # they need to see the shape of an accepted answer. Deliberately mundane and
 # specific: a plausible college-scale proof, not a highlight reel.
+#
+# IDEA carries two on purpose, and the second one is the point. One example
+# gets read as the bar, and the hostel example alone sets it at "users you can
+# already count" — the builder standing in the queue with them. The reseller
+# example is the same bar met by a builder with no audience, whose users never
+# announce themselves anywhere countable. That case is most of them, and it is
+# the case the route replaced a name-list to serve.
 PROOF_EXAMPLES = {
     Phase.IDEA: [
         "Second-year hostellers miss dinner when labs run past 21:00 — mess "
         "shuts at 21:30. They order delivery at roughly 2x menu price, or skip "
-        "the meal. Ten names, Block C: Priya, Arjun, Sana, …",
+        "the meal. Where they are: the Block C mess queue at 21:15, and the "
+        "block WhatsApp group (180 members). Why I think so: I've been in that "
+        "queue all semester. First conversation: Thursday, ask the two people "
+        "behind me in the queue what they ate last night.",
+        "Instagram resellers doing 10–30 orders a week lose track of who paid "
+        "— they scroll DMs at night matching orders against UPI texts by hand. "
+        "Where they are: the sellers' Telegram group I joined last week, 340 "
+        "members. Why I think so: 14 messages there last month were people "
+        "asking how others keep track of payments. First conversation: reply "
+        "to the next person who asks and offer to hear how they do it today.",
     ],
     Phase.VALIDATION: [
         "Priya, 2nd yr, Block C. Last Tuesday she got back at 22:10, mess was "
@@ -87,9 +105,11 @@ PROOF_EXAMPLES = {
 GATE_NUDGE = {
     Phase.IDEA: (
         "One paragraph: who has this problem, what they do about it today, "
-        "and why that's bad. Then ten names — real people you could message, "
-        "though you won't message anyone until VALIDATION. Desk work; one "
-        "evening."
+        "and why that's bad. Then the route — one specific place these people "
+        "already are, why you think so, and the first conversation you'd get "
+        "this week. No names, no outreach until VALIDATION. Desk work; one "
+        "evening. Can't name the place? That's the 'who' still being a guess "
+        "— make it specific enough to have an address."
     ),
     Phase.VALIDATION: (
         "One conversation. Ten minutes, someone who already has the problem. "

@@ -213,6 +213,15 @@ class GateTests(CoachTestCase):
         phase that can refuse but has no nudge is the silent door again."""
         self.assertEqual(set(gates.PROOFS_REQUIRED), set(guidance.GATE_NUDGE))
 
+    def test_idea_keeps_a_no_audience_example(self):
+        """IDEA's second example — a route into a room of strangers, for a
+        builder whose users never announce themselves anywhere countable — is
+        load-bearing, not padding. One example gets read as the bar, and the
+        hostel example alone sets it at "users you can already count", which
+        is the reading that makes builders without an audience quit here."""
+        examples = guidance.PROOF_EXAMPLES[Phase.IDEA]
+        self.assertGreaterEqual(len(examples), 2)
+
 
 # --- daily loop ----------------------------------------------------------------
 
@@ -681,7 +690,7 @@ class SameDayCyclesTests(CoachTestCase):
 
     def test_two_phases_in_one_day(self):
         goal = self.make_goal()
-        self._cycle("problem statement", "statement + 10 names")
+        self._cycle("problem statement", "statement + route")
         self.client.post(f"/api/coach/goals/{goal.pk}/advance/")
         goal.refresh_from_db()
         self.assertEqual(goal.phase, "VALIDATION")

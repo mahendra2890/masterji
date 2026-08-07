@@ -18,9 +18,9 @@ declare the front half.
 ## A deadline is a feature
 Levels ships projects against short, public, self-imposed deadlines — the
 date does the work a boss would do. Set the launch date **before** the
-build feels ready, and tell the ten people from your VALIDATION
-conversations. The mild embarrassment of a named date is cheaper than the
-quiet death of an open-ended one. Masterji's evening proof is the same
+build feels ready, and tell the people you talked to in VALIDATION. The
+mild embarrassment of a named date is cheaper than the quiet death of an
+open-ended one. Masterji's evening proof is the same
 mechanism at daily scale: the clock, not the mood, decides when work is
 shown.
 

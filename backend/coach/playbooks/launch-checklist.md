@@ -7,8 +7,8 @@ press cycle, not a logo reveal. You will launch the same product ten times —
 each time to a new pond, each time asking a little more plainly for money.
 
 ## The ladder (climb one rung per day)
-1. **The ten you know.** Send it personally to the people from your
-   VALIDATION conversations. Personal message, one line, direct ask:
+1. **The ones who talked to you.** Send it personally to the people from
+   your VALIDATION conversations. Personal message, one line, direct ask:
    "You told me X was a pain — here's the thing, does it fix it?"
 2. **The rooms they sit in.** The WhatsApp/Telegram groups, hostel notice
    boards, subreddit, college forum where your users already gather. Post as
