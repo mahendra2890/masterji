@@ -342,6 +342,17 @@ async function request<T>(
 
 /* --- endpoints ------------------------------------------------------------ */
 
+/** The browser's own date, YYYY-MM-DD. The server runs in UTC and a builder
+ * does not, so which day the daily loop is on is the browser's to say. Sent
+ * on every call that writes to a day OR reads one — a read that skipped it
+ * looked for today's task under yesterday's date and found nothing. */
+const localDate = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
+    d.getDate()
+  ).padStart(2, "0")}`;
+};
+
 export async function getState(): Promise<CoachState> {
   const data = await request<{
     goal: ServerGoal | null;
@@ -362,7 +373,7 @@ export async function getState(): Promise<CoachState> {
     archive?: ServerRetirement[];
     lifetime_days?: number;
     tone: CoachState["tone"];
-  }>("state/");
+  }>(`state/?date=${localDate()}`);
   return {
     goal: data.goal ? fromServerGoal(data.goal) : null,
     gate: fromServerGate(data.gate ?? null),
@@ -483,13 +494,6 @@ export async function advanceGoal(
   return request(`goals/${id}/advance/`, { method: "POST" });
 }
 
-const localDate = () => {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
-    d.getDate()
-  ).padStart(2, "0")}`;
-};
-
 export async function declare(text: string): Promise<CheckIn> {
   const data = await request<ServerCheckIn>("checkins/declare/", {
     method: "POST",
@@ -564,7 +568,10 @@ export async function streamChat(
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ content }),
+    // The date goes with it so Masterji is told about the task on the hook
+    // today — without it he opens a 1am conversation insisting nothing has
+    // been declared, while it's on screen next to him.
+    body: JSON.stringify({ content, date: localDate() }),
   });
   if (res.status === 401) {
     if (!retried && (await refreshSession())) return streamChat(content, events, true);

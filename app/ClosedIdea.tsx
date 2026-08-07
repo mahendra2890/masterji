@@ -6,28 +6,12 @@
 // with every dashboard payload.
 
 import { useEffect, useState } from "react";
-import {
-  getGoalHistory,
-  type CheckIn,
-  type GoalHistory,
-  type Retirement,
-} from "@/lib/coach-api";
-import FailedTries from "@/components/FailedTries";
+import { getGoalHistory, type GoalHistory, type Retirement } from "@/lib/coach-api";
+import DayRecord from "@/components/DayRecord";
 import styles from "./masterji.module.css";
 
 const formatDate = (iso: string) =>
   new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short" });
-
-/** A day's verdict, spelled out. The compact ✓/✗ works in the sidebar where
- * space is tight; in the record it just makes the reader decode a glyph. */
-const VERDICT: Record<
-  CheckIn["proofStatus"],
-  { label: string; className: (s: Record<string, string>) => string }
-> = {
-  ACCEPTED: { label: "accepted", className: (s) => s.chipGood },
-  PUSHED_BACK: { label: "pushed back", className: (s) => s.chipBad },
-  NONE: { label: "no proof", className: (s) => s.chipNone },
-};
 
 export default function ClosedIdea({
   closed,
@@ -109,66 +93,7 @@ export default function ClosedIdea({
           <ol className={styles.dayList}>
             {history.checkins.map((c) => (
               <li key={c.id} className={styles.day}>
-                <p className={styles.dayHead}>
-                  <span className={styles.dayDate}>{c.date}</span>
-                  {c.phase && <span className={styles.dayPhase}>{c.phase}</span>}
-                  <span className={VERDICT[c.proofStatus].className(styles)}>
-                    {VERDICT[c.proofStatus].label}
-                  </span>
-                </p>
-
-                {c.amDeclaration && (
-                  <p className={styles.dayLine}>
-                    <span className={styles.dayWho}>Declared</span>
-                    <span className={styles.dayBody}>{c.amDeclaration}</span>
-                  </p>
-                )}
-
-                {c.pmProofText && (
-                  <p className={styles.dayLine}>
-                    <span className={styles.dayWho}>Proof</span>
-                    <span className={styles.dayBody}>{c.pmProofText}</span>
-                  </p>
-                )}
-
-                {c.proofUrl && (
-                  <p className={styles.dayLine}>
-                    <span className={styles.dayWho}>Link</span>
-                    <a
-                      className={styles.dayBody}
-                      href={c.proofUrl}
-                      target="_blank"
-                      rel="noreferrer noopener"
-                    >
-                      {c.proofUrl}
-                    </a>
-                  </p>
-                )}
-
-                {c.proofImageUrl && (
-                  <p className={styles.dayLine}>
-                    <span className={styles.dayWho}>Shot</span>
-                    {/* eslint-disable-next-line @next/next/no-img-element --
-                        presigned URL, re-signed on every read; no static host
-                        for next/image to optimise against. */}
-                    <img
-                      className={styles.dayImage}
-                      src={c.proofImageUrl}
-                      alt="The screenshot submitted as proof that day"
-                    />
-                  </p>
-                )}
-
-                <FailedTries attempts={c.attempts} />
-
-                {c.coachReaction && (
-                  <p className={styles.dayLine}>
-                    <span className={styles.dayWho}>Masterji</span>
-                    <span className={`${styles.dayBody} ${styles.dayCoach}`}>
-                      {c.coachReaction}
-                    </span>
-                  </p>
-                )}
+                <DayRecord checkin={c} />
               </li>
             ))}
           </ol>

@@ -10,6 +10,7 @@ import { signOutAndLeave } from "@/components/AuthGate";
 import FailedTries from "@/components/FailedTries";
 import Changelog from "@/components/Changelog";
 import ClosedIdea from "./ClosedIdea";
+import DayDetail from "./DayDetail";
 import { updateTone, type SessionUser } from "@/lib/auth-client";
 import {
   advanceGoal,
@@ -22,6 +23,7 @@ import {
   prove,
   retireGoal,
   streamChat,
+  type CheckIn,
   type CoachState,
   type Phase,
   type Retirement,
@@ -42,6 +44,38 @@ const CLOSED_CHIP: Record<
 
 const formatDate = (iso: string) =>
   new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+
+/** A day's verdict in one glyph, for the compact rows. Same shape as
+ * CLOSED_CHIP above — a property access, not a string lookup, so a renamed
+ * class is a type error rather than an undefined className at runtime. */
+const CHIP: Record<
+  CheckIn["proofStatus"],
+  { glyph: string; className: (s: Record<string, string>) => string }
+> = {
+  ACCEPTED: { glyph: "✓", className: (s) => s.chipGood },
+  PUSHED_BACK: { glyph: "✗", className: (s) => s.chipBad },
+  NONE: { glyph: "…", className: (s) => s.chipNone },
+};
+
+/** One line of the record, and the way into that day.
+ *
+ * A row is a summary, so it has to open: the proof, the screenshot and
+ * Masterji's reaction are all on the check-in and were reachable from
+ * nowhere. Shared by the sidebar record and the phase drill-in, which show
+ * the same rows and must open the same thing. */
+function HistoryRow({ checkin: c, onOpen }: { checkin: CheckIn; onOpen: () => void }) {
+  return (
+    <li className={styles.historyItem}>
+      <button className={styles.historyRow} onClick={onOpen} title="Open this day">
+        <span className={styles.historyDate}>{c.date.slice(5)}</span>
+        <span className={styles.historyText}>{c.amDeclaration || "—"}</span>
+        <span className={CHIP[c.proofStatus].className(styles)}>
+          {CHIP[c.proofStatus].glyph}
+        </span>
+      </button>
+    </li>
+  );
+}
 
 export default function Masterji({ user }: { user: SessionUser }) {
   const [state, setState] = useState<CoachState | null>(null);
@@ -71,6 +105,10 @@ export default function Masterji({ user }: { user: SessionUser }) {
 
   // The stepper drill-in: which completed phase is being reviewed, if any.
   const [viewPhase, setViewPhase] = useState<Phase | null>(null);
+  // A single day of the record, opened from a row. Stacks over the phase
+  // drill-in rather than replacing it — the phase list is where the reader
+  // was, and closing one day shouldn't cost them their place in it.
+  const [viewDay, setViewDay] = useState<CheckIn | null>(null);
   // Opening a second cycle after today's proof already landed.
   const [declaringAgain, setDeclaringAgain] = useState(false);
   // Retiring the current goal: the form, and what Masterji said about it.
@@ -687,25 +725,7 @@ export default function Masterji({ user }: { user: SessionUser }) {
               <p className={styles.cardLabel}>The record</p>
               <ul className={styles.history}>
                 {checkins.map((c) => (
-                  <li key={c.id} className={styles.historyRow}>
-                    <span className={styles.historyDate}>{c.date.slice(5)}</span>
-                    <span className={styles.historyText}>{c.amDeclaration || "—"}</span>
-                    <span
-                      className={
-                        c.proofStatus === "ACCEPTED"
-                          ? styles.chipGood
-                          : c.proofStatus === "PUSHED_BACK"
-                            ? styles.chipBad
-                            : styles.chipNone
-                      }
-                    >
-                      {c.proofStatus === "ACCEPTED"
-                        ? "✓"
-                        : c.proofStatus === "PUSHED_BACK"
-                          ? "✗"
-                          : "…"}
-                    </span>
-                  </li>
+                  <HistoryRow key={c.id} checkin={c} onOpen={() => setViewDay(c)} />
                 ))}
               </ul>
             </section>
@@ -823,27 +843,7 @@ export default function Masterji({ user }: { user: SessionUser }) {
                 ) : (
                   <ul className={styles.history}>
                     {windowCheckins.map((c) => (
-                      <li key={c.id} className={styles.historyRow}>
-                        <span className={styles.historyDate}>{c.date.slice(5)}</span>
-                        <span className={styles.historyText}>
-                          {c.amDeclaration || "—"}
-                        </span>
-                        <span
-                          className={
-                            c.proofStatus === "ACCEPTED"
-                              ? styles.chipGood
-                              : c.proofStatus === "PUSHED_BACK"
-                                ? styles.chipBad
-                                : styles.chipNone
-                          }
-                        >
-                          {c.proofStatus === "ACCEPTED"
-                            ? "✓"
-                            : c.proofStatus === "PUSHED_BACK"
-                              ? "✗"
-                              : "…"}
-                        </span>
-                      </li>
+                      <HistoryRow key={c.id} checkin={c} onOpen={() => setViewDay(c)} />
                     ))}
                   </ul>
                 )}
@@ -851,6 +851,18 @@ export default function Masterji({ user }: { user: SessionUser }) {
             </div>
           );
         })()}
+
+      {/* Last, so it layers over the phase drill-in it can be opened from.
+          Re-read from `checkins` by id rather than rendered from the stored
+          row: a refresh behind the modal (a proof landing, a judgement
+          arriving) would otherwise leave the open day showing the version
+          that was on screen when it was clicked. */}
+      {viewDay && (
+        <DayDetail
+          checkin={checkins.find((c) => c.id === viewDay.id) ?? viewDay}
+          onClose={() => setViewDay(null)}
+        />
+      )}
     </main>
   );
 }
