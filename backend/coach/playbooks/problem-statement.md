@@ -24,38 +24,62 @@ One paragraph, four things in it:
 If you can't fill in all four honestly, you have an idea, not a problem
 statement. Go find the fourth thing before writing a line of code.
 
-## Finding the ten people
-This is a list, not a campaign. You are not messaging anyone in IDEA — no
-outreach, no "would you use this?", no asking anyone to say they need it.
-That's VALIDATION's work, and there the bar is three conversations, not ten.
-Ten here is the size that proves you know WHO has the problem: if you can't
-name ten, you don't know your segment yet.
+## The route
+The paragraph says who has the problem. The route says how you get to them.
+Three things, and none of them is a list of names:
 
-They don't need contact details yet — you need to be able to name them and
-know where to reach them tomorrow. Start absurdly close: your hostel floor,
-your class WhatsApp group, your family's shop, your college's E-Cell. Ten
-random names from LinkedIn is a guess; ten people from a group chat you're
-already in is a list you can act on this week.
+1. **Where they already are.** One specific place, not a demographic. A
+   340-member sellers' group, the twelve clinics on one road, the subreddit
+   where this gets complained about weekly, your own hostel floor. If the
+   only answer is "on Instagram" or "in Tier-2 cities", you haven't found
+   the room yet — that's tonight's work, and it's the whole work.
+2. **Why you think they're there.** The evidence, in one line. A thread you
+   read. A complaint you overheard. Your own last six months. This is the
+   part that's hard to fake and the part Masterji reads hardest: a route
+   with no reason behind it is a guess in a nicer format.
+3. **How you get one conversation this week.** Not ten — one. Which door,
+   what you'd open with, and when.
 
-A useful test: could you message all ten by tonight? If not, the list is
-aspirational, not real.
+Naming ten actual people used to be the bar here. It got cut for a reason
+worth understanding: how hard ten names is depends almost entirely on
+whether your users announce themselves in public. Hostellers who miss
+dinner are trivially countable. Procurement managers who lose track of
+vendor renewals are not, and the difference between those two is not a
+difference in idea quality. The gate was charging for an evening of
+research to test something the route tests in a paragraph.
+
+What did *not* get cut: you still have to know where these people are.
+"I'll find them once I've built it" is the answer that sends builders into
+six months of building for nobody. If you genuinely cannot name the room,
+the problem is not that you need a POC first — it's that the "who" in your
+paragraph is still a guess. Go make it specific enough to have an address.
+
+You are not messaging anyone in IDEA. No outreach, no "would you use
+this?", no asking anyone to confirm they need it. That's VALIDATION's work
+and it starts the moment this phase unlocks.
 
 ## What counts as PROOF for Masterji
 - The one-paragraph problem statement, all four parts filled in honestly —
   including the workaround, which builders conveniently skip because it's
   less flattering than the "no one's solved this" story.
-- The list of 10 real, named, reachable people — not a demographic
-  description standing in for a list.
+- The route: the specific place, the reason you believe they're there, and
+  the first conversation you'd get this week. A place you cannot get into
+  is not a route.
 
 ## Signals you're learning
 - You can name the workaround before you name your solution.
-- Your ten people are specific enough that a stranger reading the list
-  could go find them too.
+- Your route is specific enough that a stranger could follow it and find
+  the same people.
+- The reason you believe they're there is something you saw, not something
+  that sounds plausible.
 
 ## Signals you're hiding
 - The "who" is a market size ("Gen Z in India") instead of a group you
-  could message tonight.
+  could walk into tonight.
 - Skipping the workaround because admitting "they just deal with it" makes
   the problem feel smaller than you want it to be.
+- The route is a channel, not a room: "LinkedIn", "Reddit", "college
+  students" — nowhere you could actually turn up.
+- "I'll know who they are once there's something to show them."
 - Polishing the paragraph's prose instead of testing whether its facts are
   true.
