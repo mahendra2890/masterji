@@ -90,6 +90,49 @@ def _parse_date(value) -> date:
     return day
 
 
+def _client_day(request) -> date:
+    """Which day the daily loop is on, for the endpoints that READ it.
+
+    The writes have taken the client's local date since the beginning (see
+    _parse_date) while the reads used the server's UTC date, and the two
+    disagree for every builder whose clock is ahead of UTC. In IST a task
+    declared at 01:00 was filed under today, then looked for under
+    yesterday: the dashboard came back with an empty "Morning. One task"
+    form and the task sitting in the record underneath it, so declaring
+    read as a button that does nothing.
+
+    Same bounds as the write path, but a bad value falls back to the
+    server's date instead of 400ing — a garbled query string must not cost
+    the builder their whole dashboard.
+    """
+    raw = request.query_params.get("date") or (
+        request.data.get("date") if hasattr(request.data, "get") else None
+    )
+    try:
+        return _parse_date(raw)
+    except ValueError:
+        return timezone.now().date()
+
+
+def _days_active(goal: Goal, today: date) -> int:
+    """The goal's span, counted on ONE calendar.
+
+    `goal.created_at` is a server UTC timestamp while every check-in date is
+    the browser's local date, so subtracting one from the other drops a day
+    for anyone whose clock is ahead of UTC — a builder who worked an evening
+    and then past midnight IST closed out to "1 day active · best streak 2",
+    which is not a thing that can be true. Widening the span to whatever the
+    check-ins already claim puts both numbers back on the same calendar
+    without trusting the client for anything it can't already write.
+    """
+    # Materialised once: a lazy values_list would re-run the query for each
+    # of the two bounds below.
+    dates = list(goal.checkins.values_list("date", flat=True))
+    start = min([goal.created_at.date(), *dates])
+    end = max([today, *dates])
+    return (end - start).days + 1
+
+
 def _today_state(checkin: CheckIn | None) -> str:
     if checkin is None or not checkin.am_declaration:
         return "NO declaration yet today — demand one before anything else."
@@ -135,7 +178,7 @@ class StateView(APIView):
                     "tone": request.user.tone,
                 }
             )
-        today = timezone.now().date()
+        today = _client_day(request)
         checkin = _latest_checkin(goal, today)
         messages = list(goal.messages.order_by("-created_at")[:HISTORY_LIMIT])[::-1]
         return Response(
@@ -299,7 +342,7 @@ class RetireView(APIView):
             phase_reached=goal.phase,
             accepted_proofs=gates.accepted_proofs_total(goal),
             contact_proofs=gates.contact_proofs(goal),
-            days_active=(timezone.now().date() - goal.created_at.date()).days + 1,
+            days_active=_days_active(goal, _client_day(request)),
             best_streak=streaks.best_streak(goal),
         )
         goal.status = (
@@ -597,7 +640,10 @@ class ProveView(APIView):
             {
                 "checkin": CheckInSerializer(checkin).data,
                 "gate": _gate_payload(goal),
-                "streak": streaks.current_streak(goal, timezone.now().date()),
+                # `day` is the builder's date, the same one this proof was
+                # filed under — the streak counts back from the day they
+                # just closed, not from whatever day it is in UTC.
+                "streak": streaks.current_streak(goal, day),
             }
         )
 
@@ -664,7 +710,7 @@ class ChatView(APIView):
             goal=goal, role=Message.Role.USER, phase=goal.phase, content=content
         )
 
-        today = timezone.now().date()
+        today = _client_day(request)
         checkin = _latest_checkin(goal, today)
         system = prompts.build_system_prompt(
             goal,

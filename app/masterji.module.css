@@ -445,11 +445,41 @@
   gap: 6px;
 }
 
+/* The row is a button: a day holds the proof, the screenshot, the failed
+   tries and Masterji's reaction, and the summary line is the only way in.
+   Styled to read as a line of a record rather than as a control — the
+   affordance is the hover/press, not a border. */
 .historyRow {
+  width: 100%;
   display: flex;
   align-items: baseline;
   gap: 8px;
   font-size: 13px;
+  background: none;
+  border: none;
+  /* The negative inline margin lets the hover tint bleed past the text to
+     the card's padding, so the target reads as the whole row. */
+  margin: 0 -8px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  color: inherit;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.historyRow:hover,
+.historyRow:focus-visible {
+  background: var(--surface-2);
+}
+
+.historyRow:hover .historyDate {
+  color: var(--accent);
+}
+
+/* The li is only a list slot now — the row inside it does the layout. */
+.historyItem {
+  display: block;
 }
 
 .historyDate {
@@ -944,6 +974,12 @@
 .modalEmpty {
   color: var(--muted);
   font-size: 14px;
+}
+
+/* A day can be opened from inside the phase drill-in, so it has to sit above
+   it — including the overlay, or the phase modal shows through the tint. */
+.dayOverlay {
+  z-index: 60;
 }
 
 /* --- responsive -------------------------------------------------------------------------------- */

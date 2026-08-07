@@ -767,6 +767,136 @@ class HistoryDoesNotDriftTests(CoachTestCase):
         self.assertEqual(str(goal), "Tiffin app")
 
 
+class ClientDayTests(CoachTestCase):
+    """The reads must define "today" the same way the writes do.
+
+    Writes have always taken the browser's local date; the reads used the
+    server's UTC date, and the two disagree for every builder whose clock is
+    ahead of UTC. A task declared at 01:00 IST was filed under today and
+    looked for under yesterday, so the dashboard returned no open check-in
+    and re-rendered the empty declaration form with the task visible in the
+    record underneath it — declaring looked like a button that did nothing.
+
+    `tomorrow` here is the client's date, not a claim about the future: it is
+    what a browser in IST sends between midnight and 05:30 while the server
+    is still on the previous UTC day.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.goal = self.make_goal(phase="VALIDATION")
+        self.tomorrow = (date.today() + timedelta(days=1)).isoformat()
+
+    def declare_ahead(self, text="late night push"):
+        return self.client.post(
+            "/api/coach/checkins/declare/", {"text": text, "date": self.tomorrow}
+        )
+
+    def test_state_reads_back_the_day_the_client_declared(self):
+        self.declare_ahead()
+        response = self.client.get(f"/api/coach/state/?date={self.tomorrow}")
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNotNone(response.data["today"], "declaration vanished from TODAY")
+        self.assertEqual(response.data["today"]["am_declaration"], "late night push")
+
+    def test_the_task_is_not_stranded_in_the_record(self):
+        """The exact reported shape: on the record, absent from TODAY."""
+        self.declare_ahead()
+        data = self.client.get(f"/api/coach/state/?date={self.tomorrow}").data
+        self.assertEqual(data["checkins"][0]["am_declaration"], "late night push")
+        self.assertEqual(
+            data["today"]["id"],
+            data["checkins"][0]["id"],
+            "TODAY and the record disagree about the same check-in",
+        )
+
+    def test_proving_closes_the_day_the_client_opened(self):
+        self.declare_ahead()
+        with mock.patch(
+            "coach.views.llm.complete",
+            return_value='{"verdict": "accept", "reaction": "ok"}',
+        ):
+            response = self.client.post(
+                "/api/coach/checkins/prove/", {"text": "done", "date": self.tomorrow}
+            )
+        self.assertEqual(response.status_code, 200)
+        # The streak counts back from the day the proof was filed under. Read
+        # off the server's UTC day it lands on an empty date and reports 0 —
+        # a builder finishing after midnight watching their streak reset.
+        self.assertEqual(response.data["streak"], 1)
+        state = self.client.get(f"/api/coach/state/?date={self.tomorrow}").data
+        self.assertEqual(state["streak"], 1)
+        self.assertEqual(state["today"]["proof_status"], "ACCEPTED")
+
+    def test_chat_knows_about_the_task_on_the_hook(self):
+        """Masterji opening a 1am conversation with "you haven't declared
+        anything" while it sits on screen next to him."""
+        self.declare_ahead("call the mess contractor")
+        with mock.patch("coach.views.llm.stream_chat", return_value=iter([])) as streamed:
+            response = self.client.post(
+                "/api/coach/chat/", {"content": "what now?", "date": self.tomorrow}
+            )
+            # The prompt is built inside the generator; nothing runs until the
+            # stream is consumed.
+            b"".join(response.streaming_content)
+        system = streamed.call_args.args[0]
+        self.assertIn("call the mess contractor", system)
+
+    def test_state_falls_back_to_the_server_day(self):
+        """No date sent — an older client, or a page opened without one."""
+        self.client.post("/api/coach/checkins/declare/", {"text": "today's task"})
+        response = self.client.get("/api/coach/state/")
+        self.assertEqual(response.data["today"]["am_declaration"], "today's task")
+
+    def test_an_unusable_date_costs_nothing(self):
+        """A garbled query string must not take the whole dashboard down with
+        it — unlike the writes, which are right to 400."""
+        self.client.post("/api/coach/checkins/declare/", {"text": "today's task"})
+        for bad in ("garbage", "2027-01-01", "", "2026-13-45"):
+            with self.subTest(date=bad):
+                response = self.client.get(f"/api/coach/state/?date={bad}")
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.data["today"]["am_declaration"], "today's task")
+
+    def test_days_active_cannot_undercount_the_record(self):
+        """The closing card puts "N days active" and "best streak M" side by
+        side, so N < M is a visible contradiction. It happened whenever the
+        builder's calendar ran ahead of the server's: the span was measured
+        in UTC, the streak in check-in dates."""
+        with mock.patch(
+            "coach.views.llm.complete",
+            return_value='{"verdict": "accept", "reaction": "ok"}',
+        ):
+            for day in (date.today().isoformat(), self.tomorrow):
+                self.client.post(
+                    "/api/coach/checkins/declare/", {"text": "work", "date": day}
+                )
+                self.client.post(
+                    "/api/coach/checkins/prove/", {"text": "done", "date": day}
+                )
+        with mock.patch("coach.views.llm.complete", return_value="Noted."):
+            response = self.client.post(
+                f"/api/coach/goals/{self.goal.pk}/complete/",
+                {"reason": "Shipped it.", "date": self.tomorrow},
+            )
+        retirement = response.data["retirement"]
+        self.assertEqual(retirement["best_streak"], 2)
+        self.assertGreaterEqual(
+            retirement["days_active"],
+            retirement["best_streak"],
+            "closed out to fewer days active than the streak it recorded",
+        )
+
+    def test_a_read_cannot_mint_a_backdated_day(self):
+        """The read path shares the write path's bounds, so a crafted date
+        can't be used to peek at — or open — a day outside the window."""
+        self.client.post("/api/coach/checkins/declare/", {"text": "today's task"})
+        far = (date.today() - timedelta(days=30)).isoformat()
+        response = self.client.get(f"/api/coach/state/?date={far}")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(CheckIn.objects.filter(goal=self.goal).count(), 1)
+
+
 class RetireTests(CoachTestCase):
     """Retiring is always allowed and never silent. The verdict on whether the
     idea was actually tested is the server's, computed from earned proofs."""
