@@ -414,6 +414,39 @@ export async function getGoalHistory(id: number): Promise<GoalHistory> {
   };
 }
 
+/** One line of the product's own record. Written in the admin, not in the
+ * client — the list is the same for every reader, so nothing here is scoped
+ * to a user. */
+export type ChangelogEntry = {
+  id: number;
+  /** YYYY-MM-DD — the day the change reached builders. */
+  shippedOn: string;
+  kind: "NEW" | "CHANGED" | "FIXED" | "METHOD";
+  title: string;
+  body: string;
+};
+
+/** Every active entry, newest first. The one endpoint here that answers
+ * without a session, so the demo and the signed-out screens can read it. */
+export async function getChangelog(): Promise<ChangelogEntry[]> {
+  const data = await request<{
+    entries: {
+      id: number;
+      shipped_on: string;
+      kind: ChangelogEntry["kind"];
+      title: string;
+      body: string;
+    }[];
+  }>("changelog/");
+  return (data.entries ?? []).map((e) => ({
+    id: e.id,
+    shippedOn: e.shipped_on,
+    kind: e.kind,
+    title: e.title,
+    body: e.body,
+  }));
+}
+
 /** Retire the active goal. Always permitted — a reason is required, and the
  * server derives whether the idea was actually tested. */
 export async function retireGoal(

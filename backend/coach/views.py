@@ -20,13 +20,22 @@ from django.utils import timezone
 from loguru import logger
 from opentelemetry import trace
 from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from . import gates, guidance, llm, prompts, storage, streaks
-from .models import CheckIn, Goal, GoalRetirement, Message, Phase, ProofAttempt
+from .models import (
+    ChangelogEntry,
+    CheckIn,
+    Goal,
+    GoalRetirement,
+    Message,
+    Phase,
+    ProofAttempt,
+)
 from .serializers import (
+    ChangelogEntrySerializer,
     CheckInSerializer,
     GoalSerializer,
     MessageSerializer,
@@ -735,3 +744,23 @@ class ChatView(APIView):
                     content=content,
                 )
             yield line({"t": "done"})
+
+
+# --- the product's own record ---------------------------------------------
+
+
+class ChangelogView(APIView):
+    """What has changed in Masterji, newest first.
+
+    Public, unlike everything else here: the demo and the sign-in screen
+    reach it too, and a changelog kept behind a login is a press release.
+    Active rows only — an entry can be written before the change ships.
+    """
+
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        entries = ChangelogEntry.objects.filter(is_active=True)
+        return Response(
+            {"entries": ChangelogEntrySerializer(entries, many=True).data}
+        )

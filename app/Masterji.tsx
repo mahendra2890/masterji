@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { signOutAndLeave } from "@/components/AuthGate";
 import FailedTries from "@/components/FailedTries";
+import Changelog from "@/components/Changelog";
 import ClosedIdea from "./ClosedIdea";
 import { updateTone, type SessionUser } from "@/lib/auth-client";
 import {
@@ -316,9 +317,12 @@ export default function Masterji({ user }: { user: SessionUser }) {
           </section>
         )}
 
-        <button className={styles.linkBtn} onClick={signOutAndLeave}>
-          sign out
-        </button>
+        <div className={styles.onboardFooter}>
+          <button className={styles.linkBtn} onClick={signOutAndLeave}>
+            sign out
+          </button>
+          <Changelog />
+        </div>
 
         {viewClosed && (
           <ClosedIdea closed={viewClosed} onClose={() => setViewClosed(null)} />
@@ -369,6 +373,7 @@ export default function Masterji({ user }: { user: SessionUser }) {
             </span>
           )}
           <span className={styles.who}>{user.username}</span>
+          <Changelog />
           <button className={styles.linkBtn} onClick={signOutAndLeave}>
             sign out
           </button>
