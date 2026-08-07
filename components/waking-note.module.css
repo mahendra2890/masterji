@@ -1,0 +1,76 @@
+/* Wraps the note wherever it appears — the /admin/ interstitial and the
+   app's own gate both centre it on an otherwise empty screen. */
+.screen {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: 24px;
+}
+
+.card {
+  width: 100%;
+  max-width: 480px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 26px 24px;
+}
+
+.kicker {
+  margin: 0 0 6px;
+  font-family: var(--font-mono), monospace;
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.title {
+  font-size: 26px;
+  margin-bottom: 12px;
+}
+
+.body {
+  margin: 0;
+  color: var(--muted);
+  font-size: 15px;
+}
+
+.bar {
+  height: 3px;
+  margin: 22px 0 10px;
+  background: var(--surface-2);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.fill {
+  display: block;
+  height: 100%;
+  width: var(--progress, 0%);
+  background: var(--accent);
+  border-radius: 2px;
+  transition: width 1s linear;
+}
+
+.meta {
+  margin: 0;
+  font-family: var(--font-mono), monospace;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.dim {
+  color: var(--muted);
+}
+
+.late {
+  margin: 14px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+  border-top: 1px dashed var(--border);
+  padding-top: 14px;
+}

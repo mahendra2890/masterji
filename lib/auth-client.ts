@@ -13,20 +13,52 @@ export type SessionUser = {
   tone: "ENGLISH" | "HINGLISH";
 };
 
+/** The backend hasn't answered anything Django wrote — Render's free
+ * instance is still coming up. Kept apart from a 401 on purpose: a boot in
+ * progress is "wait", not "signed out", and the difference is what stops an
+ * idle tab from throwing a signed-in user back to /login/. */
+export class ApiNotReady extends Error {}
+
+/** Past this, assume the instance is booting rather than slow. Warm, these
+ * calls come back in a few hundred ms; the caller retries, so guessing
+ * early costs a retry and guessing late costs a blank screen. */
+const READY_TIMEOUT_MS = 5000;
+
 /** Current user, or null when not signed in. Silently refreshes an
- * expired access token once before giving up. */
+ * expired access token once before giving up. Throws ApiNotReady while the
+ * backend is still starting. */
 export async function fetchMe(): Promise<SessionUser | null> {
-  const me = () => fetch(`${API_URL}/api/auth/me/`, { credentials: "include" });
+  const me = () => ask("/api/auth/me/");
   let res = await me();
   if (res.status === 401) {
-    const refreshed = await fetch(`${API_URL}/api/auth/refresh/`, {
-      method: "POST",
-      credentials: "include",
-    });
+    const refreshed = await ask("/api/auth/refresh/", { method: "POST" });
     if (!refreshed.ok) return null;
     res = await me();
   }
   return res.ok ? res.json() : null;
+}
+
+/** One auth call, with "the server isn't up yet" separated from every
+ * answer Django can give. A sleeping instance is the loud case: Render's
+ * edge returns its own holding page with a cheerful 200, so an unchecked
+ * res.json() would throw and read as a dead session. Every view in
+ * accounts/views.py answers JSON, 401s included — anything else isn't
+ * Django talking. */
+async function ask(path: string, init: RequestInit = {}): Promise<Response> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}${path}`, {
+      credentials: "include",
+      signal: AbortSignal.timeout(READY_TIMEOUT_MS),
+      ...init,
+    });
+  } catch {
+    throw new ApiNotReady(); // aborted, offline, DNS, connection refused
+  }
+  if (!(res.headers.get("content-type") ?? "").includes("application/json")) {
+    throw new ApiNotReady();
+  }
+  return res;
 }
 
 export async function updateTone(

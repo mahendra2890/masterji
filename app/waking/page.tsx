@@ -1,3 +1,4 @@
+import noteStyles from "@/components/waking-note.module.css";
 import styles from "./waking.module.css";
 import Waking from "./Waking";
 
@@ -22,7 +23,7 @@ export default async function WakingPage({
   const logs = `${dest}${dest.includes("?") ? "&" : "?"}boot=logs`;
 
   return (
-    <main className={styles.main}>
+    <main className={noteStyles.screen}>
       <a className={styles.flag} href={logs}>
         show the server&apos;s own boot logs →
       </a>
