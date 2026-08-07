@@ -1,0 +1,14 @@
+/* Without a cap, one column (usually the linked goal/title column) can
+   balloon and push the rest of the row past the visible width. Wrapping
+   instead of stretching keeps every column on screen. */
+#changelist #result_list th,
+#changelist #result_list td {
+    max-width: 260px;
+    overflow-wrap: break-word;
+    white-space: normal;
+}
+
+#changelist #result_list th.field-excerpt,
+#changelist #result_list td.field-excerpt {
+    max-width: 440px;
+}

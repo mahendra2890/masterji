@@ -57,6 +57,9 @@ class SoftDeleteAdmin(admin.ModelAdmin):
 
     actions = ["restore_selected"]
 
+    class Media:
+        css = {"all": ("coach/css/admin_changelist.css",)}
+
     def get_queryset(self, request):
         qs = self.model.all_objects.get_queryset()
         ordering = self.get_ordering(request)
