@@ -50,6 +50,13 @@
   flex: 1;
 }
 
+/* The quiet row under the onboarding form: sign out, and what's changed. */
+.onboardFooter {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
 /* --- app shell ------------------------------------------------------------ */
 
 .app {

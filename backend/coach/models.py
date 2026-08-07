@@ -233,3 +233,46 @@ class PhaseTransition(SoftDeleteModel):
 
     def __str__(self):
         return f"{self.goal_id}: {self.from_phase} → {self.to_phase}"
+
+
+class ChangelogEntry(SoftDeleteModel):
+    """What has changed in the product, in the builder's language.
+
+    The only table here that belongs to nobody: it's the same list for every
+    reader, edited from the admin and served to signed-out visitors too.
+    Content is deliberately editorial — an entry is written when a change is
+    something a builder would notice, which is not the same set as commits.
+
+    Two switches, on purpose: `is_active` is publication (write an entry now,
+    show it when the change is live, retire it later without losing the text),
+    while `deleted_at` is the house-wide soft delete. Only rows that are both
+    active and undeleted are served.
+    """
+
+    class Kind(models.TextChoices):
+        NEW = "NEW", "New"
+        CHANGED = "CHANGED", "Changed"
+        FIXED = "FIXED", "Fixed"
+        METHOD = "METHOD", "Method"
+
+    # The day the change reached builders, not when the row was typed — those
+    # differ, and the date on a changelog is a claim about the product.
+    shipped_on = models.DateField()
+    kind = models.CharField(max_length=8, choices=Kind.choices, default=Kind.CHANGED)
+    title = models.CharField(max_length=120)
+    body = models.TextField()
+    is_active = models.BooleanField(
+        default=True, help_text="Unticked entries are kept but not shown to anyone."
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta(SoftDeleteModel.Meta):
+        # Newest first, and within a day the later-created row leads: several
+        # changes a day is the normal case, and `shipped_on` alone can't
+        # order them.
+        ordering = ["-shipped_on", "-id"]
+        verbose_name_plural = "changelog entries"
+
+    def __str__(self):
+        return f"{self.shipped_on} {self.title}"

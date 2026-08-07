@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import Changelog from "@/components/Changelog";
 import app from "../masterji.module.css";
 import styles from "./demo.module.css";
 
@@ -62,6 +63,7 @@ export default function DemoPage() {
         </span>
         <div className={app.headerRight}>
           <span className={app.streak}>4 days 🔥</span>
+          <Changelog />
           <Link className={styles.cta} href="/login/">
             Start yours →
           </Link>

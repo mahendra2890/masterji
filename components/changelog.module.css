@@ -1,0 +1,202 @@
+/* The header link, and the popup it opens. Same chalkboard vocabulary as the
+   dashboard's modals — this is a component, so it can't reach into
+   masterji.module.css for them. */
+
+.trigger {
+  position: relative;
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 0;
+  white-space: nowrap;
+}
+
+.trigger:hover {
+  color: var(--text);
+}
+
+/* Off the corner of the label rather than in the text flow, so the header
+   doesn't shift by 8px the moment a change ships. */
+.dot {
+  position: absolute;
+  top: -2px;
+  right: -7px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+/* --- the popup ------------------------------------------------------------- */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 50;
+}
+
+.modal {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  /* No padding-top: the sticky header carries it, so nothing shows in a gap
+     above the pinned bar as the list scrolls under it. */
+  padding: 0 20px 18px;
+  width: min(620px, 100%);
+  max-height: min(82dvh, 720px);
+  overflow-y: auto;
+  /* Twenty-odd entries is a long scroll, and hitting the end of it shouldn't
+     hand the wheel to the dashboard behind. */
+  overscroll-behavior: contain;
+  /* Openable from the between-goals screen, which centres its text. A
+     changelog has to read as a document. */
+  text-align: left;
+}
+
+.modalHeader {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface);
+  margin: 0 -20px 4px;
+  padding: 18px 20px 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.modalHeader h3 {
+  font-size: 18px;
+  letter-spacing: 0.04em;
+}
+
+.modalClose {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.blurb {
+  color: var(--muted);
+  font-size: 13px;
+  margin: 0 0 16px;
+}
+
+.empty {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.retry {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 14px;
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 0;
+}
+
+/* --- the entries ----------------------------------------------------------- */
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.entry {
+  padding-bottom: 16px;
+}
+
+/* One heading per shipped day, above the first entry of that day. */
+.date {
+  font-family: var(--font-mono), monospace;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.entry:not(:first-child) .date {
+  margin-top: 10px;
+}
+
+/* Deliberately not flex: a title long enough to wrap — which is most of them
+   on a phone — pushed the chip onto a line of its own. Inline, the title
+   flows around the chip instead. */
+.entryHead {
+  margin: 0 0 4px;
+}
+
+.entryTitle {
+  font-family: var(--font-display), Georgia, serif;
+  font-weight: 600;
+  font-size: 16px;
+  line-height: 1.35;
+}
+
+.entryBody {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+/* --- kind chips ------------------------------------------------------------ */
+
+.new,
+.changed,
+.fixed,
+.method {
+  display: inline-block;
+  font-family: var(--font-mono), monospace;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  margin-right: 8px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+  /* Nudged up to sit with the serif title's x-height rather than its
+     baseline. */
+  vertical-align: 2px;
+}
+
+.new {
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+
+.changed {
+  background: var(--surface-2);
+  border-color: var(--border);
+  color: var(--text);
+}
+
+.fixed {
+  background: transparent;
+  border-color: var(--good);
+  color: var(--good);
+}
+
+.method {
+  background: transparent;
+  border-color: var(--border);
+  color: var(--muted);
+}

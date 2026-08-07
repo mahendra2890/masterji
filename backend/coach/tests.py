@@ -18,7 +18,7 @@ from django.test import SimpleTestCase, override_settings
 from rest_framework.test import APITestCase
 
 from . import gates, guidance
-from .models import CheckIn, Goal, Phase
+from .models import ChangelogEntry, CheckIn, Goal, Phase
 
 User = get_user_model()
 
@@ -1109,3 +1109,59 @@ class ChatTests(CoachTestCase):
     def test_chat_without_goal_rejected(self):
         response = self.client.post("/api/coach/chat/", {"content": "hello"})
         self.assertEqual(response.status_code, 400)
+
+
+class ChangelogTests(APITestCase):
+    """The product's own record. Public, active-only, newest first — and, as
+    the one unscoped table here, it must not leak a way to write to it."""
+
+    def setUp(self):
+        ChangelogEntry.all_objects.all().delete()  # the seeded history isn't the subject
+        self.old = ChangelogEntry.objects.create(
+            shipped_on=date(2026, 8, 5), kind="NEW", title="first build", body="…"
+        )
+        self.new = ChangelogEntry.objects.create(
+            shipped_on=date(2026, 8, 8), kind="FIXED", title="a fix", body="…"
+        )
+
+    def test_readable_without_signing_in(self):
+        response = self.client.get("/api/coach/changelog/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            [e["title"] for e in response.json()["entries"]], ["a fix", "first build"]
+        )
+
+    def test_inactive_entries_are_not_served(self):
+        self.new.is_active = False
+        self.new.save(update_fields=["is_active"])
+        response = self.client.get("/api/coach/changelog/")
+        self.assertEqual([e["title"] for e in response.json()["entries"]], ["first build"])
+
+    def test_soft_deleted_entries_are_not_served(self):
+        self.old.delete()
+        response = self.client.get("/api/coach/changelog/")
+        self.assertEqual([e["title"] for e in response.json()["entries"]], ["a fix"])
+
+    def test_same_day_entries_lead_with_the_newest_row(self):
+        later = ChangelogEntry.objects.create(
+            shipped_on=date(2026, 8, 8), kind="CHANGED", title="also today", body="…"
+        )
+        response = self.client.get("/api/coach/changelog/")
+        titles = [e["title"] for e in response.json()["entries"]]
+        self.assertEqual(titles[:2], [later.title, self.new.title])
+
+    def test_endpoint_is_read_only(self):
+        response = self.client.post(
+            "/api/coach/changelog/", {"shipped_on": "2026-08-09", "title": "mine"}
+        )
+        self.assertEqual(response.status_code, 405)
+        self.assertEqual(ChangelogEntry.objects.count(), 2)
+
+    def test_seeded_history_ships_with_the_database(self):
+        """The migration's entries are the product's record — a fresh database
+        has them without anyone typing into the admin."""
+        from django.db.migrations.loader import MigrationLoader
+
+        self.assertIn(
+            ("coach", "0011_seed_changelog"), MigrationLoader(None).graph.nodes
+        )

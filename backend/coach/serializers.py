@@ -2,6 +2,7 @@ from rest_framework import serializers
 
 from . import gates, storage
 from .models import (
+    ChangelogEntry,
     CheckIn,
     Goal,
     GoalRetirement,
@@ -108,4 +109,14 @@ class PhaseTransitionSerializer(serializers.ModelSerializer):
     class Meta:
         model = PhaseTransition
         fields = ["from_phase", "to_phase", "created_at"]
+        read_only_fields = fields
+
+
+class ChangelogEntrySerializer(serializers.ModelSerializer):
+    """Read-only, and public: this is the one payload here that isn't scoped
+    to a user, so it carries nothing but the entry itself."""
+
+    class Meta:
+        model = ChangelogEntry
+        fields = ["id", "shipped_on", "kind", "title", "body"]
         read_only_fields = fields

@@ -17,4 +17,6 @@ urlpatterns = [
     ),
     path("checkins/prove/", views.ProveView.as_view(), name="coach_prove"),
     path("chat/", views.ChatView.as_view(), name="coach_chat"),
+    # Public: no auth, no tenancy — the same list for every reader.
+    path("changelog/", views.ChangelogView.as_view(), name="coach_changelog"),
 ]

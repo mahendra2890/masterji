@@ -4,6 +4,7 @@ from django.utils.text import Truncator
 from common.soft_delete import SoftDeleteAdmin
 
 from .models import (
+    ChangelogEntry,
     CheckIn,
     Goal,
     GoalRetirement,
@@ -65,3 +66,19 @@ class ProofAttemptAdmin(SoftDeleteAdmin):
     @admin.display(description="text")
     def excerpt(self, obj):
         return Truncator(obj.text).chars(120)
+
+
+@admin.register(ChangelogEntry)
+class ChangelogEntryAdmin(SoftDeleteAdmin):
+    # This is the editing surface for the changelog — writing an entry here is
+    # publishing it. `is_active` is editable in the list so an entry can be
+    # held back or retired without opening the row.
+    list_display = ["shipped_on", "kind", "title", "is_active", "excerpt", "is_deleted"]
+    list_editable = ["is_active"]
+    list_filter = ["kind", "is_active"]
+    search_fields = ["title", "body"]
+    date_hierarchy = "shipped_on"
+
+    @admin.display(description="body")
+    def excerpt(self, obj):
+        return Truncator(obj.body).chars(120)
