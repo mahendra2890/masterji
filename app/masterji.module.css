@@ -468,12 +468,25 @@
   width: 74px;
 }
 
+/* The sidebar's record is a glance: one line per day, clipped to keep the
+   column scannable. */
 .historyText {
   flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* The phase modal is where that record gets read, so nothing is clipped —
+   an ellipsis there ends nowhere, since opening the modal was already the
+   way to see the rest. pre-wrap keeps the line breaks the declaration was
+   written with, the same as .dayBody does for a closed idea. */
+.historyTextFull {
+  flex: 1;
+  min-width: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .chipGood {
@@ -879,7 +892,9 @@
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 18px 20px;
+  /* No padding-top: the sticky header carries it, so nothing shows in a
+     gap above the pinned bar as the record scrolls under it. */
+  padding: 0 20px 18px;
   width: min(560px, 100%);
   max-height: min(80dvh, 680px);
   overflow-y: auto;
@@ -888,11 +903,20 @@
   text-align: left;
 }
 
+/* Pinned, because .modal scrolls and the × is the only close control that
+   isn't "click outside" — a long record used to carry it off the top of the
+   screen. The negative margins bleed the bar to the modal's edges so rows
+   pass under it rather than beside it. */
 .modalHeader {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface);
+  margin: 0 -20px 4px;
+  padding: 18px 20px 8px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 4px;
 }
 
 .modalHeader h3 {
