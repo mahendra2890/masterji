@@ -468,21 +468,13 @@
   width: 74px;
 }
 
-/* The sidebar's record is a glance: one line per day, clipped to keep the
-   column scannable. */
+/* A day's declaration is never clipped — not in the sidebar record, not in
+   the phase modal. Clipping only ever moved the reading somewhere else, and
+   the sidebar had nowhere else to send it. pre-wrap keeps the line breaks
+   the declaration was written with, the same as .dayBody does for a closed
+   idea; .side scrolls on its own, so a long record lengthens that column
+   rather than the page. */
 .historyText {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* The phase modal is where that record gets read, so nothing is clipped —
-   an ellipsis there ends nowhere, since opening the modal was already the
-   way to see the rest. pre-wrap keeps the line breaks the declaration was
-   written with, the same as .dayBody does for a closed idea. */
-.historyTextFull {
   flex: 1;
   min-width: 0;
   white-space: pre-wrap;
