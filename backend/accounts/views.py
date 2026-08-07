@@ -43,7 +43,15 @@ class CookieTokenRefreshView(APIView):
                 {"detail": "No refresh cookie."}, status=status.HTTP_401_UNAUTHORIZED
             )
         serializer = TokenRefreshSerializer(data={"refresh": raw})
-        serializer.is_valid(raise_exception=True)
+        try:
+            serializer.is_valid(raise_exception=True)
+        except User.DoesNotExist:
+            # A cryptographically valid token for a user this database has
+            # never seen (another app's cookie on localhost, or a deleted
+            # account). That's a dead session, not a server error.
+            return Response(
+                {"detail": "Unknown session."}, status=status.HTTP_401_UNAUTHORIZED
+            )
         response = Response({"ok": True})
         # ROTATE_REFRESH_TOKENS is on, so a new refresh token comes back too
         set_auth_cookies(response, RefreshToken(serializer.validated_data["refresh"]))
