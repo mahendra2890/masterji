@@ -820,7 +820,7 @@ export default function Masterji({ user }: { user: SessionUser }) {
                     {windowCheckins.map((c) => (
                       <li key={c.id} className={styles.historyRow}>
                         <span className={styles.historyDate}>{c.date.slice(5)}</span>
-                        <span className={styles.historyTextFull}>
+                        <span className={styles.historyText}>
                           {c.amDeclaration || "—"}
                         </span>
                         <span
