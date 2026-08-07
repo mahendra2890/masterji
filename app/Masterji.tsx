@@ -55,7 +55,10 @@ export default function Masterji({ user }: { user: SessionUser }) {
   const [draft, setDraft] = useState("");
   const [streamingText, setStreamingText] = useState<string | null>(null);
   const [pendingUserMsg, setPendingUserMsg] = useState<string | null>(null);
-  const chatEndRef = useRef<HTMLDivElement>(null);
+  const messagesRef = useRef<HTMLDivElement>(null);
+
+  // Phone only: the dashboard and the chat take turns instead of stacking.
+  const [pane, setPane] = useState<"today" | "chat">("today");
 
   // forms
   const [goalTitle, setGoalTitle] = useState("");
@@ -88,9 +91,15 @@ export default function Masterji({ user }: { user: SessionUser }) {
     refresh();
   }, [refresh]);
 
+  // Pin the log to the newest message by scrolling the log itself.
+  // scrollIntoView walks up to the nearest scrollable ancestor, and on a
+  // phone — where the log only becomes its own scroll box once the chat
+  // pane is showing — that ancestor is the page: every load dropped the
+  // builder at the very bottom of it, below the whole dashboard.
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [state?.messages.length, streamingText]);
+    const box = messagesRef.current;
+    if (box) box.scrollTop = box.scrollHeight;
+  }, [state?.messages.length, streamingText, pane]);
 
   const run = async (fn: () => Promise<void>) => {
     setError("");
@@ -322,9 +331,21 @@ export default function Masterji({ user }: { user: SessionUser }) {
     state;
   void justRetired; // consumed by the no-goal branch above
   const doneIdx = phases.indexOf(goal.phase);
+  // Today's loop is still open — worth a dot on the pane you can't see.
+  const dayOpen =
+    !today?.amDeclaration ||
+    !today.pmProofText ||
+    today.proofStatus === "PUSHED_BACK";
+
+  const showPane = (next: "today" | "chat") => {
+    setPane(next);
+    // The dashboard is several screens tall, and the chat pane pins itself
+    // to the viewport — leftover page scroll would land on a cropped header.
+    window.scrollTo(0, 0);
+  };
 
   return (
-    <main className={styles.app}>
+    <main className={styles.app} data-pane={pane}>
       <header className={styles.header}>
         <span className={styles.brand}>
           Masterji <span className={styles.brandHindi}>मास्टरजी</span>
@@ -355,6 +376,29 @@ export default function Masterji({ user }: { user: SessionUser }) {
       </header>
 
       {error && <p className={styles.errorBanner}>{error}</p>}
+
+      {/* Phone only (hidden ≥821px, where both columns are on screen at
+          once). Stacked, the dashboard and a full chat log made a page four
+          screens tall with the day's task buried in the middle of it. */}
+      <nav className={styles.panes}>
+        <button
+          className={pane === "today" ? styles.paneOn : styles.pane}
+          aria-pressed={pane === "today"}
+          onClick={() => showPane("today")}
+        >
+          Today
+          {dayOpen && pane !== "today" && (
+            <span className={styles.paneDot} aria-hidden="true" />
+          )}
+        </button>
+        <button
+          className={pane === "chat" ? styles.paneOn : styles.pane}
+          aria-pressed={pane === "chat"}
+          onClick={() => showPane("chat")}
+        >
+          Masterji
+        </button>
+      </nav>
 
       <div className={styles.columns}>
         {/* ------------------------------------------------ dashboard */}
@@ -690,7 +734,7 @@ export default function Masterji({ user }: { user: SessionUser }) {
 
         {/* ------------------------------------------------ chat */}
         <section className={styles.chat}>
-          <div className={styles.messages}>
+          <div className={styles.messages} ref={messagesRef}>
             {messages.map((m) => (
               <div
                 key={m.id}
@@ -713,7 +757,6 @@ export default function Masterji({ user }: { user: SessionUser }) {
                 </p>
               </div>
             )}
-            <div ref={chatEndRef} />
           </div>
           <div className={styles.composer}>
             <textarea

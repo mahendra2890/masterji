@@ -1,5 +1,6 @@
 /* Masterji app — chalkboard dark, marigold accent. Desktop: dashboard
-   column + chat side by side. Mobile (≤820px): stacked, chat second. */
+   column + chat side by side. Mobile (≤820px): one at a time, picked by
+   the pane switcher — see the responsive block at the bottom. */
 
 .loading {
   min-height: 100dvh;
@@ -931,14 +932,15 @@
 
 /* --- responsive -------------------------------------------------------------------------------- */
 
+/* Both columns are on screen together on a laptop, so there is nothing to
+   switch between. The pane switcher only exists below. */
+.panes {
+  display: none;
+}
+
 @media (max-width: 820px) {
   .columns {
     grid-template-columns: 1fr;
-  }
-
-  .chat {
-    max-height: none;
-    min-height: 60dvh;
   }
 
   /* Stacked single column: a pane that scrolls inside the page scroll is a
@@ -947,6 +949,75 @@
     max-height: none;
     overflow-y: visible;
     scrollbar-gutter: auto;
+  }
+
+  .chat {
+    max-height: none;
+    min-height: 0;
+  }
+
+  /* One pane at a time. Stacking them made a page several screens tall
+     whose top half was the dashboard and bottom half the chat log. */
+  .app[data-pane="chat"] .side,
+  .app[data-pane="today"] .chat {
+    display: none;
+  }
+
+  /* The chat pane owns the viewport: the log scrolls inside it and the
+     composer stays put, rather than the page growing to fit the log. */
+  .app[data-pane="chat"] {
+    height: 100dvh;
+    overflow: hidden;
+  }
+
+  .app[data-pane="chat"] .columns {
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  /* Sticky so the other pane is one tap away from anywhere in a long
+     dashboard. The halo is the page colour, masking content that would
+     otherwise show through the pill's rounded corners. */
+  .panes {
+    display: flex;
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    gap: 6px;
+    margin-bottom: 14px;
+    padding: 4px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    box-shadow: 0 0 0 6px var(--bg);
+  }
+
+  .pane,
+  .paneOn {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    padding: 9px 12px;
+    border: none;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--muted);
+    font-size: 14px;
+    cursor: pointer;
+  }
+
+  .paneOn {
+    background: var(--accent);
+    color: var(--accent-ink);
+    font-weight: 700;
+  }
+
+  .paneDot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--accent);
   }
 
   .header {
