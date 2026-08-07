@@ -37,9 +37,15 @@ dropped connections.
 3. Note the API URL: `https://masterji-api-XXXX.onrender.com`. Check
    `/api/health/` and `/admin/`.
 
-Free tier: 512 MB, spins down after 15 idle minutes (~1 min cold start —
-see keep-alive below). Streaming chat works on the gthread workers set in
-[backend/start.sh](backend/start.sh).
+Free tier: 512 MB, spins down after 15 idle minutes (see keep-alive
+below). The first request after that pays for a container start plus
+`migrate` on 0.1 CPU — about two minutes — and Render's edge fills the
+silence with its own boot-log reel, which reads like a broken site.
+[proxy.ts](proxy.ts) heads that off: `/admin/` page loads get
+[a note that says how long the wait is](app/waking/page.tsx) and go
+through by themselves once the API answers. Add `?boot=logs` to any admin
+URL to skip the note and watch Render's page instead. Streaming chat works
+on the gthread workers set in [backend/start.sh](backend/start.sh).
 
 ## 3. Vercel (frontend)
 
