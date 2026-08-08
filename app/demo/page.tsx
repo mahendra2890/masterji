@@ -24,15 +24,35 @@ const MESSAGES = [
   {
     role: "COACH",
     content:
-      "No. You have zero users and one conversation left before BUILD unlocks — framework talk is procrastination wearing a hard hat. The Mom Test says talk about their life, not your idea: go ask the hostel mess aunty what she does when orders pile up. Bring me notes tonight.",
+      "Fair question, wrong week. Both of those are BUILD's problem, and neither answer survives a user you haven't met — you have one conversation left before BUILD unlocks. The Mom Test says talk about their life, not your idea: go ask the hostel mess aunty what she does when orders pile up. Bring me notes tonight.",
   },
   { role: "USER", content: "Fine. Can we at least move to BUILD? I feel ready." },
   {
     role: "COACH",
     content:
-      "Feelings aren't proofs. Let me check the ledger…\n\nNot yet. 2/3 accepted proofs in VALIDATION — 1 more before BUILD unlocks. One conversation. Ten minutes, someone who already has the problem. Ask what they did the last time it happened — not whether they'd use your app. Notes tonight.",
+      "Ready isn't the thing I count — let me check the ledger…\n\nNot yet. 2/3 accepted proofs in VALIDATION — 1 more before BUILD unlocks. One conversation. Ten minutes, someone who already has the problem. Ask what they did the last time it happened — not whether they'd use your app. Notes tonight.",
+  },
+  {
+    role: "USER",
+    content:
+      "Talked to the mess aunty. Says the 9pm rush is 40 plates in 20 minutes and she just stops taking orders.",
+  },
+  {
+    role: "COACH",
+    content:
+      '"She just stops taking orders" — that\'s the workaround, and it\'s the part most builders never reach. That clears the bar, so I\'ve written it up as tonight\'s proof. Check it on the left and file it; you don\'t have to say it again in my words.',
   },
 ] as const;
+
+// What Masterji drafted from that last exchange, sitting on the check-in
+// waiting to be filed. In the product this arrives from the suggest_proof
+// tool call; here it is the same copy, so the demo shows the thing rather
+// than describing it.
+const DRAFT =
+  "Spoke to the mess aunty about the 9pm rush. She gets around 40 plates " +
+  "of orders inside 20 minutes and can't cook that fast, so she stops " +
+  "taking orders — she doesn't turn people away, she just goes quiet. " +
+  "That's the workaround today.";
 
 const HISTORY = [
   { date: "08-04", text: "Interview 2 hostel students about tiffin orders", ok: "✓" },
@@ -104,6 +124,16 @@ export default function DemoPage() {
             <p className={app.declared}>
               Declared: <em>Interview the mess aunty about peak-hour orders</em>
             </p>
+            <div className={app.proofOffer}>
+              <p className={app.proofOfferLabel}>
+                Masterji wrote this from your conversation
+              </p>
+              <p className={app.proofOfferText}>{DRAFT}</p>
+              <p className={styles.draftNote}>
+                Filed as he wrote it, it goes straight through — he already
+                decided it counted.
+              </p>
+            </div>
             <p className={app.pushedBack}>
               Proof still owed tonight. Masterji is watching the clock.
             </p>

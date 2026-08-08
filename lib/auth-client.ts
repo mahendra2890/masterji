@@ -11,6 +11,7 @@ export type SessionUser = {
   username: string;
   email: string;
   tone: "ENGLISH" | "HINGLISH";
+  mode: "COACH" | "THINKING";
 };
 
 /** The backend hasn't answered anything Django wrote — Render's free
@@ -61,14 +62,19 @@ async function ask(path: string, init: RequestInit = {}): Promise<Response> {
   return res;
 }
 
-export async function updateTone(
-  tone: SessionUser["tone"]
+/** How the coach talks — language, and which side of the table he's on.
+ * Both live on the user rather than on the turn: a builder who asked to be
+ * spoken to a certain way shouldn't have to ask again tomorrow. */
+export type CoachPrefs = Pick<SessionUser, "tone" | "mode">;
+
+export async function updatePrefs(
+  patch: Partial<CoachPrefs>
 ): Promise<SessionUser | null> {
   const res = await fetch(`${API_URL}/api/auth/me/`, {
     method: "PATCH",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ tone }),
+    body: JSON.stringify(patch),
   });
   return res.ok ? res.json() : null;
 }

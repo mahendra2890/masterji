@@ -96,6 +96,13 @@ class CheckIn(SoftDeleteModel):
     # What tonight's proof must show FOR THIS TASK. Falls back to the phase's
     # static ask (guidance.PROOF_HINT) when empty, so the form is never blank.
     proof_ask = models.TextField(blank=True)
+    # Tonight's proof as Masterji drafted it, from work the builder had already
+    # described in conversation (the suggest_proof tool). An OFFER, never a
+    # record: it puts a filled-in box in front of the builder and they still
+    # have to file it. Kept on the row because the evening's judgement reads it
+    # back — a proof filed from this draft unedited needs no second opinion,
+    # and an edited one must not be re-litigated from scratch.
+    proof_offer = models.TextField(blank=True)
     pm_proof_text = models.TextField(blank=True)
     proof_url = models.URLField(blank=True)
     # Opaque object-storage key for a screenshot backing tonight's proof.

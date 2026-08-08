@@ -83,6 +83,20 @@ def _latest_checkin(goal: Goal, day: date) -> CheckIn | None:
     )
 
 
+def _offer_target(goal: Goal, day: date) -> CheckIn | None:
+    """The check-in a drafted proof can be offered against: the cycle declared
+    this morning and still owing its proof.
+
+    Without one there is nothing to offer — ProveView would refuse the filing
+    anyway ("no declaration this morning — proof of what, exactly?"), and a
+    draft the builder cannot act on is worse than none. A pushed-back cycle
+    still counts as owing: that is exactly the evening where Masterji writing
+    it up himself is worth the most.
+    """
+    checkin = _open_checkin(goal, day)
+    return checkin if checkin and checkin.am_declaration else None
+
+
 def _parse_date(value) -> date:
     """The client sends its LOCAL date — the server runs in UTC, so "today"
     is genuinely the browser's to define. But it is still client input: left
@@ -185,6 +199,7 @@ class StateView(APIView):
                     "archive": archive,
                     "lifetime_days": lifetime,
                     "tone": request.user.tone,
+                    "mode": request.user.mode,
                 }
             )
         today = _client_day(request)
@@ -213,6 +228,7 @@ class StateView(APIView):
                 "archive": archive,
                 "lifetime_days": lifetime,
                 "tone": request.user.tone,
+                "mode": request.user.mode,
             }
         )
 
@@ -448,6 +464,7 @@ def _react_to_declaration(goal: Goal, text: str, tone: str) -> tuple[str, str, s
     """
     try:
         system = prompts.DECLARATION_SYSTEM.format(
+            respect_rule=prompts.RESPECT_RULE,
             tone_rule=prompts.HINGLISH_RULE if tone == "HINGLISH" else "",
             phase=goal.phase,
             phase_rules=prompts.PHASE_RULES[Phase(goal.phase)],
@@ -500,18 +517,21 @@ class DeclareView(APIView):
         checkin.am_declaration = text
         # Declaring stays a pure write — it is the most repeated action in the
         # product and must not wait on a model. JudgeDeclarationView is the
-        # second half. Clearing the three judgement fields matters on an EDIT:
-        # a verdict on wording the builder has since changed is worse than no
-        # verdict, and the tailored proof ask would be asking for the old task.
+        # second half. Clearing the judgement fields matters on an EDIT: a
+        # verdict on wording the builder has since changed is worse than no
+        # verdict, the tailored proof ask would be asking for the old task, and
+        # a drafted proof would be evidence for work they are no longer doing.
         checkin.declaration_fit = CheckIn.DeclarationFit.UNJUDGED
         checkin.declaration_reaction = ""
         checkin.proof_ask = ""
+        checkin.proof_offer = ""
         checkin.save(
             update_fields=[
                 "am_declaration",
                 "declaration_fit",
                 "declaration_reaction",
                 "proof_ask",
+                "proof_offer",
                 "updated_at",
             ]
         )
@@ -671,15 +691,40 @@ def _react_to_proof(
     A screenshot, when there is one, is read by the vision model in this same
     call — one judgement over the text and the image together, because they
     are one claim about one day's work.
+
+    Two things keep the judgement from moving under the builder. A
+    resubmission is judged against every try already refused tonight and the
+    words that refused each one; and a proof Masterji drafted himself, filed
+    unedited, is accepted without a model call at all. The verdict is otherwise
+    entirely the model's — nothing here passes work because the builder tried
+    often enough.
     """
+    offer = checkin.proof_offer.strip()
+    if offer and checkin.pm_proof_text.strip() == offer:
+        # He read the conversation, decided it cleared the bar, and wrote this
+        # out himself. Asking him again could only produce a disagreement with
+        # himself, and the builder would be the one who paid for it.
+        logger.info(f"Proof filed from Masterji's own draft on checkin {checkin.id}")
+        return "accept", prompts.STOCK_OFFER_ACCEPT.get(
+            tone, prompts.STOCK_OFFER_ACCEPT["ENGLISH"]
+        )
+
+    # Written archive-before-overwrite by ProveView, so by the time we're here
+    # the trail already holds tonight's rejected tries — oldest first (the
+    # model's Meta orders by created_at).
+    tries = list(checkin.attempts.all())
     try:
         system = prompts.PROOF_REACTION_SYSTEM.format(
+            substance_rule=prompts.SUBSTANCE_RULE,
+            respect_rule=prompts.RESPECT_RULE,
             tone_rule=prompts.HINGLISH_RULE if tone == "HINGLISH" else "",
             phase=goal.phase,
             declared=checkin.am_declaration,
             asked_for=prompts.PROOF_ASKED_FOR.format(proof_ask=checkin.proof_ask)
             if checkin.proof_ask
             else "",
+            prior_try=prompts.prior_tries(tries),
+            from_offer=prompts.PROOF_FROM_OFFER.format(offer=offer) if offer else "",
         )
         if image:
             system += prompts.PROOF_IMAGE_RULE
@@ -729,6 +774,7 @@ class ChatView(APIView):
             request.user.tone,
             archive=_archive(request.user),
             lifetime=streaks.lifetime_days(request.user),
+            mode=request.user.mode,
         )
         history = [
             {
@@ -739,7 +785,7 @@ class ChatView(APIView):
         ]
 
         response = StreamingHttpResponse(
-            self._events(goal, system, history),
+            self._events(goal, system, history, _offer_target(goal, today)),
             content_type="application/x-ndjson",
         )
         # Ask every proxy on the way (Vercel, Render) not to buffer the stream.
@@ -747,27 +793,56 @@ class ChatView(APIView):
         response["X-Accel-Buffering"] = "no"
         return response
 
-    def _events(self, goal: Goal, system: str, history: list[dict]):
+    def _events(
+        self,
+        goal: Goal,
+        system: str,
+        history: list[dict],
+        offer_target: CheckIn | None = None,
+    ):
         line = lambda obj: json.dumps(obj) + "\n"  # noqa: E731
         parts: list[str] = []
         advance_proposed = False
+        offered = ""
         with tracer.start_as_current_span("coach.turn") as span:
             span.set_attribute("goal.phase", goal.phase)
             span.set_attribute("llm.model", settings.LLM_MODEL)
             try:
                 for kind, payload in llm.stream_chat(
-                    system, history, tools=[prompts.PROPOSE_ADVANCE_TOOL]
+                    system,
+                    history,
+                    tools=[prompts.PROPOSE_ADVANCE_TOOL, prompts.SUGGEST_PROOF_TOOL],
                 ):
                     if kind == "delta":
                         parts.append(payload)
                         yield line({"t": "delta", "text": payload})
-                    elif kind == "tool_call" and payload == "propose_phase_advance":
-                        advance_proposed = True
+                    elif kind == "tool_call":
+                        name = payload.get("name")
+                        if name == "propose_phase_advance":
+                            advance_proposed = True
+                        elif name == "suggest_proof":
+                            offered = str(
+                                payload.get("arguments", {}).get("text") or ""
+                            ).strip()
             except Exception as e:
                 logger.error(f"Chat stream failed: {e}")
                 yield line(
                     {"t": "error", "detail": "Masterji lost the thread — try again."}
                 )
+
+            # A drafted proof is a row, not a wire event: the client refetches
+            # state the moment the turn ends and reads the offer off the
+            # check-in with everything else. One source of truth, and an offer
+            # that outlives the turn it was made in — the builder can go and
+            # file it tomorrow morning if they close the tab tonight.
+            if offered:
+                if offer_target is None:
+                    logger.info(f"Proof offered with nothing owed on goal {goal.id}")
+                else:
+                    offer_target.proof_offer = offered
+                    offer_target.save(update_fields=["proof_offer", "updated_at"])
+                    span.set_attribute("proof.offered", True)
+                    logger.info(f"Proof drafted for checkin {offer_target.id}")
 
             content = "".join(parts)
             if advance_proposed:

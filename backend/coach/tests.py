@@ -17,7 +17,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import SimpleTestCase, override_settings
 from rest_framework.test import APITestCase
 
-from . import gates, guidance
+from . import gates, guidance, prompts
 from .models import ChangelogEntry, CheckIn, Goal, Phase
 
 User = get_user_model()
@@ -108,6 +108,56 @@ class LlmSeamTests(SimpleTestCase):
         with mock.patch("coach.llm.litellm.completion", return_value=iter([])) as call:
             list(llm.stream_chat("system", []))
         self.assertEqual(call.call_args.kwargs["timeout"], s.LLM_TIMEOUT_S)
+
+    def stream_of(self, *fragments):
+        """A streamed tool call as providers actually send one: the name in
+        the first fragment, the arguments dribbled out as JSON text."""
+        chunks = []
+        for name, arguments in fragments:
+            call = mock.Mock()
+            call.index = 0
+            call.function = mock.Mock(name_=name)
+            call.function.name = name
+            call.function.arguments = arguments
+            delta = mock.Mock()
+            delta.content = None
+            delta.tool_calls = [call]
+            chunk = mock.Mock()
+            chunk.choices = [mock.Mock(delta=delta)]
+            chunks.append(chunk)
+        return chunks
+
+    def test_tool_arguments_are_reassembled_across_chunks(self):
+        """suggest_proof carries a whole paragraph of proof text. Arriving in
+        fragments, it is worthless unless the seam puts it back together."""
+        from . import llm
+
+        stream = self.stream_of(
+            ("suggest_proof", '{"text": "Spoke to '),
+            (None, 'Ramesh. 40 plates wasted."}'),
+        )
+        with mock.patch("coach.llm.litellm.completion", return_value=iter(stream)):
+            calls = [p for kind, p in llm.stream_chat("system", []) if kind == "tool_call"]
+        self.assertEqual(
+            calls,
+            [
+                {
+                    "name": "suggest_proof",
+                    "arguments": {"text": "Spoke to Ramesh. 40 plates wasted."},
+                }
+            ],
+        )
+
+    def test_malformed_arguments_cost_the_call_not_the_turn(self):
+        """Every tool here is a proposal the server re-decides, so a call with
+        nothing in it goes nowhere. A raised exception would instead take down
+        a conversation the builder was in the middle of."""
+        from . import llm
+
+        stream = self.stream_of(("suggest_proof", '{"text": "unterminated'))
+        with mock.patch("coach.llm.litellm.completion", return_value=iter(stream)):
+            calls = [p for kind, p in llm.stream_chat("system", []) if kind == "tool_call"]
+        self.assertEqual(calls, [{"name": "suggest_proof", "arguments": {}}])
 
 
 # --- auth ------------------------------------------------------------------
@@ -1230,7 +1280,10 @@ class ChatTests(CoachTestCase):
     def test_chat_tool_call_hits_the_real_gate(self):
         goal = self.make_goal()  # zero proofs
         response, body = self._stream(
-            [("delta", "Let's check."), ("tool_call", "propose_phase_advance")]
+            [
+                ("delta", "Let's check."),
+                ("tool_call", {"name": "propose_phase_advance", "arguments": {}}),
+            ]
         )
         self.assertIn('"advanced": false', body)
         goal.refresh_from_db()
@@ -1239,6 +1292,353 @@ class ChatTests(CoachTestCase):
     def test_chat_without_goal_rejected(self):
         response = self.client.post("/api/coach/chat/", {"content": "hello"})
         self.assertEqual(response.status_code, 400)
+
+
+# --- how he talks ------------------------------------------------------------
+
+
+class BarInThePromptTests(CoachTestCase):
+    """The chat prompt carried the phase's rules and a proof counter and no
+    definition of "enough" anywhere in it — so the only reply it could ever
+    assemble was "not yet, give me more". What clears the bar now travels with
+    the phase, read from the same module the check-in form and the gate
+    refusal read from, so all three answer the same question the same way."""
+
+    def system_for(self, phase=Phase.IDEA, **kwargs):
+        goal = self.make_goal(phase=phase)
+        return prompts.build_system_prompt(
+            goal, gates.gate_status(goal), 0, "no declaration yet", "ENGLISH", **kwargs
+        )
+
+    def test_the_prompt_says_what_clears_the_bar(self):
+        system = self.system_for()
+        self.assertIn(guidance.PROOF_HINT[Phase.IDEA], system)
+        for example in guidance.PROOF_EXAMPLES[Phase.IDEA]:
+            self.assertIn(example, system)
+
+    def test_the_bar_is_the_one_for_the_phase_they_are_in(self):
+        system = self.system_for(Phase.VALIDATION)
+        self.assertIn(guidance.PROOF_HINT[Phase.VALIDATION], system)
+        self.assertNotIn(guidance.PROOF_HINT[Phase.IDEA], system)
+
+    def test_every_phase_can_state_its_own_bar(self):
+        """bar_for reads two dicts keyed by phase. A phase missing from either
+        is a KeyError on the builder's first message after they unlock it."""
+        for phase in Phase:
+            with self.subTest(phase=phase):
+                self.assertIn(guidance.PROOF_HINT[phase], prompts.bar_for(phase))
+
+
+class ThinkingModeTests(CoachTestCase):
+    """A per-user way of talking. Never a way past the door."""
+
+    def system_for(self, **kwargs):
+        goal = self.make_goal()
+        return prompts.build_system_prompt(
+            goal, gates.gate_status(goal), 0, "no declaration yet", "ENGLISH", **kwargs
+        )
+
+    def as_thinker(self):
+        self.alice.mode = "THINKING"
+        self.alice.save(update_fields=["mode"])
+
+    def test_thinking_mode_puts_him_on_the_builders_side(self):
+        self.assertIn(prompts.THINKING_MODE, self.system_for(mode="THINKING"))
+
+    def test_coach_is_the_default_and_carries_none_of_it(self):
+        self.assertNotIn(prompts.THINKING_MODE, self.system_for())
+
+    def test_the_phase_rules_survive_the_mode(self):
+        """Thinking a tech stack through together in IDEA is still the wrong
+        week's work. The mode changes the posture, not the phase."""
+        self.assertIn(prompts.PHASE_RULES[Phase.IDEA], self.system_for(mode="THINKING"))
+
+    def test_the_setting_reaches_the_conversation(self):
+        self.make_goal()
+        self.as_thinker()
+        with mock.patch(
+            "coach.views.llm.stream_chat", return_value=iter([])
+        ) as streamed:
+            response = self.client.post("/api/coach/chat/", {"content": "I'm stuck"})
+            b"".join(response.streaming_content)  # the prompt is built in the generator
+        self.assertIn(prompts.THINKING_MODE, streamed.call_args.args[0])
+
+    def test_thinking_mode_is_not_a_way_past_the_gate(self):
+        """The whole risk of a friendlier mode: that friendliness becomes a
+        second door. gates.py doesn't read User.mode and this pins it."""
+        goal = self.make_goal()
+        self.as_thinker()
+        response = self.client.post(f"/api/coach/goals/{goal.id}/advance/")
+        self.assertEqual(response.status_code, 409)
+        goal.refresh_from_db()
+        self.assertEqual(goal.phase, Phase.IDEA)
+
+    def test_the_mode_rides_the_state_payload(self):
+        self.make_goal()
+        self.assertEqual(self.client.get("/api/coach/state/").data["mode"], "COACH")
+        self.as_thinker()
+        self.assertEqual(self.client.get("/api/coach/state/").data["mode"], "THINKING")
+
+    def test_the_mode_is_the_builders_to_set(self):
+        response = self.client.patch(
+            "/api/auth/me/", {"mode": "THINKING"}, format="json"
+        )
+        self.assertEqual(response.status_code, 200)
+        self.alice.refresh_from_db()
+        self.assertEqual(self.alice.mode, "THINKING")
+
+
+class ProofRatchetTests(CoachTestCase):
+    """Answering a push-back is not a fresh submission.
+
+    ProofAttempt has stored every rejected try since it existed, and nothing
+    ever read one back — so the second look was made by a model that had never
+    seen its own first question, free to reject the answer to that question for
+    a reason it could have given the first time. From the builder's chair that
+    is indistinguishable from moving the goalposts, and it is the complaint
+    this class exists to pin: "I gave it exactly what it asked for and it still
+    didn't get it."
+    """
+
+    PUSH_BACK = (
+        '{"verdict": "push_back", "reaction": "A ticket you wrote is not a user."}'
+    )
+    ACCEPT = '{"verdict": "accept", "reaction": "That is contact. Counted."}'
+
+    def setUp(self):
+        super().setUp()
+        self.make_goal()
+        self.client.post("/api/coach/checkins/declare/", {"text": "talk to a seller"})
+
+    def submit(self, reply, text):
+        """Returns the response and the system prompt the judgement was made
+        with — the prompt is the thing under test here."""
+        with mock.patch("coach.views.llm.complete", return_value=reply) as called:
+            response = self.client.post("/api/coach/checkins/prove/", {"text": text})
+        return response, called.call_args.args[0]
+
+    def test_a_first_try_is_judged_on_its_own(self):
+        _, system = self.submit(self.PUSH_BACK, "made myself a ticket")
+        self.assertNotIn("NOT THEIR FIRST TRY", system)
+
+    def test_the_second_look_sees_the_try_it_refused(self):
+        self.submit(self.PUSH_BACK, "made myself a ticket")
+        _, system = self.submit(self.ACCEPT, "DMed two sellers, one replied")
+        self.assertIn("NOT THEIR FIRST TRY", system)
+        self.assertIn("made myself a ticket", system)
+        self.assertIn("A ticket you wrote is not a user.", system)
+
+    def test_the_whole_evening_is_on_the_table_not_just_the_last_try(self):
+        """At a stalemate what has to be read is the shape of the
+        disagreement, and that only exists across all of the tries."""
+        self.submit(self.PUSH_BACK, "made myself a ticket")
+        self.submit(self.PUSH_BACK, "made a nicer ticket")
+        _, system = self.submit(self.ACCEPT, "the seller replied")
+        self.assertIn("made myself a ticket", system)
+        self.assertIn("made a nicer ticket", system)
+
+    def test_the_verdict_is_never_worn_down(self):
+        """Nothing passes on refusal count. The ratchet stops him inventing a
+        NEW reason and the stalemate rule makes him stop and diagnose — but
+        neither may become a way to bank a proof by resubmitting until the
+        server gives up. Work that isn't there is refused on the fourth try
+        and the fortieth; the gate is the product."""
+        for text in ("one", "two", "three", "four", "five"):
+            response, _ = self.submit(self.PUSH_BACK, text)
+            self.assertEqual(response.data["checkin"]["proof_status"], "PUSHED_BACK")
+        self.assertEqual(gates.accepted_proofs(Goal.objects.get()), 0)
+
+    def test_the_refused_tries_stay_on_the_record(self):
+        for text in ("one", "two", "three"):
+            self.submit(self.PUSH_BACK, text)
+        texts = list(CheckIn.objects.get().attempts.values_list("text", flat=True))
+        self.assertEqual(texts, ["one", "two"])
+
+    def test_the_judgement_is_about_meaning_not_formatting(self):
+        """The rule that keeps the gate from becoming a spelling test — the
+        playbooks say what evidence must CONTAIN, not a shape to reproduce."""
+        _, system = self.submit(self.PUSH_BACK, "made myself a ticket")
+        self.assertIn(prompts.SUBSTANCE_RULE, system)
+
+
+class ProofStalemateTests(CoachTestCase):
+    """Three refusals on one evening's work, and the count alone can't say
+    which failure it is.
+
+    Either the work is missing — refuse again, for as long as that stays true —
+    or the work is real and the two of them cannot understand each other, which
+    is Masterji's failure and the one builders reported. The count decides
+    nothing; it forces the question and he still answers it.
+    """
+
+    PUSH_BACK = '{"verdict": "push_back", "reaction": "Still not a real person."}'
+
+    def setUp(self):
+        super().setUp()
+        self.make_goal(phase=Phase.VALIDATION)
+        self.client.post("/api/coach/checkins/declare/", {"text": "talk to a seller"})
+
+    def submit(self, text, reply=PUSH_BACK):
+        with mock.patch("coach.views.llm.complete", return_value=reply) as called:
+            response = self.client.post("/api/coach/checkins/prove/", {"text": text})
+        return response, called.call_args.args[0]
+
+    def push_back(self, n):
+        for i in range(n):
+            _, system = self.submit(f"try {i + 1}")
+        return system
+
+    def test_the_question_is_not_asked_before_the_stalemate(self):
+        """Asked too early it is just an invitation to go soft — the first two
+        refusals are ordinary coaching."""
+        system = self.push_back(prompts.STALEMATE_AT - 1)
+        self.assertNotIn("FAILING TO UNDERSTAND EACH OTHER", system)
+
+    def test_the_fourth_look_has_to_diagnose_first(self):
+        self.push_back(prompts.STALEMATE_AT)
+        _, system = self.submit("I already told you, I DID speak to him")
+        self.assertIn("FAILING TO UNDERSTAND EACH OTHER", system)
+        self.assertIn(prompts.STALEMATE_RULE, system)
+
+    def test_a_stalemate_is_not_permission_to_pass(self):
+        """The failure mode this replaced: accept-after-N handed a proof to
+        anyone willing to paste four times."""
+        self.push_back(prompts.STALEMATE_AT)
+        response, _ = self.submit("still nothing")
+        self.assertEqual(response.data["checkin"]["proof_status"], "PUSHED_BACK")
+        self.assertEqual(gates.accepted_proofs(Goal.objects.get()), 0)
+
+    def test_the_way_out_is_his_to_take(self):
+        """When he reads it as a misunderstanding, the accept is a normal
+        accept — it banks a proof and moves the gate like any other."""
+        self.push_back(prompts.STALEMATE_AT)
+        response, _ = self.submit(
+            "I keep saying it — Ramesh, the contractor, told me 40 plates go to waste",
+            reply='{"verdict": "accept", "reaction": "My reading was wrong. You said: Ramesh, mess contractor, 40 plates wasted nightly."}',
+        )
+        self.assertEqual(response.data["checkin"]["proof_status"], "ACCEPTED")
+        self.assertEqual(gates.accepted_proofs(Goal.objects.get()), 1)
+
+
+class ProofOfferTests(CoachTestCase):
+    """Masterji reading the conversation, spotting that the work is already
+    described in it, and writing tonight's proof up himself.
+
+    The complaint underneath: a builder tells him the thing, he coaches at them
+    about it, and the evening ends with nothing filed — because turning what
+    they said into what the box wants was left to them. The draft is an OFFER;
+    nothing is recorded until the builder files it, so the gate still counts
+    only what they put their name to.
+    """
+
+    DRAFT = (
+        "Spoke to Ramesh (mess contractor). 40-50 plates wasted most nights. "
+        "Tried a WhatsApp group for counts; it died in a week."
+    )
+
+    def setUp(self):
+        super().setUp()
+        self.goal = self.make_goal(phase=Phase.VALIDATION)
+        self.client.post("/api/coach/checkins/declare/", {"text": "talk to Ramesh"})
+
+    def chat(self, text=DRAFT, events=None):
+        events = events or [
+            ("delta", "That's tonight's proof. Yes?"),
+            ("tool_call", {"name": "suggest_proof", "arguments": {"text": text}}),
+        ]
+        with mock.patch("coach.views.llm.stream_chat", return_value=iter(events)):
+            response = self.client.post("/api/coach/chat/", {"content": "talked to him"})
+            b"".join(response.streaming_content)
+
+    def prove(self, reply, text):
+        with mock.patch("coach.views.llm.complete", return_value=reply) as called:
+            response = self.client.post("/api/coach/checkins/prove/", {"text": text})
+        return response, called
+
+    def test_the_draft_lands_on_the_day_it_was_written_for(self):
+        self.chat()
+        self.assertEqual(CheckIn.objects.get().proof_offer, self.DRAFT)
+
+    def test_the_draft_records_nothing_by_itself(self):
+        """An offer the builder never accepted must not become a proof — the
+        whole design rests on the filing being theirs."""
+        self.chat()
+        checkin = CheckIn.objects.get()
+        self.assertEqual(checkin.pm_proof_text, "")
+        self.assertEqual(checkin.proof_status, CheckIn.ProofStatus.NONE)
+        self.assertEqual(gates.accepted_proofs(self.goal), 0)
+
+    def test_filing_his_own_draft_needs_no_second_opinion(self):
+        """He judged the substance when he offered it. Asking again could only
+        produce a disagreement with himself, paid for by the builder."""
+        self.chat()
+        response, called = self.prove('{"verdict": "push_back", "reaction": "no"}', self.DRAFT)
+        self.assertEqual(response.data["checkin"]["proof_status"], "ACCEPTED")
+        self.assertEqual(
+            response.data["checkin"]["coach_reaction"],
+            prompts.STOCK_OFFER_ACCEPT["ENGLISH"],
+        )
+        called.assert_not_called()
+
+    def test_his_own_draft_is_acknowledged_in_the_builders_language(self):
+        """This line is on the happy path, unlike the other stock reactions —
+        a Hinglish builder would otherwise be answered in English every time
+        they took his draft."""
+        self.alice.tone = "HINGLISH"
+        self.alice.save(update_fields=["tone"])
+        self.chat()
+        response, _ = self.prove('{"verdict": "accept", "reaction": "x"}', self.DRAFT)
+        self.assertEqual(
+            response.data["checkin"]["coach_reaction"],
+            prompts.STOCK_OFFER_ACCEPT["HINGLISH"],
+        )
+
+    def test_every_tone_has_a_line_for_it(self):
+        for tone in User.Tone:
+            with self.subTest(tone=tone):
+                self.assertIn(tone.value, prompts.STOCK_OFFER_ACCEPT)
+
+    def test_an_edited_draft_is_judged_knowing_he_wrote_it(self):
+        self.chat()
+        _, called = self.prove(
+            '{"verdict": "accept", "reaction": "Counted."}',
+            self.DRAFT + " He wouldn't share numbers.",
+        )
+        system = called.call_args.args[0]
+        self.assertIn("YOU WROTE THIS PROOF FOR THEM TONIGHT", system)
+        self.assertIn(self.DRAFT, system)
+
+    def test_a_draft_for_a_task_they_have_since_changed_is_dropped(self):
+        """Re-declaring rewrites the day's task; evidence written for the old
+        one would be a proof of work nobody is doing."""
+        self.chat()
+        self.client.post("/api/coach/checkins/declare/", {"text": "talk to Priya"})
+        self.assertEqual(CheckIn.objects.get().proof_offer, "")
+
+    def test_nothing_is_drafted_when_no_task_is_on_the_hook(self):
+        """ProveView would refuse the filing anyway, so a draft here is a
+        button the builder can't press."""
+        CheckIn.objects.all().delete()
+        self.chat()
+        self.assertFalse(CheckIn.objects.exists())
+
+    def test_a_draft_with_no_text_is_not_an_offer(self):
+        """Tool arguments arrive as streamed JSON fragments and can land
+        malformed; llm._tool_arguments answers {} rather than taking the turn
+        down with it, and an empty draft must go nowhere."""
+        self.chat(events=[("tool_call", {"name": "suggest_proof", "arguments": {}})])
+        self.assertEqual(CheckIn.objects.get().proof_offer, "")
+
+    def test_the_draft_rides_the_state_payload(self):
+        self.chat()
+        response = self.client.get("/api/coach/state/")
+        self.assertEqual(response.data["today"]["proof_offer"], self.DRAFT)
+
+    def test_the_coach_is_told_to_look_for_it(self):
+        system = prompts.build_system_prompt(
+            self.goal, gates.gate_status(self.goal), 0, "state", "ENGLISH"
+        )
+        self.assertIn(prompts.SPOT_PROOF, system)
 
 
 class ChangelogTests(APITestCase):

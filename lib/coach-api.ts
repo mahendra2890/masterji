@@ -64,6 +64,10 @@ export type CheckIn = {
   /** What tonight's proof must show for THIS task. Empty when unjudged —
    * fall back to the phase's static ask in CoachState.guidance. */
   proofAsk: string;
+  /** Tonight's proof as Masterji drafted it from work the builder had already
+   * described in chat. An offer, not a record — nothing counts until they
+   * file it, and filing it unedited is accepted without a second judgement. */
+  proofOffer: string;
   pmProofText: string;
   proofUrl: string;
   /** Signed, short-lived link to the screenshot backing this proof. Minted
@@ -135,6 +139,10 @@ export type CoachState = {
    * erase the fact that the work happened. */
   lifetimeDays: number;
   tone: "ENGLISH" | "HINGLISH";
+  /** Which side of the table the coach sits on. THINKING makes him a thinking
+   * partner in chat — questions and options instead of assignments — and
+   * changes nothing about the gate. */
+  mode: "COACH" | "THINKING";
 };
 
 /* --- server shapes ------------------------------------------------------ */
@@ -175,6 +183,7 @@ type ServerCheckIn = {
   declaration_fit?: CheckIn["declarationFit"];
   declaration_reaction?: string;
   proof_ask?: string;
+  proof_offer?: string;
   pm_proof_text: string;
   proof_url: string;
   proof_image_url?: string;
@@ -204,6 +213,7 @@ const fromServerCheckIn = (c: ServerCheckIn): CheckIn => ({
   declarationFit: c.declaration_fit ?? "UNJUDGED",
   declarationReaction: c.declaration_reaction ?? "",
   proofAsk: c.proof_ask ?? "",
+  proofOffer: c.proof_offer ?? "",
   pmProofText: c.pm_proof_text,
   proofUrl: c.proof_url,
   proofImageUrl: c.proof_image_url ?? "",
@@ -373,6 +383,7 @@ export async function getState(): Promise<CoachState> {
     archive?: ServerRetirement[];
     lifetime_days?: number;
     tone: CoachState["tone"];
+    mode?: CoachState["mode"];
   }>(`state/?date=${localDate()}`);
   return {
     goal: data.goal ? fromServerGoal(data.goal) : null,
@@ -395,6 +406,7 @@ export async function getState(): Promise<CoachState> {
     archive: (data.archive ?? []).map(fromServerRetirement),
     lifetimeDays: data.lifetime_days ?? 0,
     tone: data.tone,
+    mode: data.mode ?? "COACH",
   };
 }
 
