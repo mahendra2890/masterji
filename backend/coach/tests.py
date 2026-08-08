@@ -8,6 +8,7 @@ prose. The stock-fallback path (LLM down → proof still accepted) is a
 feature and is tested as such.
 """
 
+import json
 from datetime import date, timedelta
 from unittest import mock
 
@@ -1293,6 +1294,44 @@ class ChatTests(CoachTestCase):
         response = self.client.post("/api/coach/chat/", {"content": "hello"})
         self.assertEqual(response.status_code, 400)
 
+    def test_a_turn_that_dies_before_the_first_token_still_leaves_a_reply(self):
+        """The builder's own message is saved before the stream opens, so a
+        turn that saved nothing left them talking to themselves — and the
+        client refetches the moment the turn ends, so the bubble they were
+        watching went with it. The banner explaining why is a state and is
+        gone by morning; read back tomorrow, a conversation that answered
+        every message except one is Masterji ignoring them."""
+        goal = self.make_goal()
+
+        def boom(*args, **kwargs):
+            raise RuntimeError("provider hung up")
+            yield  # pragma: no cover — a generator that never gets that far
+
+        with mock.patch("coach.views.llm.stream_chat", side_effect=boom):
+            response = self.client.post("/api/coach/chat/", {"content": "you there?"})
+            body = b"".join(response.streaming_content).decode()
+        self.assertIn('"t": "error"', body)
+        self.assertEqual(
+            list(goal.messages.values_list("role", flat=True))[-2:], ["USER", "COACH"]
+        )
+        self.assertEqual(goal.messages.latest("id").content, views.STREAM_BROKE)
+
+    def test_an_answer_that_broke_off_partway_is_kept_as_far_as_it_got(self):
+        """Half an answer is still his answer. Overwriting it with the failure
+        line would throw away the part that did arrive — and the builder
+        watched that part stream in, so losing it on refetch is the same
+        disappearing act by a longer route."""
+        goal = self.make_goal()
+
+        def half(*args, **kwargs):
+            yield "delta", "Start with the "
+            raise RuntimeError("provider hung up")
+
+        with mock.patch("coach.views.llm.stream_chat", side_effect=half):
+            response = self.client.post("/api/coach/chat/", {"content": "which stack?"})
+            b"".join(response.streaming_content)
+        self.assertEqual(goal.messages.latest("id").content, "Start with the ")
+
 
 # --- how he talks ------------------------------------------------------------
 
@@ -1647,6 +1686,37 @@ class ProofOfferTests(CoachTestCase):
         down with it, and an empty draft must go nowhere."""
         self.chat(events=[("tool_call", {"name": "suggest_proof", "arguments": {}})])
         self.assertEqual(CheckIn.objects.get().proof_offer, "")
+
+    def test_a_turn_spent_entirely_on_the_draft_still_answers(self):
+        """The tool call WAS the turn: he wrote the proof and said nothing
+        around it. That saved no reply, so the chat — the one screen the
+        builder was watching — showed their message with nothing under it,
+        while the work landed on a card they had no reason to open. He says
+        where it went, on the wire as well as in the record, because the
+        refetch is a second late and they are looking now."""
+        events = [
+            ("tool_call", {"name": "suggest_proof", "arguments": {"text": self.DRAFT}})
+        ]
+        with mock.patch("coach.views.llm.stream_chat", return_value=iter(events)):
+            response = self.client.post("/api/coach/chat/", {"content": "talked to him"})
+            body = b"".join(response.streaming_content).decode()
+        said = Message.objects.filter(role=Message.Role.COACH).latest("id").content
+        # Equality, not a substring: the receipt points at the draft and must
+        # never restate it, or the builder gets two copies of one offer and
+        # only the one on the check-in files anything when tapped.
+        self.assertEqual(said, views.OFFER_LANDED)
+        events = [json.loads(raw) for raw in body.splitlines() if raw.strip()]
+        self.assertEqual(
+            [e["text"] for e in events if e["t"] == "delta"], [views.OFFER_LANDED]
+        )
+        self.assertEqual(CheckIn.objects.get().proof_offer, self.DRAFT)
+
+    def test_a_draft_he_spoke_around_gets_no_receipt(self):
+        """He already said it in his own words. Appending the stock line would
+        answer the builder twice for one turn."""
+        self.chat()
+        said = Message.objects.filter(role=Message.Role.COACH).latest("id").content
+        self.assertEqual(said, "That's tonight's proof. Yes?")
 
     def test_the_draft_rides_the_state_payload(self):
         self.chat()
