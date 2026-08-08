@@ -88,8 +88,8 @@ OFFER_NO_DECLARATION = (
 # the builder was actually watching, showed their message with no answer under
 # it. A tool call is not a reason to say nothing to someone who just spoke.
 OFFER_LANDED = (
-    "Wrote tonight's proof up from what you just told me — it's under Today, "
-    "yours to edit before you file it."
+    "Wrote tonight's proof up from what you just told me — it's under "
+    f"{WHERE_TO_FILE}, yours to edit before you file it."
 )
 
 # On the wire when the model drops the turn, and in the transcript too when it
