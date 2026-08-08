@@ -684,6 +684,30 @@
   border-color: var(--accent);
 }
 
+/* Under the composer, not inside it: the placeholder can only speak to an
+   empty box, and the box is not empty at the moment this matters. Sits on
+   the composer's own padding so it reads as a footnote to the input rather
+   than as another message in the log. */
+.composerNote,
+.composerDraft {
+  margin: -4px 0 0;
+  padding: 0 12px 12px;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.composerNote {
+  color: var(--muted);
+}
+
+/* A standing rule is grey; an errand is not. The accent is spent here and
+   nowhere else in this corner, so the one line that wants acting on is the
+   one line that looks like it. */
+.composerDraft {
+  color: var(--accent);
+  font-weight: 600;
+}
+
 /* --- shared controls ----------------------------------------------------------------------- */
 
 .input,
@@ -1140,6 +1164,19 @@
     height: 7px;
     border-radius: 50%;
     background: var(--accent);
+  }
+
+  /* The dot says "the day isn't finished", which is true from the moment it
+     starts — so it cannot also say "something just arrived for you". A
+     drafted proof gets a word instead, readable rather than decoded, and
+     announced to a screen reader rather than hidden from one. */
+  .paneBadge {
+    padding: 2px 7px;
+    border-radius: 999px;
+    background: var(--accent);
+    color: var(--accent-ink);
+    font-size: 11px;
+    font-weight: 700;
   }
 
   .header {
