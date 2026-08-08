@@ -165,15 +165,41 @@ export default function DemoPage() {
             ))}
           </div>
           <div className={app.composer}>
-            <textarea
-              className={app.composerInput}
-              rows={1}
-              disabled
-              placeholder="Sign in to talk to Masterji…"
-            />
-            <Link href="/login/" className={app.primaryBtn} style={{ textDecoration: "none" }}>
-              Sign in
-            </Link>
+            {/* The real control, in the real place, wearing the app's own
+                classes. A reader who never signs in should still leave
+                knowing Masterji has two ways of talking — the demo is where
+                most people meet this product, and the mode was invisible
+                here for as long as it was a word in the corner of a header
+                the demo doesn't even render. Inert, like the box below it. */}
+            <div className={app.modeBar}>
+              <div
+                className={app.modeSwitch}
+                role="group"
+                aria-label="How Masterji talks to you"
+              >
+                <span className={app.modeOptOn}>Coach me</span>
+                <span className={app.modeOpt}>Think with me</span>
+              </div>
+              <p className={app.modeCaption}>
+                One task, proof tonight. Switch before there&rsquo;s anything to
+                declare.
+              </p>
+            </div>
+            <div className={app.composerRow}>
+              <textarea
+                className={app.composerInput}
+                rows={1}
+                disabled
+                placeholder="Sign in to talk to Masterji…"
+              />
+              <Link
+                href="/login/"
+                className={app.primaryBtn}
+                style={{ textDecoration: "none" }}
+              >
+                Sign in
+              </Link>
+            </div>
           </div>
         </section>
       </div>
