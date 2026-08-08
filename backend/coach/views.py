@@ -59,6 +59,25 @@ WELCOME = (
     "task above, and bring me proof tonight."
 )
 
+# Said when Masterji spends a whole turn writing tonight's proof and adding
+# nothing to it. The draft itself is deliberately NOT repeated here: it is on
+# the check-in, where one tap files it, and two copies of one offer means one
+# of them does nothing. This is the receipt for the other copy. Without it the
+# turn was silent — the work landed on the Today card and the chat, the screen
+# the builder was actually watching, showed their message with no answer under
+# it. A tool call is not a reason to say nothing to someone who just spoke.
+OFFER_LANDED = (
+    "Wrote tonight's proof up from what you just told me — it's under Today, "
+    "yours to edit before you file it."
+)
+
+# On the wire when the model drops the turn, and in the transcript too when it
+# drops it before the first token. Those turns used to save no reply at all,
+# and the refetch that ends every turn then replaced the bubble the builder
+# was watching with a record of them talking to themselves. The banner
+# carrying this is gone by tomorrow morning. The hole in the day isn't.
+STREAM_BROKE = "Masterji lost the thread — try again."
+
 
 def _active_goal(user) -> Goal | None:
     return Goal.objects.filter(user=user, status=Goal.Status.ACTIVE).first()
@@ -804,6 +823,7 @@ class ChatView(APIView):
         parts: list[str] = []
         advance_proposed = False
         offered = ""
+        broke = False
         with tracer.start_as_current_span("coach.turn") as span:
             span.set_attribute("goal.phase", goal.phase)
             span.set_attribute("llm.model", settings.LLM_MODEL)
@@ -826,9 +846,8 @@ class ChatView(APIView):
                             ).strip()
             except Exception as e:
                 logger.error(f"Chat stream failed: {e}")
-                yield line(
-                    {"t": "error", "detail": "Masterji lost the thread — try again."}
-                )
+                broke = True
+                yield line({"t": "error", "detail": STREAM_BROKE})
 
             # A drafted proof is a row, not a wire event: the client refetches
             # state the moment the turn ends and reads the offer off the
@@ -845,6 +864,16 @@ class ChatView(APIView):
                     logger.info(f"Proof drafted for checkin {offer_target.id}")
 
             content = "".join(parts)
+            # Both of these turns produced no words and used to save no row,
+            # which is not the same as Masterji having nothing to say — it is
+            # the transcript losing the half of the exchange that explains the
+            # other half. A turn that got some way in before it fell over
+            # needs neither: that answer was already saved as far as it got.
+            if broke and not content:
+                content = STREAM_BROKE
+            elif offered and offer_target is not None and not content:
+                yield line({"t": "delta", "text": OFFER_LANDED})
+                content = OFFER_LANDED
             if advance_proposed:
                 advanced, detail = gates.try_advance(goal)
                 span.set_attribute("gate.advanced", advanced)
