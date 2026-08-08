@@ -1,3 +1,18 @@
+/* The demo is a taught tour, not a screenshot. Each slide puts one real
+   screen of the product on a stage, numbers the parts worth pointing at, and
+   answers each number in the margin.
+
+   Everything inside a mock wears the app's own classes from
+   masterji.module.css — borrowed pixels, not redrawn ones. A guide that
+   drifts from the product it teaches is worse than no guide, and the cheapest
+   way to not drift is to have no second copy of the styling. */
+
+.page {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 18px 20px 40px;
+}
+
 .banner {
   background: var(--surface-2);
   border: 1px solid var(--accent);
@@ -8,6 +23,21 @@
   margin-bottom: 14px;
 }
 
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-bottom: 14px;
+}
+
+.headerRight {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
 .cta {
   color: var(--accent);
   text-decoration: none;
@@ -16,11 +46,534 @@
   white-space: nowrap;
 }
 
-/* Only in the demo: the live app puts a "Use this" button here, and a button
-   that does nothing is worse than a sentence saying what it would do. */
-.draftNote {
+/* --- the rail ------------------------------------------------------------ */
+
+/* Steps, not dots: a reader who lands mid-tour should be able to see how long
+   this is and jump, and a dot small enough to be tidy is too small to hit. */
+.rail {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0 22px;
+  flex-wrap: wrap;
+}
+
+.step,
+.stepOn,
+.stepPast {
+  flex: 1;
+  min-width: 22px;
+  height: 7px;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  cursor: pointer;
+}
+
+.step:hover {
+  border-color: var(--accent);
+}
+
+.stepPast {
+  background: var(--border);
+}
+
+.stepOn {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.count {
+  font-family: var(--font-mono), monospace;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  padding-left: 6px;
+}
+
+/* --- the slide ------------------------------------------------------------ */
+
+.eyebrow {
+  margin: 0 0 6px;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.title {
+  font-size: 30px;
+  font-style: italic;
+  margin: 0 0 8px;
+}
+
+.kicker {
+  margin: 0 0 22px;
+  max-width: 64ch;
+  color: var(--muted);
+  font-size: 15.5px;
+}
+
+/* The mock gets the sidebar's real width so the screen being taught is the
+   width it is in the product; the notes take what's left. */
+/* The notes column is capped rather than left at 1fr: a note is a sentence to
+   read, and a full-width one on a laptop runs past the measure where the eye
+   finds the next line. */
+.stage {
+  display: grid;
+  grid-template-columns: minmax(0, 380px) minmax(0, 620px);
+  gap: 34px;
+  align-items: start;
+}
+
+/* Chat is the wide half of the app — flip which column is generous. */
+.stageWide {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 330px);
+}
+
+/* When the mock is two panels and an arrow between them, it takes the width
+   and the notes go underneath. */
+.stageStack {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.mockCol {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+/* Which screen this is, above the mock. Without it a card floating on a page
+   is a card floating on a page. */
+.mockCaption {
+  margin: 0;
+  font-size: 11.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* --- marks and notes ------------------------------------------------------ */
+
+/* The ring says "this bit", the badge says which note answers it. Dashed and
+   marigold so it reads as annotation over the screen rather than as a state
+   the product can actually be in. */
+.marked {
+  position: relative;
+  margin: 10px 0;
+  border-radius: 8px;
+  outline: 1px dashed var(--accent);
+  outline-offset: 5px;
+}
+
+.marked::after {
+  content: attr(data-mark);
+  position: absolute;
+  top: -12px;
+  left: -12px;
+  z-index: 1;
+  width: 21px;
+  height: 21px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-family: var(--font-mono), monospace;
+  font-size: 12px;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+}
+
+/* For a mark inside a flex row (the composer), where the wrapper has to take
+   the space the input would have taken. */
+.markedGrow {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Around a button, where a block ring would circle the empty half of the row
+   as well and point at nothing. */
+.markedTight {
+  display: inline-block;
+}
+
+.notes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* The tail is the arrow. A rotated square rather than a border triangle so it
+   carries the note's own 1px border and reads as part of the card. */
+.note {
+  position: relative;
+  display: flex;
+  gap: 10px;
+  padding: 11px 13px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.note::before {
+  content: "";
+  position: absolute;
+  left: -6px;
+  top: 15px;
+  width: 10px;
+  height: 10px;
+  background: var(--surface-2);
+  border-left: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  transform: rotate(45deg);
+}
+
+.noteN {
+  flex-shrink: 0;
+  margin-top: 1px;
+  width: 21px;
+  height: 21px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-family: var(--font-mono), monospace;
+  font-size: 12px;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+}
+
+.noteText {
+  min-width: 0;
+}
+
+/* Notes below the mock instead of beside it — the tail turns to point up. */
+.notesUnder {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 12px;
+}
+
+.notesUnder .note::before {
+  left: 20px;
+  top: -6px;
+  border-bottom: none;
+  border-right: none;
+  border-left: 1px solid var(--border);
+  border-top: 1px solid var(--border);
+}
+
+/* --- worked examples ------------------------------------------------------ */
+
+/* What an accepted answer looks like next to the one that gets pushed back.
+   The rule alone never taught anybody the shape of the answer. */
+.samples {
+  margin-top: 20px;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+}
+
+.sampleGood,
+.sampleBad {
+  padding: 11px 13px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
+.sampleGood {
+  border-left: 3px solid var(--good);
+}
+
+.sampleBad {
+  border-left: 3px solid var(--bad);
+}
+
+.sampleLabel {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.sampleGood .sampleLabel::before {
+  content: "✓ ";
+  color: var(--good);
+}
+
+.sampleBad .sampleLabel::before {
+  content: "✗ ";
+  color: var(--bad);
+}
+
+.sampleText {
+  margin: 0;
+}
+
+.sampleWhy {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+/* --- the line to leave with ----------------------------------------------- */
+
+.takeaway {
+  margin: 22px 0 0;
+  padding: 12px 15px;
+  border-left: 3px solid var(--accent);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  background: var(--surface);
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+/* --- two panels and the arrow between them -------------------------------- */
+
+.pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 18px;
+  align-items: center;
+}
+
+.bigArrow {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  color: var(--accent);
+}
+
+.bigArrowGlyph {
+  font-size: 32px;
+  line-height: 1;
+}
+
+/* Sideways on a laptop, downward once the panels stack. The glyph is drawn
+   here rather than in the markup so the direction can't be wrong. */
+.bigArrowGlyph::before {
+  content: "→";
+}
+
+.bigArrowLabel {
+  max-width: 96px;
+  text-align: center;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* --- mock scaffolding ----------------------------------------------------- */
+
+/* The chat panel's frame. Not app.chat: that one is sized to own a viewport
+   (min-height 420, max-height 100dvh) and a slide is not a viewport. */
+.chatPanel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* The app header's right-hand controls, on their own for the slide that
+   teaches them. */
+.headerStrip {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* A div wearing the app's .textarea. Real inputs in a mock invite typing into
+   something that can't answer; these hold the words that would be in them. */
+.field {
+  min-height: 44px;
+  white-space: pre-wrap;
+}
+
+.fieldTall {
+  min-height: 76px;
+}
+
+.ph {
+  color: var(--muted);
+}
+
+/* The standing line under the chat composer. Quoted from the app rather than
+   borrowed, because it ships with the two-boxes work and the class isn't
+   there on every base — see the comment at its use in Tour.tsx. */
+.composerNote {
+  margin: -4px 0 0;
+  padding: 0 12px 12px;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+/* The real composer's textarea is one row tall and scrolls whatever it holds;
+   the mock's is a div, so on a narrow screen the placeholder wraps to three
+   lines and stretches the Send button down with it. */
+.sendBtn {
+  align-self: center;
+}
+
+/* The app's file-attach control, quoted rather than wired. */
+.fakeAttach {
+  display: block;
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* --- the last slide ------------------------------------------------------- */
+
+.recap {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+}
+
+.recapStep {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  padding: 14px;
+}
+
+.recapWhen {
+  margin: 0 0 6px;
+  font-family: var(--font-mono), monospace;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.recapWhat {
+  margin: 0;
+  font-size: 14.5px;
+  line-height: 1.5;
+}
+
+.finish {
+  margin-top: 26px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.finishBtn {
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 700;
+  border: none;
+  border-radius: var(--radius);
+  padding: 12px 22px;
+  font-size: 15px;
+  text-decoration: none;
+}
+
+.finishBtn:hover {
+  filter: brightness(1.08);
+}
+
+.finishNote {
   margin: 0;
   color: var(--muted);
-  font-size: 12px;
-  font-style: italic;
+  font-size: 13.5px;
+}
+
+/* --- moving between slides ------------------------------------------------ */
+
+.nav {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 30px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+
+.navSpacer {
+  flex: 1;
+}
+
+.navHint {
+  color: var(--muted);
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+/* --- responsive ----------------------------------------------------------- */
+
+@media (max-width: 900px) {
+  .stage,
+  .stageWide {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 24px;
+  }
+
+  /* Notes are under the mock at every width below this, so the tail points
+     up — same rule as .notesUnder, applied to all of them. */
+  .note::before {
+    left: 20px;
+    top: -6px;
+    border-bottom: none;
+    border-right: none;
+    border-left: 1px solid var(--border);
+    border-top: 1px solid var(--border);
+  }
+
+  /* Only the first one, though: in a single column the others sit under each
+     other, and a tail there points at the note above rather than at the
+     screen. The numbers carry the mapping from note two onward. */
+  .note:not(:first-child)::before {
+    display: none;
+  }
+
+  .pair {
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: center;
+  }
+
+  .bigArrow {
+    flex-direction: row;
+    gap: 10px;
+  }
+
+  .bigArrowGlyph::before {
+    content: "↓";
+  }
+
+  .bigArrowLabel {
+    max-width: none;
+  }
+
+  .title {
+    font-size: 25px;
+  }
+
+  .navHint {
+    display: none;
+  }
 }
