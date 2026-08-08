@@ -276,11 +276,12 @@ const SLIDES: Slide[] = [
           <div className={app.composer}>
             <Mark n={3}>
               <div className={app.modeBar}>
-                <div
-                  className={app.modeSwitch}
-                  role="group"
-                  aria-label="How Masterji talks to you"
-                >
+                {/* No role and no aria-label, unlike the real control this
+                    borrows its classes from: these are spans that cannot be
+                    pressed, and the rest of this file marks its mock parts
+                    decorative rather than announcing them. The margin note
+                    carries the meaning for anyone not looking at the picture. */}
+                <div className={app.modeSwitch}>
                   <span className={app.modeOptOn}>Coach me</span>
                   <span className={app.modeOpt}>Think with me</span>
                 </div>
