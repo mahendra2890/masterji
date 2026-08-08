@@ -387,6 +387,10 @@ export default function Masterji({ user }: { user: SessionUser }) {
     !today?.amDeclaration ||
     !today.pmProofText ||
     today.proofStatus === "PUSHED_BACK";
+  // A proof Masterji drafted out of the conversation and nobody has filed.
+  // Distinct from dayOpen on purpose: dayOpen is lit from the moment the day
+  // starts, so it cannot announce anything that arrives mid-day.
+  const draftWaiting = dayOpen && Boolean(today?.proofOffer);
 
   const showPane = (next: "today" | "chat") => {
     setPane(next);
@@ -455,9 +459,16 @@ export default function Masterji({ user }: { user: SessionUser }) {
           onClick={() => showPane("today")}
         >
           Today
-          {dayOpen && pane !== "today" && (
-            <span className={styles.paneDot} aria-hidden="true" />
-          )}
+          {/* A drafted proof gets a word of its own. The dot can't carry it:
+              it is already lit from the moment the day opens, so the one
+              event worth crossing panes for was the one event that changed
+              nothing on the tab the builder was looking at. */}
+          {pane !== "today" &&
+            (draftWaiting ? (
+              <span className={styles.paneBadge}>draft</span>
+            ) : dayOpen ? (
+              <span className={styles.paneDot} aria-hidden="true" />
+            ) : null)}
         </button>
         <button
           className={pane === "chat" ? styles.paneOn : styles.pane}
@@ -827,14 +838,22 @@ export default function Masterji({ user }: { user: SessionUser }) {
               </div>
             )}
           </div>
+          {/* Both boxes in this app take the same free text and do entirely
+              different things with it: this one records a conversation, the
+              one under Today records the day and is the only one the gate
+              ever counts. Nothing said so, which is how an evening's real
+              work ends up described here and filed nowhere. */}
           <div className={styles.composer}>
             <textarea
               className={styles.composerInput}
               rows={1}
+              /* Short on purpose. The rule this box needs to state doesn't fit
+                 in it: at 375px the composer clears 205px of text, and the
+                 sentence needs 444px — it truncated to "Think out loud —
+                 nothing here", which is worse than saying nothing. The rule
+                 lives on the line below, which can wrap. */
               placeholder={
-                state.mode === "THINKING"
-                  ? "Think it through with Masterji…"
-                  : "Talk to Masterji…"
+                state.mode === "THINKING" ? "Think out loud…" : "Talk it through…"
               }
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
@@ -853,6 +872,20 @@ export default function Masterji({ user }: { user: SessionUser }) {
               Send
             </button>
           </div>
+          {/* Where the rule actually lives. A placeholder was the obvious
+              home for it and the wrong one twice over: it is clipped to a
+              third of itself on a phone, and it disappears the moment they
+              start typing — which is exactly when a builder is pouring the
+              evening's work into the wrong box. This wraps, and it stays. */}
+          {dayOpen && (
+            <p className={draftWaiting ? styles.composerDraft : styles.composerNote}>
+              {draftWaiting
+                ? "Masterji drafted tonight's proof — file it under Today."
+                : today?.amDeclaration
+                  ? "Nothing here counts until you file it under Today."
+                  : "Nothing here counts. Declare today's task under Today first."}
+            </p>
+          )}
         </section>
       </div>
 
