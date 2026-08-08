@@ -286,7 +286,7 @@ const SLIDES: Slide[] = [
                   <span className={app.modeOpt}>Think with me</span>
                 </div>
                 <p className={app.modeCaption}>
-                  Assignments and push-back. Switch before there&rsquo;s
+                  Assignments and push-back. Switch before there&apos;s
                   anything to declare.
                 </p>
               </div>
