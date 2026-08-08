@@ -63,7 +63,29 @@ The product's spine is a **server-enforced state machine**, not a prompt:
 - **The daily loop:** declare one task every morning, submit proof every
   evening. A lenient LLM pass reacts (accept / push back) — and if the
   model is down, the proof is accepted with a stock reaction: the loop
-  never breaks because an API flaked.
+  never breaks because an API flaked. A resubmission is judged against every
+  try that was refused *and the words that refused each one*, so the second
+  look can't invent a reason the first didn't give. Past `STALEMATE_AT`
+  refusals the prompt stops asking for a verdict and asks for a diagnosis
+  first — *is the work missing, or is the work there and the two of you
+  failing to understand each other?* — because those two failures produce an
+  identical stack of push-backs and only one of them is the builder's. The
+  second case is the coach's to fix: accept, and write the proof out as he
+  now reads it. It is deliberately **not** a cap. Nothing passes because a
+  builder resubmitted often enough; work that isn't there is refused on the
+  fourth try and the fortieth.
+- **Masterji drafts the proof, the builder files it.** The commonest way to
+  lose an evening was to describe real work in chat, get coached at about
+  it, and file nothing — because translating what you said into what the
+  box wanted was your job. Now the coach reads the conversation against the
+  phase's bar and, when it's met, calls `suggest_proof` with tonight's proof
+  written up in the builder's own words. It lands on the check-in as a
+  draft. Filed unedited it skips a second judgement (he decided when he
+  offered); edited, it's judged with his own draft in the prompt. The offer
+  records nothing by itself: filing is the builder's, and so is the gate
+  credit. Evidence is judged on what it *contains*, never on reproducing
+  the playbooks' format — nobody is tested on how well they learned our
+  vocabulary.
 - **Phase-gated coaching:** the system prompt is assembled per-request
   from database state plus the phase's playbook — small, self-authored
   distillations of the lean-execution canon (crediting *The Mom Test*,
@@ -74,8 +96,12 @@ The product's spine is a **server-enforced state machine**, not a prompt:
   method earns its way in — and why scraped tweets never will — is
   written down in the
   [curation policy](backend/coach/playbooks/README.md).
-- **Hinglish toggle** — Masterji speaks natural Hindi-English if you want
-  him to. ("Kaam dikhao, baatein nahi.")
+- **Two ways of talking, both the builder's to set.** *Hinglish* — Masterji
+  speaks natural Hindi-English if you want him to ("Kaam dikhao, baatein
+  nahi"). *Thinking partner* — for the work that comes before there's
+  anything to declare, he switches to questions and options instead of
+  assignments. Both live on the user, not the turn. Neither is a way past
+  the gate: `gates.py` doesn't read either field, and a test pins it.
 
 ## Architecture
 
@@ -122,7 +148,7 @@ Deployment (Vercel + Render + Neon + Namecheap DNS): see
 ## What exists vs. what's next
 
 **Today:** the full coaching loop — goal, phases, gates, daily check-ins,
-streaks, grounded chat, Hinglish, demo mode. What has moved since the first
+streaks, grounded chat, Hinglish, thinking-partner mode, demo mode. What has moved since the first
 build is in the product itself — **What's new** in the header opens the
 changelog, served from the `ChangelogEntry` table (public endpoint, so the
 demo reads it too) and written from the admin rather than from a deploy.

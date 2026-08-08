@@ -11,7 +11,7 @@ import FailedTries from "@/components/FailedTries";
 import Changelog from "@/components/Changelog";
 import ClosedIdea from "./ClosedIdea";
 import DayDetail from "./DayDetail";
-import { updateTone, type SessionUser } from "@/lib/auth-client";
+import { updatePrefs, type SessionUser } from "@/lib/auth-client";
 import {
   advanceGoal,
   ApiError,
@@ -239,8 +239,17 @@ export default function Masterji({ user }: { user: SessionUser }) {
   const onToggleTone = () =>
     run(async () => {
       const next = state?.tone === "HINGLISH" ? "ENGLISH" : "HINGLISH";
-      await updateTone(next);
+      await updatePrefs({ tone: next });
       setState((s) => (s ? { ...s, tone: next } : s));
+    });
+
+  // Persisted on the user, not held in this component: a builder who asked to
+  // think out loud on their phone should still be in that mode on their laptop.
+  const onToggleMode = () =>
+    run(async () => {
+      const next = state?.mode === "THINKING" ? "COACH" : "THINKING";
+      await updatePrefs({ mode: next });
+      setState((s) => (s ? { ...s, mode: next } : s));
     });
 
   const onSend = async () => {
@@ -393,6 +402,22 @@ export default function Masterji({ user }: { user: SessionUser }) {
           Masterji <span className={styles.brandHindi}>मास्टरजी</span>
         </span>
         <div className={styles.headerRight}>
+          {/* Sits with the language toggle because it is the same kind of
+              setting: how Masterji talks to you, kept on the user so it
+              survives the tab. It is not a way past the gate — gates.py
+              never reads it. */}
+          <button
+            className={state.mode === "THINKING" ? styles.modeBtnOn : styles.modeBtn}
+            onClick={onToggleMode}
+            aria-pressed={state.mode === "THINKING"}
+            title={
+              state.mode === "THINKING"
+                ? "Masterji is thinking it through with you — questions and options instead of assignments. Phases and proofs are unchanged."
+                : "Stuck? Switch Masterji to a thinking partner for the part before there's anything to declare."
+            }
+          >
+            {state.mode === "THINKING" ? "Thinking" : "Coach"}
+          </button>
           <button
             className={styles.toneBtn}
             onClick={onToggleTone}
@@ -626,6 +651,25 @@ export default function Masterji({ user }: { user: SessionUser }) {
                     )}
                   </div>
                 )}
+                {/* Masterji's own draft, written from work the builder already
+                    described in chat. The ask above says what tonight needs;
+                    this says "you've already told me — here it is". Filed
+                    unedited it skips a second judgement server-side, so the
+                    button copies it verbatim rather than reformatting it. */}
+                {today.proofOffer && (
+                  <div className={styles.proofOffer}>
+                    <p className={styles.proofOfferLabel}>
+                      Masterji wrote this from your conversation
+                    </p>
+                    <p className={styles.proofOfferText}>{today.proofOffer}</p>
+                    <button
+                      className={styles.proofOfferBtn}
+                      onClick={() => setPmText(today.proofOffer)}
+                    >
+                      Use this — edit it below if it&rsquo;s not right
+                    </button>
+                  </div>
+                )}
                 <textarea
                   className={styles.textarea}
                   rows={3}
@@ -787,7 +831,11 @@ export default function Masterji({ user }: { user: SessionUser }) {
             <textarea
               className={styles.composerInput}
               rows={1}
-              placeholder="Talk to Masterji…"
+              placeholder={
+                state.mode === "THINKING"
+                  ? "Think it through with Masterji…"
+                  : "Talk to Masterji…"
+              }
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => {

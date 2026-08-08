@@ -7,6 +7,7 @@ specific may leak out of this module.
 """
 
 import base64
+import json
 from collections.abc import Iterator
 from typing import cast
 
@@ -17,9 +18,14 @@ from litellm import ModelResponse
 
 def stream_chat(
     system: str, messages: list[dict], tools: list[dict] | None = None
-) -> Iterator[tuple[str, str]]:
-    """Yield ("delta", text) chunks; after the stream, ("tool_call", name)
-    once per tool the model invoked."""
+) -> Iterator[tuple[str, str | dict]]:
+    """Yield ("delta", text) chunks while the model talks; after the stream,
+    ("tool_call", {"name": ..., "arguments": {...}}) once per tool it invoked.
+
+    Arguments arrive as string fragments spread across chunks and keyed by
+    index, so they are reassembled here: the seam's job is to hand the view a
+    whole call, not a stream of half-parsed JSON.
+    """
     response = litellm.completion(
         model=settings.LLM_MODEL,
         messages=[{"role": "system", "content": system}, *messages],
@@ -28,18 +34,42 @@ def stream_chat(
         num_retries=2,
         timeout=settings.LLM_TIMEOUT_S,
     )
-    tool_names: list[str] = []
+    calls: dict[int, dict] = {}
     for chunk in response:
         delta = chunk.choices[0].delta
         content = getattr(delta, "content", None)
         if content:
             yield "delta", content
         for call in getattr(delta, "tool_calls", None) or []:
-            name = getattr(getattr(call, "function", None), "name", None)
-            if name:
-                tool_names.append(name)
-    for name in tool_names:
-        yield "tool_call", name
+            slot = calls.setdefault(
+                getattr(call, "index", 0) or 0, {"name": "", "arguments": ""}
+            )
+            function = getattr(call, "function", None)
+            # Both arrive piecemeal: the name usually lands whole in the first
+            # fragment, the arguments never do.
+            slot["name"] = getattr(function, "name", None) or slot["name"]
+            slot["arguments"] += getattr(function, "arguments", None) or ""
+    for slot in calls.values():
+        if slot["name"]:
+            yield "tool_call", {
+                "name": slot["name"],
+                "arguments": _tool_arguments(slot["arguments"]),
+            }
+
+
+def _tool_arguments(raw: str) -> dict:
+    """Parsed tool arguments, or {}. A model that streams malformed JSON — or
+    valid JSON that isn't an object — costs the caller its arguments and never
+    the whole turn: every tool here is a proposal the server re-decides anyway,
+    so a call with nothing in it is a proposal that goes nowhere. Callers may
+    therefore treat the result as a dict without checking."""
+    if not raw.strip():
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except ValueError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
 
 
 def complete_with_image(

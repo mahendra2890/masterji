@@ -15,3 +15,12 @@
   font-size: 14px;
   white-space: nowrap;
 }
+
+/* Only in the demo: the live app puts a "Use this" button here, and a button
+   that does nothing is worse than a sentence saying what it would do. */
+.draftNote {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-style: italic;
+}
