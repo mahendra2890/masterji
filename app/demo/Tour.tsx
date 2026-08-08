@@ -239,9 +239,6 @@ const SLIDES: Slide[] = [
     mock: (
       <>
         <div className={styles.headerStrip}>
-          <Mark n={4}>
-            <span className={app.modeBtn}>Coach</span>
-          </Mark>
           <span className={app.toneBtn}>EN</span>
           <span className={app.streak}>4 days 🔥</span>
         </div>
@@ -277,10 +274,28 @@ const SLIDES: Slide[] = [
             </Mark>
           </div>
           <div className={app.composer}>
-            <div className={`${app.composerInput} ${styles.ph}`}>
-              Talk it through…
+            <Mark n={4}>
+              <div className={app.modeBar}>
+                <div
+                  className={app.modeSwitch}
+                  role="group"
+                  aria-label="How Masterji talks to you"
+                >
+                  <span className={app.modeOptOn}>Coach me</span>
+                  <span className={app.modeOpt}>Think with me</span>
+                </div>
+                <p className={app.modeCaption}>
+                  Assignments and push-back. Switch before there&rsquo;s
+                  anything to declare.
+                </p>
+              </div>
+            </Mark>
+            <div className={app.composerRow}>
+              <div className={`${app.composerInput} ${styles.ph}`}>
+                Talk it through…
+              </div>
+              <span className={`${app.primaryBtn} ${styles.sendBtn}`}>Send</span>
             </div>
-            <span className={`${app.primaryBtn} ${styles.sendBtn}`}>Send</span>
           </div>
           <Mark n={3}>
             <p className={app.composerNote}>
@@ -306,11 +321,11 @@ const SLIDES: Slide[] = [
         which is exactly when this needs saying.
       </>,
       <>
-        Stuck before there&apos;s anything to declare? Flip{" "}
-        <strong>Coach → Thinking</strong>{" "}
-        and he asks questions instead of handing out assignments.{" "}
-        <strong>EN → हिं</strong>{" "}
-        switches him to Hinglish. Neither toggle touches the gate.
+        Two ways of talking, both yours to set — and both on screen, so
+        neither can hide behind the other. <strong>Think with me</strong>{" "}
+        trades assignments for questions, for the part of the work that comes
+        before there&apos;s anything to declare. <strong>EN → हिं</strong>{" "}
+        switches him to Hinglish. Neither one touches the gate.
       </>,
     ],
     takeaway: (
