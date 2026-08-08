@@ -123,31 +123,6 @@
   cursor: pointer;
 }
 
-/* Coach ⇄ Thinking partner. Off it reads as a label, on it lights up in
-   marigold — the mode changes how every reply in the log sounds, so it has
-   to be visible without hovering for the tooltip. */
-.modeBtn,
-.modeBtnOn {
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  color: var(--muted);
-  border-radius: 6px;
-  padding: 4px 10px;
-  font-size: 13px;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.modeBtn:hover {
-  color: var(--text);
-}
-
-.modeBtnOn {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--accent-ink);
-}
-
 .linkBtn {
   background: none;
   border: none;
@@ -662,11 +637,79 @@
   color: var(--muted);
 }
 
+/* The composer band is now two rows: how Masterji is talking, then the box
+   you talk back in. One border-top for the pair — the mode belongs to the
+   composer, not to the log above it. */
 .composer {
   display: flex;
-  gap: 10px;
+  flex-direction: column;
+  gap: 9px;
   padding: 12px;
   border-top: 1px solid var(--border);
+}
+
+.composerRow {
+  display: flex;
+  gap: 10px;
+}
+
+/* Switch and caption side by side where there's room; the caption drops
+   under the switch when there isn't. No media query — the wrap is the
+   breakpoint, so it also works in the phone pane and in the narrow column
+   between 821px and the point the sentence stops fitting. */
+.modeBar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* Coach ⇄ Thinking partner, as a segmented control: both options on screen,
+   the live one filled in marigold. A single button could only ever show one
+   of the two, which made it a label that happened to be clickable. */
+.modeSwitch {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+
+.modeOpt,
+.modeOptOn {
+  background: none;
+  border: none;
+  border-radius: 999px;
+  padding: 5px 12px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.modeOpt:hover:not(:disabled) {
+  color: var(--text);
+}
+
+.modeOptOn {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.modeOpt:disabled,
+.modeOptOn:disabled {
+  cursor: default;
+}
+
+/* Carries the explanation that used to live in a title tooltip — which a
+   phone never shows, on the surface where being stuck is most likely. */
+.modeCaption {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--muted);
 }
 
 .composerInput {
@@ -682,6 +725,30 @@
 
 .composerInput:focus {
   border-color: var(--accent);
+}
+
+/* Under the composer, not inside it: the placeholder can only speak to an
+   empty box, and the box is not empty at the moment this matters. Sits on
+   the composer's own padding so it reads as a footnote to the input rather
+   than as another message in the log. */
+.composerNote,
+.composerDraft {
+  margin: -4px 0 0;
+  padding: 0 12px 12px;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.composerNote {
+  color: var(--muted);
+}
+
+/* A standing rule is grey; an errand is not. The accent is spent here and
+   nowhere else in this corner, so the one line that wants acting on is the
+   one line that looks like it. */
+.composerDraft {
+  color: var(--accent);
+  font-weight: 600;
 }
 
 /* --- shared controls ----------------------------------------------------------------------- */
@@ -1140,6 +1207,19 @@
     height: 7px;
     border-radius: 50%;
     background: var(--accent);
+  }
+
+  /* The dot says "the day isn't finished", which is true from the moment it
+     starts — so it cannot also say "something just arrived for you". A
+     drafted proof gets a word instead, readable rather than decoded, and
+     announced to a screen reader rather than hidden from one. */
+  .paneBadge {
+    padding: 2px 7px;
+    border-radius: 999px;
+    background: var(--accent);
+    color: var(--accent-ink);
+    font-size: 11px;
+    font-weight: 700;
   }
 
   .header {

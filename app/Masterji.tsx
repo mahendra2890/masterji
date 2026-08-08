@@ -245,9 +245,13 @@ export default function Masterji({ user }: { user: SessionUser }) {
 
   // Persisted on the user, not held in this component: a builder who asked to
   // think out loud on their phone should still be in that mode on their laptop.
-  const onToggleMode = () =>
+  //
+  // Sets a named mode rather than flipping the current one: the control is two
+  // options with one lit, so "the mode I clicked" is the only thing a click can
+  // mean. Re-picking the mode already running is a no-op, not a round-trip.
+  const onSetMode = (next: CoachState["mode"]) =>
     run(async () => {
-      const next = state?.mode === "THINKING" ? "COACH" : "THINKING";
+      if (state?.mode === next) return;
       await updatePrefs({ mode: next });
       setState((s) => (s ? { ...s, mode: next } : s));
     });
@@ -387,6 +391,10 @@ export default function Masterji({ user }: { user: SessionUser }) {
     !today?.amDeclaration ||
     !today.pmProofText ||
     today.proofStatus === "PUSHED_BACK";
+  // A proof Masterji drafted out of the conversation and nobody has filed.
+  // Distinct from dayOpen on purpose: dayOpen is lit from the moment the day
+  // starts, so it cannot announce anything that arrives mid-day.
+  const draftWaiting = dayOpen && Boolean(today?.proofOffer);
 
   const showPane = (next: "today" | "chat") => {
     setPane(next);
@@ -402,22 +410,13 @@ export default function Masterji({ user }: { user: SessionUser }) {
           Masterji <span className={styles.brandHindi}>मास्टरजी</span>
         </span>
         <div className={styles.headerRight}>
-          {/* Sits with the language toggle because it is the same kind of
-              setting: how Masterji talks to you, kept on the user so it
-              survives the tab. It is not a way past the gate — gates.py
-              never reads it. */}
-          <button
-            className={state.mode === "THINKING" ? styles.modeBtnOn : styles.modeBtn}
-            onClick={onToggleMode}
-            aria-pressed={state.mode === "THINKING"}
-            title={
-              state.mode === "THINKING"
-                ? "Masterji is thinking it through with you — questions and options instead of assignments. Phases and proofs are unchanged."
-                : "Stuck? Switch Masterji to a thinking partner for the part before there's anything to declare."
-            }
-          >
-            {state.mode === "THINKING" ? "Thinking" : "Coach"}
-          </button>
+          {/* The mode used to sit here, next to the language toggle, on the
+              grounds that both are "how Masterji talks to you". They aren't
+              the same kind of setting. Language is picked once and forgotten;
+              the mode is reached for mid-conversation, at the moment the
+              replies stop fitting the problem — so it now lives over the
+              composer, with the conversation it governs. This corner is
+              account chrome, and nobody looks for a way of talking in it. */}
           <button
             className={styles.toneBtn}
             onClick={onToggleTone}
@@ -455,9 +454,16 @@ export default function Masterji({ user }: { user: SessionUser }) {
           onClick={() => showPane("today")}
         >
           Today
-          {dayOpen && pane !== "today" && (
-            <span className={styles.paneDot} aria-hidden="true" />
-          )}
+          {/* A drafted proof gets a word of its own. The dot can't carry it:
+              it is already lit from the moment the day opens, so the one
+              event worth crossing panes for was the one event that changed
+              nothing on the tab the builder was looking at. */}
+          {pane !== "today" &&
+            (draftWaiting ? (
+              <span className={styles.paneBadge}>draft</span>
+            ) : dayOpen ? (
+              <span className={styles.paneDot} aria-hidden="true" />
+            ) : null)}
         </button>
         <button
           className={pane === "chat" ? styles.paneOn : styles.pane}
@@ -827,32 +833,106 @@ export default function Masterji({ user }: { user: SessionUser }) {
               </div>
             )}
           </div>
+          {/* Both boxes in this app take the same free text and do entirely
+              different things with it: this one records a conversation, the
+              one under Today records the day and is the only one the gate
+              ever counts. Nothing said so, which is how an evening's real
+              work ends up described here and filed nowhere. */}
           <div className={styles.composer}>
-            <textarea
-              className={styles.composerInput}
-              rows={1}
-              placeholder={
-                state.mode === "THINKING"
-                  ? "Think it through with Masterji…"
-                  : "Talk to Masterji…"
-              }
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  onSend();
+            {/* Both modes on screen, one lit. The old control was a single
+                button carrying the word "Coach", which states the mode you
+                are in and leaves the mode you'd get to be inferred — and
+                which never revealed that a second mode existed at all. A
+                builder who has never heard of the thinking partner has no
+                reason to press a button already labelled with what they've
+                got. Two options can't hide the other one.
+
+                Written from the builder's side of the table, because that is
+                what the setting actually moves: not "which hat is Masterji
+                wearing" but "which of these two do I want done to me". */}
+            <div className={styles.modeBar}>
+              <div
+                className={styles.modeSwitch}
+                role="group"
+                aria-label="How Masterji talks to you"
+              >
+                <button
+                  type="button"
+                  className={
+                    state.mode === "COACH" ? styles.modeOptOn : styles.modeOpt
+                  }
+                  aria-pressed={state.mode === "COACH"}
+                  disabled={busy}
+                  onClick={() => onSetMode("COACH")}
+                >
+                  Coach me
+                </button>
+                <button
+                  type="button"
+                  className={
+                    state.mode === "THINKING" ? styles.modeOptOn : styles.modeOpt
+                  }
+                  aria-pressed={state.mode === "THINKING"}
+                  disabled={busy}
+                  onClick={() => onSetMode("THINKING")}
+                >
+                  Think with me
+                </button>
+              </div>
+              {/* The sentence the tooltip could never give a phone. Says what
+                  each mode does and nothing about where proof gets filed —
+                  the note under this whole box already owns that, and saying
+                  it twice in four inches teaches neither. */}
+              <p className={styles.modeCaption}>
+                {state.mode === "THINKING"
+                  ? "Questions and options, not assignments. The gate is unchanged."
+                  : "Assignments and push-back. Switch before there's anything to declare."}
+              </p>
+            </div>
+            <div className={styles.composerRow}>
+              <textarea
+                className={styles.composerInput}
+                rows={1}
+                /* Short on purpose. The rule this box needs to state doesn't
+                   fit in it: at 375px the composer clears 205px of text, and
+                   the sentence needs 444px — it truncated to "Think out loud
+                   — nothing here", which is worse than saying nothing. The
+                   rule lives on the line below the box, which can wrap. */
+                placeholder={
+                  state.mode === "THINKING" ? "Think out loud…" : "Talk it through…"
                 }
-              }}
-            />
-            <button
-              className={styles.primaryBtn}
-              disabled={streamingText !== null || !draft.trim()}
-              onClick={onSend}
-            >
-              Send
-            </button>
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    onSend();
+                  }
+                }}
+              />
+              <button
+                className={styles.primaryBtn}
+                disabled={streamingText !== null || !draft.trim()}
+                onClick={onSend}
+              >
+                Send
+              </button>
+            </div>
           </div>
+          {/* Where the rule actually lives. A placeholder was the obvious
+              home for it and the wrong one twice over: it is clipped to a
+              third of itself on a phone, and it disappears the moment they
+              start typing — which is exactly when a builder is pouring the
+              evening's work into the wrong box. This wraps, and it stays. */}
+          {dayOpen && (
+            <p className={draftWaiting ? styles.composerDraft : styles.composerNote}>
+              {draftWaiting
+                ? "Masterji drafted tonight's proof — file it under Today."
+                : today?.amDeclaration
+                  ? "Nothing here counts until you file it under Today."
+                  : "Nothing here counts. Declare today's task under Today first."}
+            </p>
+          )}
         </section>
       </div>
 

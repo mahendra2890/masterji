@@ -5,7 +5,7 @@ first-time builders: one goal, earned phases, daily proof — no hiding in
 planning.
 
 Live at **[masterji.mscsoftwares.in](https://masterji.mscsoftwares.in)** ·
-[Demo (no sign-in)](https://masterji.mscsoftwares.in/demo/)
+[Guided tour (no sign-in)](https://masterji.mscsoftwares.in/demo/)
 
 Built for the [bestpossible.ai](https://bestpossible.ai) Build Season 2026.
 
@@ -100,8 +100,11 @@ The product's spine is a **server-enforced state machine**, not a prompt:
   speaks natural Hindi-English if you want him to ("Kaam dikhao, baatein
   nahi"). *Thinking partner* — for the work that comes before there's
   anything to declare, he switches to questions and options instead of
-  assignments. Both live on the user, not the turn. Neither is a way past
-  the gate: `gates.py` doesn't read either field, and a test pins it.
+  assignments. Both live on the user, not the turn. The mode sits over the
+  composer as two options with the live one lit, rather than as one button
+  naming the mode you already have — a control that states its own state
+  tells nobody that the other one exists. Neither is a way past the gate:
+  `gates.py` doesn't read either field, and a test pins it.
 
 ## Architecture
 
@@ -148,10 +151,11 @@ Deployment (Vercel + Render + Neon + Namecheap DNS): see
 ## What exists vs. what's next
 
 **Today:** the full coaching loop — goal, phases, gates, daily check-ins,
-streaks, grounded chat, Hinglish, thinking-partner mode, demo mode. What has moved since the first
-build is in the product itself — **What's new** in the header opens the
-changelog, served from the `ChangelogEntry` table (public endpoint, so the
-demo reads it too) and written from the admin rather than from a deploy.
+streaks, grounded chat, Hinglish, thinking-partner mode, and an eight-step
+guided tour of the real screens that needs no sign-in. What has moved since
+the first build is in the product itself — **What's new** in the header opens
+the changelog, served from the `ChangelogEntry` table (public endpoint, so the
+tour reads it too) and written from the admin rather than from a deploy.
 
 **Phase 2 (Product Month):** Telegram-bot channel · missed check-in
 nudges · pgvector memory over past check-ins · screenshot proofs with
