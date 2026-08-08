@@ -274,7 +274,7 @@ const SLIDES: Slide[] = [
             </Mark>
           </div>
           <div className={app.composer}>
-            <Mark n={4}>
+            <Mark n={3}>
               <div className={app.modeBar}>
                 <div
                   className={app.modeSwitch}
@@ -297,7 +297,7 @@ const SLIDES: Slide[] = [
               <span className={`${app.primaryBtn} ${styles.sendBtn}`}>Send</span>
             </div>
           </div>
-          <Mark n={3}>
+          <Mark n={4}>
             <p className={app.composerNote}>
               Nothing here counts until you file it under Today.
             </p>
@@ -316,16 +316,16 @@ const SLIDES: Slide[] = [
         can propose an advance, Django checks the database and says no.
       </>,
       <>
-        The rule lives under the box, not in it. A placeholder is clipped to a
-        third of itself on a phone and disappears the moment you start typing —
-        which is exactly when this needs saying.
-      </>,
-      <>
         Two ways of talking, both yours to set — and both on screen, so
         neither can hide behind the other. <strong>Think with me</strong>{" "}
         trades assignments for questions, for the part of the work that comes
         before there&apos;s anything to declare. <strong>EN → हिं</strong>{" "}
         switches him to Hinglish. Neither one touches the gate.
+      </>,
+      <>
+        The rule lives under the box, not in it. A placeholder is clipped to a
+        third of itself on a phone and disappears the moment you start typing —
+        which is exactly when this needs saying.
       </>,
     ],
     takeaway: (
