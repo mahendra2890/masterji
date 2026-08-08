@@ -17,8 +17,8 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import SimpleTestCase, override_settings
 from rest_framework.test import APITestCase
 
-from . import gates, guidance, prompts
-from .models import ChangelogEntry, CheckIn, Goal, Phase
+from . import gates, guidance, prompts, views
+from .models import ChangelogEntry, CheckIn, Goal, Message, Phase
 
 User = get_user_model()
 
@@ -1621,6 +1621,25 @@ class ProofOfferTests(CoachTestCase):
         CheckIn.objects.all().delete()
         self.chat()
         self.assertFalse(CheckIn.objects.exists())
+
+    def test_a_draft_with_nothing_to_pin_it_to_goes_back_to_the_builder(self):
+        """The draft is theirs — it came out of work they described. Dropping
+        it to a server log left them watching the reply go by with no sign
+        that anything had been written up, or thrown away. They get it back,
+        with the one thing that has to happen before it can be filed."""
+        CheckIn.objects.all().delete()
+        self.chat()
+        said = Message.objects.filter(role=Message.Role.COACH).latest("id").content
+        self.assertIn(self.DRAFT, said)
+        self.assertIn(views.WHERE_TO_FILE, said)
+
+    def test_a_draft_that_landed_is_not_also_read_back_in_the_chat(self):
+        """It is on the check-in where it can be filed in one tap. Repeating
+        it in the transcript would be two copies of the same offer, and only
+        one of them does anything."""
+        self.chat()
+        said = Message.objects.filter(role=Message.Role.COACH).latest("id").content
+        self.assertEqual(said, "That's tonight's proof. Yes?")
 
     def test_a_draft_with_no_text_is_not_an_offer(self):
         """Tool arguments arrive as streamed JSON fragments and can land

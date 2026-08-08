@@ -50,13 +50,34 @@ HISTORY_LIMIT = 30
 # available for the stepper drill-in, not just the current phase's recent few.
 CHECKIN_HISTORY = 90
 
+# Named, never pointed at. "Above" was true in no layout the product has:
+# on a laptop the check-in is the LEFT column, and on a phone it is behind a
+# tab you can't see while you're reading this. Both spellings sent half the
+# builders looking in the wrong place on the one screen where they have no
+# idea yet which half of the app does what. "Today" is the label on the card
+# and on the phone tab, so it survives the breakpoint.
+WHERE_TO_FILE = "Today"
+
 WELCOME = (
     'Goal locked: "{title}". Rule one: one goal at a time, and this is yours '
     "now. You start in IDEA — write a one-paragraph problem statement, then "
     "the route to these people: one place they already are, why you think "
     "they're there, and how you'd get one conversation this week. No names "
-    "needed, and you won't message anyone until VALIDATION. Declare today's "
-    "task above, and bring me proof tonight."
+    "needed, and you won't message anyone until VALIDATION. Talking to me "
+    f"records nothing on its own — declare today's task under {WHERE_TO_FILE}, "
+    "and file your proof there tonight."
+)
+
+# A draft Masterji wrote out of the conversation with no check-in to pin it
+# to. It used to end at a server log: the builder had done the work, said it
+# out loud, and watched the reply go by with no sign that any of it had been
+# written up or thrown away. The draft is theirs, so it goes back to them —
+# in the transcript, where declaring first costs them the declaration and not
+# the writing-up as well.
+OFFER_NO_DECLARATION = (
+    "That reads like tonight's proof — but there's no task declared this "
+    "morning, so I have nothing to pin it to. Declare one under "
+    f"{WHERE_TO_FILE} and file this:\n\n{{offer}}"
 )
 
 
@@ -830,6 +851,8 @@ class ChatView(APIView):
                     {"t": "error", "detail": "Masterji lost the thread — try again."}
                 )
 
+            content = "".join(parts)
+
             # A drafted proof is a row, not a wire event: the client refetches
             # state the moment the turn ends and reads the offer off the
             # check-in with everything else. One source of truth, and an offer
@@ -837,14 +860,24 @@ class ChatView(APIView):
             # file it tomorrow morning if they close the tab tonight.
             if offered:
                 if offer_target is None:
+                    # No check-in to hang it on. That is a reason to hand the
+                    # draft back, not to bin it silently: the work behind it
+                    # happened, and the builder is the only person who can turn
+                    # it into a declaration and a filing.
+                    span.set_attribute("proof.offered", False)
                     logger.info(f"Proof offered with nothing owed on goal {goal.id}")
+                    note = OFFER_NO_DECLARATION.format(offer=offered)
+                    # Streamed as well as saved, the way a gate refusal is: it
+                    # belongs to the turn the builder is watching, not to the
+                    # refetch a second later.
+                    yield line({"t": "delta", "text": f"\n\n{note}" if content else note})
+                    content = f"{content}\n\n{note}".strip()
                 else:
                     offer_target.proof_offer = offered
                     offer_target.save(update_fields=["proof_offer", "updated_at"])
                     span.set_attribute("proof.offered", True)
                     logger.info(f"Proof drafted for checkin {offer_target.id}")
 
-            content = "".join(parts)
             if advance_proposed:
                 advanced, detail = gates.try_advance(goal)
                 span.set_attribute("gate.advanced", advanced)
