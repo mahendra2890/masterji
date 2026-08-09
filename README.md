@@ -166,8 +166,8 @@ cd backend && uv sync && .venv/bin/python manage.py migrate
 npm install && npm run dev
 ```
 
-No Google or OpenAI keys needed to explore: the login page grows a
-**dev sign-in** button in development (the endpoint 404s in production),
+No Google or OpenAI keys needed to explore: the sign-in popup grows
+a **dev sign-in** button in development (the endpoint 404s in production),
 and a failed LLM call degrades gracefully. Tests: `.venv/bin/python
 manage.py test`.
 
@@ -177,7 +177,7 @@ Deployment (Vercel + Render + Neon + Namecheap DNS): see
 ## What exists vs. what's next
 
 **Today:** the full coaching loop — goal, phases, gates, daily check-ins,
-streaks, grounded chat, Hinglish, thinking-partner mode, and a nine-step
+streaks, grounded chat, Hinglish, thinking-partner mode, and a four-step
 guided tour of the real screens that needs no sign-in — starting where a
 builder actually starts, on the goal-commit screen and the first morning in
 IDEA. What has moved since
