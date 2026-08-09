@@ -9,10 +9,12 @@
   text-align: center;
 }
 
+/* No tracking on Devanagari — at 0.2em मास्टरजी came apart into "मा स्ट र जी",
+   four fragments rather than a word, on the first screen the product shows
+   anyone. See the same note in masterji.module.css. */
 .wordmark {
   margin: 0;
   font-size: 15px;
-  letter-spacing: 0.2em;
   color: var(--accent);
 }
 

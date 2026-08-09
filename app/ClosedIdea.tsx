@@ -23,6 +23,15 @@ export default function ClosedIdea({
   const [history, setHistory] = useState<GoalHistory | null>(null);
   const [failed, setFailed] = useState(false);
 
+  // Escape closes, the same as every other panel in the app. This one is
+  // opened from the between-goals screen as well as the dashboard, and there
+  // the × is the only other way out — there is no page behind it to click.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
   useEffect(() => {
     let cancelled = false;
     setHistory(null);
@@ -37,7 +46,13 @@ export default function ClosedIdea({
 
   return (
     <div className={styles.modalOverlay} onClick={onClose}>
-      <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
+      <div
+        className={styles.modal}
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label={`${closed.title} — how this one went`}
+      >
         <div className={styles.modalHeader}>
           <h3>{closed.title}</h3>
           <button className={styles.modalClose} onClick={onClose} aria-label="Close">

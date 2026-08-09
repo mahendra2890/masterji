@@ -649,6 +649,7 @@ class StateTests(CoachTestCase):
             "goal",
             "gate",
             "streak",
+            "best_streak",
             "today",
             "checkins",
             "transitions",
@@ -658,6 +659,27 @@ class StateTests(CoachTestCase):
             self.assertIn(key, response.data)
         self.assertEqual(response.data["gate"], {"have": 1, "need": 1, "next_phase": "VALIDATION"})
         self.assertEqual(response.data["phases"], ["IDEA", "VALIDATION", "BUILD", "LAUNCH"])
+
+    def test_state_carries_the_best_run_alongside_the_current_one(self):
+        """A broken streak reports 0, and 0 on its own reads as "none of it
+        happened". The longest run was already computed for the retirement
+        record; the dashboard needs it while the goal is still alive, which is
+        when it does some good."""
+        goal = self.make_goal()
+        # Three complete days, then a gap, so today's run is cold and the
+        # record plainly isn't.
+        for offset in (10, 9, 8):
+            CheckIn.objects.create(
+                goal=goal,
+                date=date.today() - timedelta(days=offset),
+                phase=goal.phase,
+                am_declaration="write the problem statement",
+                pm_proof_text="wrote it",
+                proof_status=CheckIn.ProofStatus.ACCEPTED,
+            )
+        response = self.client.get("/api/coach/state/")
+        self.assertEqual(response.data["streak"], 0)
+        self.assertEqual(response.data["best_streak"], 3)
 
     def test_state_carries_the_phase_guidance(self):
         """The dashboard renders these strings; it must not own a copy of

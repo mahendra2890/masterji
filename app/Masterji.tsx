@@ -45,6 +45,22 @@ const CLOSED_CHIP: Record<
 const formatDate = (iso: string) =>
   new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short" });
 
+/** The gate situation a note was an answer to.
+ *
+ * "Not yet, 0/1" stops being true the moment a proof lands, and the card used
+ * to keep saying it — under a bar that had since filled, which is the worst
+ * sentence to be reading at the best moment in the product. Pinning each
+ * answer to the state that produced it lets the card tell that it has been
+ * overtaken instead of asserting a refusal the database no longer agrees with.
+ *
+ * The goal id is in it because this component survives a goal ending: retiring
+ * takes the render down the no-goal branch without unmounting, so a refusal
+ * left over from the last idea would match a brand-new goal standing in IDEA
+ * at 0 proofs and greet it with a refusal it never earned.
+ */
+const gateKey = (s: CoachState | null) =>
+  s?.goal ? `${s.goal.id}:${s.goal.phase}:${s.gate?.have ?? 0}` : "";
+
 /** A day's verdict in one glyph, for the compact rows. Same shape as
  * CLOSED_CHIP above — a property access, not a string lookup, so a renamed
  * class is a type error rather than an undefined className at runtime. */
@@ -101,7 +117,11 @@ export default function Masterji({ user }: { user: SessionUser }) {
   const [pmText, setPmText] = useState("");
   const [pmUrl, setPmUrl] = useState("");
   const [pmImage, setPmImage] = useState<File | null>(null);
-  const [gateNote, setGateNote] = useState("");
+  // The gate's last answer, and the situation it answered. Rendered only
+  // while the two still match — see gateKey above.
+  const [gateNote, setGateNote] = useState<{ text: string; key: string } | null>(
+    null
+  );
 
   // The stepper drill-in: which completed phase is being reviewed, if any.
   const [viewPhase, setViewPhase] = useState<Phase | null>(null);
@@ -118,11 +138,17 @@ export default function Masterji({ user }: { user: SessionUser }) {
   // A closed idea being read back — available while a new goal is running.
   const [viewClosed, setViewClosed] = useState<Retirement | null>(null);
 
-  const refresh = useCallback(async () => {
+  // Returns the state it fetched as well as storing it: a caller that has to
+  // describe the situation it just created (onAdvance) needs the situation,
+  // and reading `state` back after an await gives it the one from before.
+  const refresh = useCallback(async (): Promise<CoachState | null> => {
     try {
-      setState(await getState());
+      const next = await getState();
+      setState(next);
+      return next;
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something broke.");
+      return null;
     }
   }, []);
 
@@ -139,6 +165,17 @@ export default function Masterji({ user }: { user: SessionUser }) {
     const box = messagesRef.current;
     if (box) box.scrollTop = box.scrollHeight;
   }, [state?.messages.length, streamingText, pane]);
+
+  // Escape closes the phase drill-in. DayDetail — which opens ON TOP of it —
+  // has always had this; the panel underneath never did, so the way out was
+  // the × or a click on whatever overlay was still showing. Stands down while
+  // a day is open so one Escape closes the top panel, not both at once.
+  useEffect(() => {
+    if (!viewPhase || viewDay) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setViewPhase(null);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [viewPhase, viewDay]);
 
   const run = async (fn: () => Promise<void>) => {
     setError("");
@@ -204,19 +241,19 @@ export default function Masterji({ user }: { user: SessionUser }) {
   const onAdvance = () =>
     run(async () => {
       if (!state?.goal) return;
-      setGateNote("");
+      setGateNote(null);
+      let detail: string;
       try {
-        const result = await advanceGoal(state.goal.id);
-        setGateNote(result.detail);
+        detail = (await advanceGoal(state.goal.id)).detail;
       } catch (e) {
         // 409 = the gate said no; its message IS the feature.
-        if (e instanceof ApiError && e.status === 409) {
-          setGateNote(e.message);
-        } else {
-          throw e;
-        }
+        if (e instanceof ApiError && e.status === 409) detail = e.message;
+        else throw e;
       }
-      await refresh();
+      // Stamped with the state AFTER the answer, not before it: an advance
+      // moves the phase and a refusal doesn't, so this is the only stamp that
+      // makes the note last exactly as long as what it describes.
+      setGateNote({ text: detail, key: gateKey(await refresh()) });
     });
 
   const onRetire = (outcome: "ABANDONED" | "COMPLETED") =>
@@ -236,9 +273,12 @@ export default function Masterji({ user }: { user: SessionUser }) {
       await refresh();
     });
 
-  const onToggleTone = () =>
+  // Sets a named language rather than flipping the current one — same shape as
+  // onSetMode below, and for the same reason: the control is two options with
+  // one lit, so "the one I pressed" is all a press can mean.
+  const onSetTone = (next: CoachState["tone"]) =>
     run(async () => {
-      const next = state?.tone === "HINGLISH" ? "ENGLISH" : "HINGLISH";
+      if (state?.tone === next) return;
       await updatePrefs({ tone: next });
       setState((s) => (s ? { ...s, tone: next } : s));
     });
@@ -263,12 +303,29 @@ export default function Masterji({ user }: { user: SessionUser }) {
     setError("");
     setPendingUserMsg(content);
     setStreamingText("");
+    // Whether Masterji got a word out before it fell over. Decides who owns
+    // reporting a broken turn — see onError.
+    let spoke = false;
     try {
       await streamChat(content, {
-        onDelta: (text) => setStreamingText((s) => (s ?? "") + text),
+        onDelta: (text) => {
+          spoke = true;
+          setStreamingText((s) => (s ?? "") + text);
+        },
         onGate: (gate) =>
           setStreamingText((s) => `${s ?? ""}\n\n${gate.detail}`.trim()),
-        onError: (detail) => setError(detail),
+        // Only when the transcript won't carry it. A turn that died before
+        // its first word is saved as this exact sentence server-side (`if
+        // broke and not content`), so the banner would put it twice on one
+        // screen — once in the log being read, once in a corner above it.
+        // A turn that broke PART of the way through is saved as far as it
+        // got and no further: the log ends mid-answer with nothing to say
+        // it was cut off, and the banner is the only thing that tells the
+        // builder to try again rather than read a truncated instruction as
+        // the whole one.
+        onError: (detail) => {
+          if (spoke) setError(detail);
+        },
       });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something broke.");
@@ -417,16 +474,60 @@ export default function Masterji({ user }: { user: SessionUser }) {
               replies stop fitting the problem — so it now lives over the
               composer, with the conversation it governs. This corner is
               account chrome, and nobody looks for a way of talking in it. */}
-          <button
-            className={styles.toneBtn}
-            onClick={onToggleTone}
-            title="Coach language"
-          >
-            {state.tone === "HINGLISH" ? "हिं" : "EN"}
-          </button>
-          <span className={styles.streak} title="Consecutive complete days on this goal">
-            {streak} day{streak === 1 ? "" : "s"} 🔥
-          </span>
+          {/* Both languages on screen, the live one lit — the same fix the
+              mode switch got, for the same reason. A single button reading
+              "EN" states the language you already have and never reveals that
+              the other one exists; Hinglish is half of what makes him
+              Masterji, and it was reachable only by pressing a button whose
+              label gave no reason to press it. */}
+          <div className={styles.toneSwitch} role="group" aria-label="Coach language">
+            <button
+              type="button"
+              className={state.tone === "ENGLISH" ? styles.toneOptOn : styles.toneOpt}
+              aria-pressed={state.tone === "ENGLISH"}
+              disabled={busy}
+              onClick={() => onSetTone("ENGLISH")}
+            >
+              EN
+            </button>
+            <button
+              type="button"
+              lang="hi"
+              className={state.tone === "HINGLISH" ? styles.toneOptOn : styles.toneOpt}
+              aria-pressed={state.tone === "HINGLISH"}
+              disabled={busy}
+              onClick={() => onSetTone("HINGLISH")}
+            >
+              हिं
+            </button>
+          </div>
+          {/* A run that is going, and a run that was. The zero on its own was
+              the whole message after a missed day — and a bare zero reads as
+              "none of it happened" at exactly the moment quitting looks
+              reasonable. The best run is already on the record; it just never
+              reached the screen where it would do some good. */}
+          {streak > 0 ? (
+            <span
+              className={styles.streak}
+              title="Consecutive complete days on this goal"
+            >
+              {streak} day{streak === 1 ? "" : "s"} 🔥
+            </span>
+          ) : state.bestStreak > 0 ? (
+            <span
+              className={styles.streakCold}
+              title="Current run · longest run on this goal"
+            >
+              0 · best {state.bestStreak}
+            </span>
+          ) : (
+            <span
+              className={styles.streakCold}
+              title="Declare and prove on the same day to start the run"
+            >
+              no run yet
+            </span>
+          )}
           {/* Survives retiring a goal — the streak is about this idea, the
               lifetime count is about the builder. */}
           {state.lifetimeDays > streak && (
@@ -442,7 +543,14 @@ export default function Masterji({ user }: { user: SessionUser }) {
         </div>
       </header>
 
-      {error && <p className={styles.errorBanner}>{error}</p>}
+      {/* role="alert" because this appears without anyone moving focus to
+          it, and on a phone it lands above the pane switcher where it is
+          easy to miss even when you can see. */}
+      {error && (
+        <p className={styles.errorBanner} role="alert">
+          {error}
+        </p>
+      )}
 
       {/* Phone only (hidden ≥821px, where both columns are on screen at
           once). Stacked, the dashboard and a full chat log made a page four
@@ -493,6 +601,19 @@ export default function Masterji({ user }: { user: SessionUser }) {
                         : styles.stepTodo
                   }
                   onClick={i < doneIdx ? () => setViewPhase(p) : undefined}
+                  // role="button" and a tabindex made this reachable by
+                  // keyboard and left it impossible to press — the one
+                  // combination worse than not being focusable at all.
+                  onKeyDown={
+                    i < doneIdx
+                      ? (e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            setViewPhase(p);
+                          }
+                        }
+                      : undefined
+                  }
                   role={i < doneIdx ? "button" : undefined}
                   tabIndex={i < doneIdx ? 0 : undefined}
                   title={i < doneIdx ? `See what happened in ${p}` : undefined}
@@ -507,8 +628,20 @@ export default function Masterji({ user }: { user: SessionUser }) {
               <>
                 <div className={styles.gateRow}>
                   <span>
-                    <strong>{gate.have}</strong>/{gate.need} proofs toward{" "}
-                    {gate.nextPhase}
+                    {/* Capped at the bar. The count is progress toward a
+                        requirement, and progress past it is not "8/3" — a
+                        builder who kept working read a fraction that looks
+                        like a bug on the screen that is supposed to be
+                        telling them they're ahead. The surplus is real work,
+                        so it still gets said; just not as the numerator. */}
+                    <strong>{Math.min(gate.have, gate.need)}</strong>/{gate.need}{" "}
+                    proofs toward {gate.nextPhase}
+                    {gate.have > gate.need && (
+                      <span className={styles.gateExtra}>
+                        {" "}
+                        · {gate.have - gate.need} more banked
+                      </span>
+                    )}
                   </span>
                 </div>
                 <div className={styles.gateBar}>
@@ -519,16 +652,46 @@ export default function Masterji({ user }: { user: SessionUser }) {
                     }}
                   />
                 </div>
-                <button
-                  className={styles.secondaryBtn}
-                  disabled={busy}
-                  onClick={onAdvance}
-                >
-                  Request phase advance
-                </button>
+                {/* The bar being met is the one moment this whole product
+                    exists to produce, and it used to look exactly like 0/3:
+                    same outlined button, same words, nothing said. A builder
+                    could stand here for days having already earned the next
+                    phase and never be told. Refusals got ninety words; this
+                    got none. */}
+                {gate.have >= gate.need ? (
+                  <>
+                    <p className={styles.gateEarned}>
+                      Earned. {gate.nextPhase} is yours to open.
+                    </p>
+                    <button
+                      className={styles.primaryBtn}
+                      disabled={busy}
+                      onClick={onAdvance}
+                    >
+                      Open {gate.nextPhase}
+                    </button>
+                  </>
+                ) : (
+                  /* Still pressable below the bar, on purpose: Django counts
+                     the rows and answers, and being told exactly what is
+                     missing is the coaching. */
+                  <button
+                    className={styles.secondaryBtn}
+                    disabled={busy}
+                    onClick={onAdvance}
+                  >
+                    Request phase advance
+                  </button>
+                )}
               </>
             )}
-            {gateNote && <p className={styles.gateNote}>{gateNote}</p>}
+            {/* Only while it is still an answer to the situation on screen —
+                see gateKey. A refusal that outlived the proof that answered
+                it used to sit here under a full bar, contradicting the
+                counter directly above it. */}
+            {gateNote && gateNote.key === gateKey(state) && (
+              <p className={styles.gateNote}>{gateNote.text}</p>
+            )}
 
             {/* At LAUNCH with proof on the record, finishing is the expected
                 move, so it gets a real button. Everywhere else it lives behind
@@ -596,6 +759,19 @@ export default function Masterji({ user }: { user: SessionUser }) {
             <p className={styles.cardLabel}>Today</p>
             {!today?.amDeclaration ? (
               <>
+                {/* The morning after a broken run. The header carries the
+                    number; this carries the only thing worth saying about it,
+                    on the card where the answer is a single sentence away.
+                    Says what the record shows and points forward — a builder
+                    who has already missed two days does not need a third
+                    voice telling them so. */}
+                {streak === 0 && state.bestStreak > 0 && (
+                  <p className={styles.comeback}>
+                    Best run on this idea: {state.bestStreak} day
+                    {state.bestStreak === 1 ? "" : "s"}. Today is day one of the
+                    next one.
+                  </p>
+                )}
                 <p className={styles.todayPrompt}>
                   Morning. One task, out loud:
                 </p>
@@ -950,7 +1126,13 @@ export default function Masterji({ user }: { user: SessionUser }) {
           const windowCheckins = checkins.filter((c) => c.phase === viewPhase);
           return (
             <div className={styles.modalOverlay} onClick={() => setViewPhase(null)}>
-              <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
+              <div
+                className={styles.modal}
+                onClick={(e) => e.stopPropagation()}
+                role="dialog"
+                aria-modal="true"
+                aria-label={`${viewPhase} — the days spent in this phase`}
+              >
                 <div className={styles.modalHeader}>
                   <h3>{viewPhase}</h3>
                   <button

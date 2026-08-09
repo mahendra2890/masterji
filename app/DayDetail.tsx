@@ -29,7 +29,13 @@ export default function DayDetail({
 
   return (
     <div className={`${styles.modalOverlay} ${styles.dayOverlay}`} onClick={onClose}>
-      <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
+      <div
+        className={styles.modal}
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label={`${checkin.date} — the whole day`}
+      >
         <div className={styles.modalHeader}>
           <h3>{checkin.date}</h3>
           <button className={styles.modalClose} onClick={onClose} aria-label="Close">
