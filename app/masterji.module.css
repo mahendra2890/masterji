@@ -848,6 +848,44 @@
   color: var(--muted);
 }
 
+/* Opens .modeHelp. Underlined rather than boxed: it sits inside a bar that
+   already has a segmented control in it, and a second bordered thing there
+   reads as a third mode you could pick. */
+.modeInfo {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-size: 12px;
+  color: var(--muted);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.modeInfo:hover {
+  color: var(--text);
+}
+
+/* flex-basis claims a whole row of the wrapping .modeBar, so opening this
+   never squeezes the switch into two lines beside it. */
+.modeHelp {
+  flex-basis: 100%;
+  margin: 0;
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.modeHelp strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
 /* The height itself is set from JS, a line at a time as the box fills — see
    fitComposer in Masterji.tsx. What's left here is where it stops.
 
