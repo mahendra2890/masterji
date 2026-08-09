@@ -234,7 +234,20 @@ const CHIP: Record<
   ACCEPTED: { glyph: "✓", className: (s) => s.chipGood },
   PUSHED_BACK: { glyph: "✗", className: (s) => s.chipBad },
   NONE: { glyph: "…", className: (s) => s.chipNone },
+  // Neither tick nor cross, because neither happened. The day is on the
+  // record; the reading is what's outstanding.
+  UNJUDGED: { glyph: "•", className: (s) => s.chipNone },
 };
+
+/** A proof is filed and the cycle is not finished with it. Two ways in, and
+ * they are opposites: Masterji read it and wants more (PUSHED_BACK), or he
+ * never read it at all (UNJUDGED). Both leave tonight open and both keep the
+ * proof box on screen, so every test that used to name PUSHED_BACK alone asks
+ * this instead. Mirrors views.UNSETTLED, which decides the same thing for the
+ * server — if these two ever disagree, the card and the endpoint disagree
+ * about whether the evening is over. */
+const isUnsettled = (s: CheckIn["proofStatus"]) =>
+  s === "PUSHED_BACK" || s === "UNJUDGED";
 
 /** One line of the record, and the way into that day.
  *
@@ -341,6 +354,9 @@ export default function Masterji({ user }: { user: SessionUser }) {
   const [pmImage, setPmImage] = useState<File | null>(null);
   // The evening's box, so the button that fills it can put the caret in it.
   const pmBoxRef = useRef<HTMLTextAreaElement>(null);
+  // Which check-in the evening's box has already been filled from, so the
+  // effect below seeds once rather than on every refetch.
+  const seededFrom = useRef<number | null>(null);
   // The gate's last answer, and the situation it answered. Rendered only
   // while the two still match — see gateKey above.
   const [gateNote, setGateNote] = useState<{ text: string; key: string } | null>(
@@ -388,6 +404,22 @@ export default function Masterji({ user }: { user: SessionUser }) {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  // An unread proof puts its own words back in the box, so the only thing the
+  // card asks for — the same proof, once the model is answering — costs one
+  // press.
+  //
+  // onProve already keeps them there for a builder still on the page. This is
+  // the one who closed the tab and came back: their text is on the server and
+  // nowhere else, and an empty box under "I couldn't read it, send it again"
+  // is a retype charged for our outage. Seeded once per check-in, tracked by
+  // id, so it never refills over somebody who cleared it to write a better one.
+  const unread = state?.today?.proofStatus === "UNJUDGED" ? state.today : null;
+  useEffect(() => {
+    if (!unread || seededFrom.current === unread.id) return;
+    seededFrom.current = unread.id;
+    setPmText((current) => current || unread.pmProofText);
+  }, [unread]);
 
   // Pin the log to the newest message by scrolling the log itself.
   // scrollIntoView walks up to the nearest scrollable ancestor, and on a
@@ -537,10 +569,17 @@ export default function Masterji({ user }: { user: SessionUser }) {
   const onProve = () =>
     run(async () => {
       if (!pmText.trim()) return;
-      await prove(pmText.trim(), pmUrl.trim(), pmImage);
-      setPmText("");
-      setPmUrl("");
-      setPmImage(null);
+      const filed = await prove(pmText.trim(), pmUrl.trim(), pmImage);
+      // Emptying the box is right when the evening is settled — accepted, or
+      // pushed back and owed a different answer. An unread proof is neither:
+      // nothing was wrong with it, the model just wasn't there, and the only
+      // thing being asked for is the same words again. Clearing them would
+      // make our outage look like their retype.
+      if (filed.checkin.proofStatus !== "UNJUDGED") {
+        setPmText("");
+        setPmUrl("");
+        setPmImage(null);
+      }
       await refresh();
     });
 
@@ -831,7 +870,7 @@ export default function Masterji({ user }: { user: SessionUser }) {
   const dayOpen =
     !today?.amDeclaration ||
     !today.pmProofText ||
-    today.proofStatus === "PUSHED_BACK";
+    isUnsettled(today.proofStatus);
   // A FINISHED proof Masterji drafted out of the conversation and nobody has
   // filed. Distinct from dayOpen on purpose: dayOpen is lit from the moment the
   // day starts, so it cannot announce anything that arrives mid-day.
@@ -861,7 +900,7 @@ export default function Masterji({ user }: { user: SessionUser }) {
   const eveningOpen =
     filingNow ||
     !today?.amDeclaration ||
-    today.proofStatus === "PUSHED_BACK" ||
+    isUnsettled(today.proofStatus) ||
     today.attempts.length > 0 ||
     Boolean(today.proofOffer) ||
     new Date().getHours() >= EVENING_FROM;
@@ -1229,13 +1268,22 @@ export default function Masterji({ user }: { user: SessionUser }) {
                   Declare it
                 </button>
               </>
-            ) : !today.pmProofText || today.proofStatus === "PUSHED_BACK" ? (
+            ) : !today.pmProofText || isUnsettled(today.proofStatus) ? (
               <>
                 <p className={styles.declared}>
                   Declared: <em>{today.amDeclaration}</em>
                 </p>
                 {today.proofStatus === "PUSHED_BACK" && (
                   <p className={styles.pushedBack}>{today.coachReaction}</p>
+                )}
+                {/* Filed, and nobody read it — the model was unreachable. Not
+                    styled as a push-back: nothing was refused, and dressing an
+                    outage as a refusal is the one reading that would make a
+                    builder stop bringing real work. The proof box below stays
+                    open with their words still in it, so "send it again" is
+                    the small thing it sounds like. */}
+                {today.proofStatus === "UNJUDGED" && (
+                  <p className={styles.unread}>{today.coachReaction}</p>
                 )}
                 <FailedTries attempts={today.attempts} />
                 {/* What Masterji made of this morning's task. Off-phase work
@@ -1571,17 +1619,28 @@ export default function Masterji({ user }: { user: SessionUser }) {
                 never talks here writes every proof from a blank box. The cold
                 start was costing them the warm one.
 
-                Off the moment the log has anything of the builder's in it —
-                these answer "what do I even say to him", and that question is
-                gone the second they have said something. Not a fallback for an
-                empty log either: the welcome message is always there, so the
-                test is whether anyone has REPLIED to it.
+                Off the moment the builder has spoken IN THIS PHASE — these
+                answer "what do I even say to him", and that question comes
+                back every time the answer changes. It changes at every gate:
+                the server writes a set per phase (guidance.OPENERS) and the
+                VALIDATION set is the one that matters most, because the phase
+                it opens is the one where a builder has to go and talk to a
+                stranger.
+
+                The test used to be `messages.length <= 1`, which is true only
+                on a virgin log — so three-quarters of the sets could never be
+                reached. Every builder who earned VALIDATION arrived at a full
+                log, and "What do I ask so they don't just say yes?" was
+                fetched, sent, and dropped on the floor. Reading the phase off
+                the messages works because the server stamps it on every row at
+                write time and never rewrites it, so a reply from two phases
+                ago cannot silence the questions for this one.
 
                 They fill the box rather than sending, like the goal examples
                 and the proof draft. A tap that spends a turn is a tap nobody
                 can take back, and the words should be theirs by the time they
                 reach him. */}
-            {messages.length <= 1 &&
+            {!messages.some((m) => m.role === "USER" && m.phase === goal.phase) &&
               !pendingUserMsg &&
               streamingText === null &&
               (guidance?.openers.length ?? 0) > 0 && (

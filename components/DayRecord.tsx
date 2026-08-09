@@ -20,6 +20,10 @@ const VERDICT: Record<
   ACCEPTED: { label: "accepted", className: (s) => s.chipGood },
   PUSHED_BACK: { label: "pushed back", className: (s) => s.chipBad },
   NONE: { label: "no proof", className: (s) => s.chipNone },
+  // Says what happened rather than what was decided — nothing was. Not
+  // "pending", which promises somebody is looking at it right now; the reading
+  // happens when the builder files it again.
+  UNJUDGED: { label: "not read yet", className: (s) => s.chipNone },
 };
 
 export default function DayRecord({
