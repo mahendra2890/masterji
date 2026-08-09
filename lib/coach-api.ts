@@ -509,9 +509,17 @@ export type ChangelogEntry = {
   body: string;
 };
 
-/** Every active entry, newest first. The one endpoint here that answers
- * without a session, so the demo and the signed-out screens can read it. */
-export async function getChangelog(): Promise<ChangelogEntry[]> {
+/** Active entries, newest first, and how many there are in all. The one
+ * endpoint here that answers without a session, so the demo and the signed-out
+ * screens can read it.
+ *
+ * `limit` asks for the newest N instead of the lot. Every screen mounts the
+ * changelog to decide whether to show one dot, and the full list had reached
+ * 42KB — so the mount asks for a preview and the popup asks for the rest.
+ * `total` is what tells the caller which of those two it is holding. */
+export async function getChangelog(
+  limit?: number
+): Promise<{ entries: ChangelogEntry[]; total: number }> {
   const data = await request<{
     entries: {
       id: number;
@@ -520,14 +528,18 @@ export async function getChangelog(): Promise<ChangelogEntry[]> {
       title: string;
       body: string;
     }[];
-  }>("changelog/");
-  return (data.entries ?? []).map((e) => ({
+    total?: number;
+  }>(`changelog/${limit ? `?limit=${limit}` : ""}`);
+  const entries = (data.entries ?? []).map((e) => ({
     id: e.id,
     shippedOn: e.shipped_on,
     kind: e.kind,
     title: e.title,
     body: e.body,
   }));
+  // `total` absent means a server that predates it, which can only be serving
+  // the whole list — so what arrived IS all of them.
+  return { entries, total: data.total ?? entries.length };
 }
 
 /** Retire the active goal. Always permitted — a reason is required, and the

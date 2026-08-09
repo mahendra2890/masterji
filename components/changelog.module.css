@@ -117,14 +117,30 @@
   font-size: 14px;
 }
 
+/* Sits inside a sentence, so the padding is the 29px-target idiom the rest of
+   the app uses and the negative margin hands the width straight back — the
+   line it lives in spaces exactly as it did with none of this. */
 .retry {
   background: none;
   border: none;
   color: var(--accent);
   font-size: 14px;
+  line-height: 1;
   text-decoration: underline;
   cursor: pointer;
-  padding: 0;
+  padding: 8px 6px;
+  margin: -8px -6px;
+}
+
+/* What the popup still owes, under the entries it already has. The mount fetch
+   takes the newest few so the dot costs 3.7KB instead of 42; opening the popup
+   is what asks for the rest, and this is the line that says so while it comes.
+   Muted and small: the entries are the content, this is a status about them. */
+.tail {
+  margin: 0;
+  padding-top: 4px;
+  color: var(--muted);
+  font-size: 13px;
 }
 
 /* --- the entries ----------------------------------------------------------- */

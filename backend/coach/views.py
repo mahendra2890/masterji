@@ -1095,12 +1095,44 @@ class ChangelogView(APIView):
     Public, unlike everything else here: the demo and the sign-in screen
     reach it too, and a changelog kept behind a login is a press release.
     Active rows only — an entry can be written before the change ships.
+
+    `?limit=N` serves the newest N. It exists because every screen in the
+    product mounts this component to decide whether to show one dot, and the
+    whole list had grown to 42KB across 77 entries — served to a first-time
+    visitor on the landing page, before they had clicked anything, on a
+    connection this product is explicitly built for. The house rule of a row
+    per shipped change means that number only goes one way.
+
+    `total` rides along so the client knows whether it is holding all of them
+    rather than guessing from `len(entries) == limit`, which is wrong exactly
+    when the count lands on the limit. It costs one COUNT on a table of this
+    size, which is cheaper than the request it saves.
     """
 
     permission_classes = [AllowAny]
 
+    def _limit(self, request) -> int | None:
+        """The newest N, or None for all of them. Anything that isn't a
+        positive whole number is not an error — it is a URL somebody typed or
+        a proxy mangled, and the honest answer to it is the whole list."""
+        raw = request.query_params.get("limit")
+        if raw is None:
+            return None
+        try:
+            n = int(raw)
+        except (TypeError, ValueError):
+            return None
+        return n if n > 0 else None
+
     def get(self, request):
         entries = ChangelogEntry.objects.filter(is_active=True)
+        total = entries.count()
+        limit = self._limit(request)
+        if limit is not None:
+            entries = entries[:limit]
         return Response(
-            {"entries": ChangelogEntrySerializer(entries, many=True).data}
+            {
+                "entries": ChangelogEntrySerializer(entries, many=True).data,
+                "total": total,
+            }
         )

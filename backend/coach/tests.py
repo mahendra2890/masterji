@@ -2284,6 +2284,37 @@ class ChangelogTests(APITestCase):
         response = self.client.get("/api/coach/changelog/")
         self.assertEqual([e["title"] for e in response.json()["entries"]], ["a fix"])
 
+    def test_limit_serves_the_newest_n_and_still_counts_them_all(self):
+        """Every screen mounts this to decide one dot, so the mount asks for a
+        few. The count has to be of the whole table, not of what was served —
+        it is how the client knows there is a tail to go and get."""
+        body = self.client.get("/api/coach/changelog/?limit=1").json()
+        self.assertEqual([e["title"] for e in body["entries"]], ["a fix"])
+        self.assertEqual(body["total"], 2)
+
+    def test_the_total_counts_only_what_would_be_served(self):
+        """A total that counted retired or deleted rows would send the client
+        after a tail that does not exist, every time it opened the popup."""
+        self.new.is_active = False
+        self.new.save(update_fields=["is_active"])
+        body = self.client.get("/api/coach/changelog/?limit=1").json()
+        self.assertEqual(body["total"], 1)
+        self.assertEqual([e["title"] for e in body["entries"]], ["first build"])
+
+    def test_a_limit_that_isnt_a_positive_number_serves_everything(self):
+        """These arrive from typed URLs and mangling proxies, not from us. The
+        honest answer to a limit nobody meant is the list, not a 400."""
+        for raw in ["abc", "0", "-3", "", "2.5"]:
+            with self.subTest(limit=raw):
+                body = self.client.get(f"/api/coach/changelog/?limit={raw}").json()
+                self.assertEqual(len(body["entries"]), 2)
+                self.assertEqual(body["total"], 2)
+
+    def test_a_limit_past_the_end_is_not_an_error(self):
+        body = self.client.get("/api/coach/changelog/?limit=500").json()
+        self.assertEqual(len(body["entries"]), 2)
+        self.assertEqual(body["total"], 2)
+
     def test_same_day_entries_lead_with_the_newest_row(self):
         later = ChangelogEntry.objects.create(
             shipped_on=date(2026, 8, 8), kind="CHANGED", title="also today", body="…"
