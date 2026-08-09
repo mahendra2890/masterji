@@ -400,10 +400,7 @@ const SLIDES: Slide[] = [
                   <span className={app.modeOptOn}>Coach me</span>
                   <span className={app.modeOpt}>Think with me</span>
                 </div>
-                <p className={app.modeCaption}>
-                  Assignments and push-back. Switch before there&apos;s
-                  anything to declare.
-                </p>
+                <p className={app.modeCaption}>Assignments and push-back.</p>
               </div>
             </Mark>
             <div className={app.composerRow}>

@@ -1157,13 +1157,22 @@ export default function Masterji({ user }: { user: SessionUser }) {
                 </button>
               </div>
               {/* The sentence the tooltip could never give a phone. Says what
-                  each mode does and nothing about where proof gets filed —
-                  the note under this whole box already owns that, and saying
-                  it twice in four inches teaches neither. */}
+                  the lit mode does and stops. It used to carry a second clause
+                  — "switch before there's anything to declare" — meaning Think
+                  with me is for the work that comes before a task exists. It
+                  failed twice over: an object-less "switch" beside a control
+                  where the other option is already named reads as a deadline
+                  the control doesn't have, and it spent the one word the note
+                  under this box is already spending — before a declaration
+                  exists that note says "Declare today's task under Today
+                  first". Two "declare"s two inches apart, one of them
+                  something you can act on. What the other mode is for is a
+                  paragraph, not a caption; it lives in the tour, which has
+                  room for it. */}
               <p className={styles.modeCaption}>
                 {state.mode === "THINKING"
                   ? "Questions and options, not assignments. The gate is unchanged."
-                  : "Assignments and push-back. Switch before there's anything to declare."}
+                  : "Assignments and push-back."}
               </p>
             </div>
             <div className={styles.composerRow}>
