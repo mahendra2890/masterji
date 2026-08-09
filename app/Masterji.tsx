@@ -884,7 +884,16 @@ export default function Masterji({ user }: { user: SessionUser }) {
               the whole message after a missed day — and a bare zero reads as
               "none of it happened" at exactly the moment quitting looks
               reasonable. The best run is already on the record; it just never
-              reached the screen where it would do some good. */}
+              reached the screen where it would do some good.
+
+              And a builder with neither gets no badge at all. "no run yet"
+              used to sit here, which is a counter announcing that it has
+              nothing to count — on the first screen of the product, in the
+              corner a new builder scans for what to do, next to four other
+              words in the same grey. It cost attention and returned a fact
+              nobody needed: of course there is no run, nothing has happened
+              yet. The badge now appears the day it has something to say, and
+              the first thing it ever says is "1 day 🔥". */}
           {streak > 0 ? (
             <span
               className={styles.streak}
@@ -899,14 +908,7 @@ export default function Masterji({ user }: { user: SessionUser }) {
             >
               0 · best {state.bestStreak}
             </span>
-          ) : (
-            <span
-              className={styles.streakCold}
-              title="Declare and prove on the same day to start the run"
-            >
-              no run yet
-            </span>
-          )}
+          ) : null}
           {/* Survives retiring a goal — the streak is about this idea, the
               lifetime count is about the builder. */}
           {state.lifetimeDays > streak && (
