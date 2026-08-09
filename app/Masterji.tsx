@@ -196,10 +196,6 @@ export default function Masterji({ user }: { user: SessionUser }) {
   const [justRetired, setJustRetired] = useState<Retirement | null>(null);
   // A closed idea being read back — available while a new goal is running.
   const [viewClosed, setViewClosed] = useState<Retirement | null>(null);
-  // Whether the two modes are explaining themselves. Component state, not a
-  // preference: it answers a question once, and a builder who has had it
-  // answered doesn't need the answer stapled open on every visit.
-  const [modeHelp, setModeHelp] = useState(false);
 
   // Returns the state it fetched as well as storing it: a caller that has to
   // describe the situation it just created (onAdvance) needs the situation,
@@ -1223,49 +1219,21 @@ export default function Masterji({ user }: { user: SessionUser }) {
                 </button>
               </div>
               {/* The sentence the tooltip could never give a phone. Names the
-                  mode you are in, one clause, and stops. Both captions used to
-                  carry a second clause and both were wrong in the same way:
-                  they answered a question the caption line is the wrong size
-                  for. COACH's pointed at declaring, which the note under this
-                  box already owns; THINKING's promised the gate was unchanged,
-                  which is true, load-bearing, and far too important to spend
-                  as a half-line a builder reads once. */}
+                  mode you are in, one clause, and stops.
+
+                  It briefly had a "What's the difference?" disclosure beside
+                  it, holding a paragraph on both modes. Removed on Mahendra's
+                  call — three text elements in one bar looked like clutter,
+                  and the bar is a control, not a help page. So the row is the
+                  switch and one clause about the lit mode, and what the other
+                  mode is FOR lives in the tour, which has room to say it
+                  properly. If that ever needs to be in the product itself,
+                  the answer is not a third thing on this line. */}
               <p className={styles.modeCaption}>
                 {state.mode === "THINKING"
                   ? "Questions and options, not assignments."
                   : "Assignments and push-back."}
               </p>
-              {/* The other mode's job, on demand. Until now the only ways to
-                  learn what Think with me does were to press it — which writes
-                  a setting to every device you own — or to leave for /demo.
-                  Pressing a control to find out what it does is not discovery,
-                  it's a dare. Closed this costs one short line; open it is the
-                  paragraph neither caption could ever be, and it is where the
-                  gate promise now lives, stated in full rather than gestured
-                  at. A tooltip would have been the obvious home and is the
-                  wrong one for the same reason it was wrong for the caption:
-                  a phone has no hover. So it is a button. */}
-              <button
-                type="button"
-                className={styles.modeInfo}
-                aria-expanded={modeHelp}
-                aria-controls="mode-help"
-                onClick={() => setModeHelp((v) => !v)}
-              >
-                {modeHelp ? "Close" : "What's the difference?"}
-              </button>
-              {modeHelp && (
-                <p id="mode-help" className={styles.modeHelp}>
-                  <strong>Coach me</strong>{" "}
-                  hands you the assignment and argues with your reasoning.{" "}
-                  <strong>Think with me</strong>{" "}
-                  trades that for questions and puts options on the table
-                  instead — for the part of the work that comes before there is
-                  anything to declare. Your pick stays set until you change it,
-                  on every device. Neither one moves the gate: proof is still
-                  the only thing that opens a phase.
-                </p>
-              )}
             </div>
             <div className={styles.composerRow}>
               <textarea
