@@ -185,6 +185,21 @@ The product's spine is a **server-enforced state machine**, not a prompt:
   naming the mode you already have — a control that states its own state
   tells nobody that the other one exists. Neither is a way past the gate:
   `gates.py` doesn't read either field, and a test pins it.
+- **Some nights are not about the work.** A tough-love coach whose only move is
+  "name what you're avoiding and do the smallest real thing next" gives that
+  answer to *"my parents want me to stop wasting time on this"* too, and it is
+  the wrong one delivered with total confidence. The builder this is for is
+  nineteen, in a tier-2 college, in placement season; that sentence is a
+  Tuesday. When the message is about the person, the coach answers the person —
+  no assignment that turn, no declaration demanded, and the true things he
+  actually has: missing days deletes nothing already banked, closing a goal is
+  free and always was, a goal kept out of guilt is worth less than the one they
+  would choose now. He stays a coach while he does it — no counsellor voice, no
+  diagnosis, no list of techniques, and never a helpline number a model half
+  remembers; past a hard week the honest answer is that this is not what a
+  coaching app is for. Only ever when they raise it, never as a diagnosis from
+  a gap in the record, and it moves the turn and nothing else: the gate has
+  never read a message, and a test pins that from this rule too.
 
 ## Architecture
 

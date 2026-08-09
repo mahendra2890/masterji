@@ -1877,6 +1877,102 @@ class ThinkingModeTests(CoachTestCase):
         self.assertEqual(self.alice.mode, "THINKING")
 
 
+class NotAboutTheWorkTests(CoachTestCase):
+    """The one message this coach had no register for.
+
+    Its standing instruction for a stuck builder is "name it and assign the
+    smallest next real-world action" — right for stuck-on-the-work, and wrong,
+    with total confidence, for "I can't keep doing this". Nothing in prompts.py
+    or in any playbook drew that line: RESPECT_RULE forbids contempt and never
+    says what to do when the message is not about the work at all.
+
+    Which matters more here than it would elsewhere. The builder this product
+    is for is nineteen, in a tier-2 college, with a family that has opinions
+    about placement season.
+    """
+
+    def system_for(self, goal=None, **kwargs):
+        goal = goal or self.make_goal()
+        return prompts.build_system_prompt(
+            goal, gates.gate_status(goal), 0, "no declaration yet", "ENGLISH", **kwargs
+        )
+
+    def test_every_phase_knows_what_to_do_when_it_is_not_about_the_work(self):
+        goal = self.make_goal()
+        for phase in Phase:
+            with self.subTest(phase=phase):
+                goal.phase = phase
+                goal.save(update_fields=["phase"])
+                self.assertIn(
+                    prompts.WHEN_IT_IS_NOT_ABOUT_THE_WORK, self.system_for(goal)
+                )
+
+    def test_it_holds_in_both_ways_of_talking(self):
+        """THINKING_MODE moves him to the builder's side of the table. Handing
+        somebody a task instead of an answer is wrong from either side of it."""
+        self.assertIn(
+            prompts.WHEN_IT_IS_NOT_ABOUT_THE_WORK, self.system_for(mode="THINKING")
+        )
+
+    def test_the_turn_costs_them_no_assignment(self):
+        """The whole content of the rule. A builder who says they are worn out
+        and gets "so what's tonight's task" has been talked over."""
+        block = prompts.WHEN_IT_IS_NOT_ABOUT_THE_WORK
+        self.assertIn("no assignment", block)
+        self.assertIn("no declaration demanded", block)
+
+    def test_it_is_only_ever_a_reply(self):
+        """Same condition every deferral in PHASE_RULES carries, and for the
+        reason ANSWER_WHAT_THEY_ASKED was written: deciding somebody is
+        struggling from a gap in their record is inventing it, and being
+        handled gently for a crisis you don't have is its own small insult."""
+        self.assertIn(
+            "Only ever when they raise it", prompts.WHEN_IT_IS_NOT_ABOUT_THE_WORK
+        )
+
+    def test_he_stays_a_coach_and_does_not_invent_a_service(self):
+        """Past a hard week the honest answer is that this is not what a
+        coaching app is for. A model reaching for a helpline number it half
+        remembers is the failure mode that answer exists to avoid."""
+        block = prompts.WHEN_IT_IS_NOT_ABOUT_THE_WORK
+        self.assertIn("past what a coaching app is for", block)
+        self.assertIn("Never invent a helpline", block)
+        self.assertIn("do not diagnose them", block)
+
+    def test_a_hard_night_still_does_not_open_the_gate(self):
+        """The risk every softening carries: that kindness becomes a second
+        door. gates.py has never read a message, and this pins it from the
+        newest rule that could have been mistaken for one."""
+        goal = self.make_goal()
+        response = self.client.post(f"/api/coach/goals/{goal.id}/advance/")
+        self.assertEqual(response.status_code, 409)
+        goal.refresh_from_db()
+        self.assertEqual(goal.phase, Phase.IDEA)
+        self.assertEqual(gates.accepted_proofs(goal), 0)
+
+    def test_the_promise_that_closing_is_free_is_one_the_server_keeps(self):
+        """He is told to say closing costs them nothing — no waiting period, no
+        minimum, nothing to earn first. That is RetireView's actual behaviour
+        and it has to stay that way: a coach making a promise the server has
+        quietly stopped keeping is worse than one who never made it."""
+        goal = self.make_goal()
+        with mock.patch("coach.views.llm.complete", return_value="Closed."):
+            response = self.client.post(
+                f"/api/coach/goals/{goal.id}/retire/", {"reason": "I'm done for now"}
+            )
+        self.assertEqual(response.status_code, 200)
+        goal.refresh_from_db()
+        self.assertEqual(goal.status, Goal.Status.ABANDONED)
+
+    def test_the_work_in_the_same_message_is_still_written_down(self):
+        """A builder who says "I'm exhausted, but I did talk to Priya" must not
+        pay for the first clause with the second. The rule says answer the
+        person first and bank the work quietly — it never suspends SPOT_PROOF."""
+        system = self.system_for()
+        self.assertIn("answer the person first", prompts.WHEN_IT_IS_NOT_ABOUT_THE_WORK)
+        self.assertIn(prompts.SPOT_PROOF, system)
+
+
 class VoiceReachesEveryRoomTests(CoachTestCase):
     """The respect rule is not a chat feature.
 
