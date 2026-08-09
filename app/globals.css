@@ -50,6 +50,18 @@ button {
   font-family: inherit;
 }
 
+/* One ring for everything a keyboard can land on. The app defines its own
+   focus look for inputs (the border goes marigold) and for the record rows,
+   and left every button to whatever the browser draws — which on a dark
+   surface is a thin default outline that a builder tabbing through the day's
+   controls can genuinely lose. Marigold, offset, and only for keyboard focus,
+   so a mouse press doesn't ring the button it just pressed. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
 input,
 textarea {
   font-family: inherit;

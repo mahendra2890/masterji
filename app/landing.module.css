@@ -1,0 +1,248 @@
+/* The front door. Same chalkboard and marigold as the app — a landing page
+   that doesn't look like the product it's selling is a second design to keep
+   in step, and this one is deliberately made of the app's own vocabulary. */
+
+.page {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 18px 20px 40px;
+}
+
+.top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-bottom: 8px;
+}
+
+.brand {
+  font-family: var(--font-display), Georgia, serif;
+  font-style: italic;
+  font-weight: 700;
+  font-size: 22px;
+}
+
+/* No tracking on Devanagari — see the note in masterji.module.css. */
+.brandHindi {
+  font-size: 13px;
+  color: var(--accent);
+  font-style: normal;
+  margin-left: 6px;
+}
+
+.topRight {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.topLink {
+  color: var(--muted);
+  font-size: 13px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.topLink:hover {
+  color: var(--text);
+}
+
+/* --- hero ----------------------------------------------------------------- */
+
+.hero {
+  padding: 44px 0 40px;
+}
+
+.title {
+  font-size: clamp(34px, 6vw, 52px);
+  font-style: italic;
+  line-height: 1.1;
+  margin: 0 0 16px;
+}
+
+.sub {
+  max-width: 56ch;
+  margin: 0 0 26px;
+  color: var(--muted);
+  font-size: 17px;
+  line-height: 1.55;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.primary {
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 700;
+  font-size: 15px;
+  text-decoration: none;
+  padding: 13px 24px;
+  border-radius: var(--radius);
+  white-space: nowrap;
+}
+
+.primary:hover {
+  filter: brightness(1.08);
+}
+
+.secondary {
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  font-size: 14px;
+  text-decoration: none;
+  padding: 12px 18px;
+  white-space: nowrap;
+}
+
+.secondary:hover {
+  background: var(--surface-2);
+}
+
+/* The three facts a stranger wants before handing over a Google account, and
+   which the sign-in page never said. */
+.reassure {
+  margin: 14px 0 0;
+  color: var(--muted);
+  font-size: 13.5px;
+}
+
+/* --- sections ------------------------------------------------------------- */
+
+.section {
+  padding: 30px 0;
+  border-top: 1px solid var(--border);
+}
+
+.sectionTitle {
+  font-size: 24px;
+  font-style: italic;
+  margin: 0 0 16px;
+}
+
+.sectionBody {
+  max-width: 62ch;
+  margin: 0;
+  color: var(--muted);
+  font-size: 15.5px;
+  line-height: 1.6;
+}
+
+.sectionBody code {
+  font-family: var(--font-mono), monospace;
+  font-size: 0.9em;
+  color: var(--text);
+}
+
+.link {
+  color: var(--accent);
+}
+
+/* --- the daily loop ------------------------------------------------------- */
+
+/* Two columns or four, never three: auto-fit left the fourth step sitting
+   alone on a row of its own at most laptop widths, and "when the proofs are
+   in" reads as an afterthought when it is stranded. Four steps divide
+   cleanly both ways. */
+.loop {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+@media (min-width: 760px) {
+  .loop {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 460px) {
+  .loop {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.loopStep {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  padding: 14px;
+}
+
+.loopWhen {
+  margin: 0 0 6px;
+  font-family: var(--font-mono), monospace;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.loopWhat {
+  margin: 0;
+  font-size: 14.5px;
+  line-height: 1.5;
+}
+
+/* --- the phases ----------------------------------------------------------- */
+
+/* The app's stepper, borrowed rather than redrawn — but with none of it lit,
+   because nobody standing here is in a phase yet. */
+.phases {
+  list-style: none;
+  display: flex;
+  gap: 6px;
+  padding: 0;
+  margin: 0 0 18px;
+  flex-wrap: wrap;
+}
+
+.phase {
+  flex: 1;
+  min-width: 92px;
+  text-align: center;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  padding: 9px 4px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+
+/* --- the close ------------------------------------------------------------ */
+
+.close {
+  padding: 34px 0 26px;
+  border-top: 1px solid var(--border);
+}
+
+.closeTitle {
+  font-size: 27px;
+  font-style: italic;
+  margin: 0 0 18px;
+}
+
+.foot {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.footDim {
+  color: var(--muted);
+}

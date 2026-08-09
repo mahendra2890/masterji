@@ -22,10 +22,16 @@
   text-align: center;
 }
 
+/* No tracking. Devanagari is not a series of separate letters the way Latin
+   is: मास्टरजी is four clusters with matras hung off them, and positive
+   letter-spacing pulls the parts away from the base they belong to — the
+   wordmark rendered as "मा स्ट र जी", four fragments instead of a word, on
+   the sign-in page of a product whose whole pitch is that it is voiced for
+   India. Tracking on a Latin wordmark, if it is ever wanted, belongs on a
+   Latin element. */
 .wordmark {
   margin: 0;
   font-size: 15px;
-  letter-spacing: 0.2em;
   color: var(--accent);
 }
 
@@ -83,12 +89,12 @@
   font-size: 22px;
 }
 
+/* Same as .wordmark: no tracking on Devanagari. */
 .brandHindi {
   font-size: 13px;
   color: var(--accent);
   font-style: normal;
   margin-left: 6px;
-  letter-spacing: 0.12em;
 }
 
 .headerRight {
@@ -113,14 +119,56 @@
   font-size: 14px;
 }
 
-.toneBtn {
+/* A run that has stopped. Deliberately not the streak pill: the pill is a
+   thing you are carrying, and this is a fact about the record. No flame —
+   there is nothing lit. */
+.streakCold {
+  font-family: var(--font-mono), monospace;
+  font-size: 13px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* EN ⇄ हिं, as a segmented control — both options on screen with the live one
+   filled, the same shape as the mode switch over the composer. Sized to sit
+   in the header next to the streak without becoming the loudest thing in it:
+   the language is picked once, so it should be findable rather than shouted. */
+.toneSwitch {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
   background: var(--surface-2);
   border: 1px solid var(--border);
-  color: var(--text);
-  border-radius: 6px;
-  padding: 4px 9px;
-  font-size: 13px;
+  border-radius: 999px;
+}
+
+.toneOpt,
+.toneOptOn {
+  background: none;
+  border: none;
+  border-radius: 999px;
+  padding: 3px 9px;
+  font: inherit;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--muted);
   cursor: pointer;
+  white-space: nowrap;
+}
+
+.toneOpt:hover:not(:disabled) {
+  color: var(--text);
+}
+
+.toneOptOn {
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 700;
+}
+
+.toneOpt:disabled,
+.toneOptOn:disabled {
+  cursor: default;
 }
 
 .linkBtn {
@@ -255,6 +303,23 @@
   transition: width 0.4s ease;
 }
 
+/* The proofs banked past the requirement. Quieter than the fraction it
+   follows — it is not what the counter is counting, it is the answer to
+   "then where did my other five go". */
+.gateExtra {
+  color: var(--muted);
+}
+
+/* The line that says the bar is met. Spends the good colour, because this is
+   the only screen in the app where something has been won and the palette
+   was previously reserving that weight for refusals. */
+.gateEarned {
+  margin: 0 0 8px;
+  color: var(--good);
+  font-size: 14px;
+  font-weight: 700;
+}
+
 .gateNote {
   margin: 10px 0 0;
   font-size: 13px;
@@ -264,6 +329,20 @@
 }
 
 /* --- today card ------------------------------------------------------------------ */
+
+/* The morning after a run broke. Reads as the record talking, not as a
+   scolding — the border is the neutral one, and the good colour is spent on
+   the number that says the work happened. */
+.comeback {
+  margin: 0 0 12px;
+  padding: 8px 10px;
+  border-left: 2px solid var(--border);
+  border-radius: 0 4px 4px 0;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
 
 .todayPrompt {
   margin: 0 0 8px;
@@ -1224,6 +1303,16 @@
 
   .header {
     flex-wrap: wrap;
+  }
+
+  /* The right-hand group has to wrap too, not just move to its own line.
+     Adding the second language option widened it past 375px, and an
+     unwrappable row broke "sign out" across two lines mid-control instead of
+     letting the controls fall past each other. */
+  .headerRight {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 10px 12px;
   }
 
   .who {

@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
+import { cookies } from "next/headers";
 import Home from "./Home";
+import Landing from "./Landing";
 
 export const metadata: Metadata = {
   title: "Masterji — the coach who makes you ship",
@@ -8,6 +10,19 @@ export const metadata: Metadata = {
     "for first-time builders.",
 };
 
-export default function Page() {
-  return <Home />;
+export default async function Page() {
+  // Which of the two pages to paint FIRST, and nothing more. The access
+  // cookie is httpOnly and path "/", so it reaches this route; the refresh
+  // cookie is scoped to /api/auth/ and never does. Neither is verified here —
+  // that is AuthGate's job, and it overrules this either way.
+  //
+  // The question being asked is only "was somebody using this browser
+  // recently?", because the cost of guessing wrong is a paint: guess "app"
+  // for a stranger and they get a blank screen while we ask Django; guess
+  // "signedOut" for a returning builder and they watch a landing page flash
+  // past on the way to their own dashboard.
+  const usedRecently = (await cookies()).has("access_token");
+  return (
+    <Home landing={<Landing />} firstPaint={usedRecently ? "app" : "signedOut"} />
+  );
 }

@@ -250,6 +250,12 @@ class StateView(APIView):
                 "goal": GoalSerializer(goal).data,
                 "gate": _gate_payload(goal),
                 "streak": streaks.current_streak(goal, today),
+                # The run that was, next to the run that is. A builder who
+                # missed two days sees a zero, and a zero on its own reads as
+                # "none of it happened" at exactly the moment quitting looks
+                # reasonable. This was already computed for the retirement
+                # record; it just never reached the dashboard.
+                "best_streak": streaks.best_streak(goal),
                 "today": CheckInSerializer(checkin).data if checkin else None,
                 "checkins": CheckInSerializer(
                     goal.checkins.prefetch_related("attempts")[:CHECKIN_HISTORY],

@@ -125,6 +125,9 @@ export type CoachState = {
    * unconfigured deploy never offers something it can't accept. */
   uploadsEnabled: boolean;
   streak: number;
+  /** The longest complete run this goal ever had. Shown beside a broken
+   * streak so a zero doesn't read as "none of it happened". */
+  bestStreak: number;
   today: CheckIn | null;
   checkins: CheckIn[];
   transitions: PhaseTransition[];
@@ -368,6 +371,7 @@ export async function getState(): Promise<CoachState> {
     goal: ServerGoal | null;
     gate?: ServerGate;
     streak?: number;
+    best_streak?: number;
     today?: ServerCheckIn | null;
     checkins?: ServerCheckIn[];
     transitions?: ServerTransition[];
@@ -396,6 +400,7 @@ export async function getState(): Promise<CoachState> {
         }
       : null,
     streak: data.streak ?? 0,
+    bestStreak: data.best_streak ?? 0,
     today: data.today ? fromServerCheckIn(data.today) : null,
     checkins: (data.checkins ?? []).map(fromServerCheckIn),
     transitions: (data.transitions ?? []).map(fromServerTransition),
