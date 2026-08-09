@@ -25,6 +25,7 @@
 import Link from "next/link";
 import Changelog from "@/components/Changelog";
 import { SignInButton, SignInProvider } from "@/components/SignIn";
+import app from "./masterji.module.css";
 import styles from "./landing.module.css";
 
 /** The day, in the product's own order. This is the only copy of it now: the
@@ -98,6 +99,93 @@ export default function Landing({
           <p className={styles.reassure}>
             Free. One goal at a time. Nothing to install or configure.
           </p>
+        </section>
+
+        {/* The product, standing still — and the first thing on this page that
+          isn't an assertion.
+          Everything above and below is words about a coach nobody has met. A
+          visitor was asked for a Google account having been shown nothing at
+          all: the tour was the only place the screens existed, and it costs a
+          click most people don't spend. One frame here is what that click was
+          for.
+          Every class in it comes from masterji.module.css — the app's own
+          screens, the way the tour builds its mocks. Not a second sales page
+          about the product: a crop of it, with the voice in it, because the
+          voice is the thing being sold.
+          Deliberately still no proof counts. They live in gates.py and are
+          quoted, under a copy rule, by the tour; the bar below has a fill and
+          no fraction over it, which promises nothing that a change to
+          PROOFS_REQUIRED could turn into a lie. */}
+        <section className={styles.section}>
+          <h2 className={styles.sectionTitle}>This is the whole app</h2>
+          <p className={styles.sectionBody}>
+            Two cards and a conversation. Nothing to set up, no projects, no
+            board — the screen below is what you get on day one and what you
+            get on day ninety.
+          </p>
+
+          <div className={styles.shot}>
+            <div className={styles.shotCards}>
+              <section className={app.card}>
+                <p className={app.cardLabel}>The goal</p>
+                <h3 className={app.goalTitle}>
+                  Tiffin-delivery app for my college
+                </h3>
+                <ol className={app.stepper}>
+                  <li className={app.stepDone}>IDEA</li>
+                  <li className={app.stepNow}>VALIDATION</li>
+                  <li className={app.stepTodo}>BUILD</li>
+                  <li className={app.stepTodo}>LAUNCH</li>
+                </ol>
+                {/* guidance.PHASE_HINT[VALIDATION], word for word. */}
+                <p className={app.phaseHint}>
+                  Talk to real customers. Bring notes, not opinions.
+                </p>
+                <div className={app.gateBar}>
+                  <div className={app.gateFill} style={{ width: "66%" }} />
+                </div>
+              </section>
+
+              <section className={app.card}>
+                <p className={app.cardLabel}>Today</p>
+                <p className={app.declared}>
+                  Declared:{" "}
+                  <em>Interview the mess aunty about the 9pm rush</em>
+                </p>
+                <p className={app.accepted}>
+                  ✓ accepted — Ramesh gave you a number and an intro to Block
+                  B. That&apos;s a conversation, not a survey.
+                </p>
+              </section>
+            </div>
+
+            {/* Both sides of it. A single reply with nobody to reply to is a
+              quote, and it leaves the column half empty — which is the exact
+              complaint this frame would otherwise be advertising. The question
+              is also the one that makes the answer worth reading: it is the
+              thing every first-time builder wants to talk about, and the phase
+              he is in is why he isn't allowed to. */}
+            <div className={styles.shotChat}>
+              <div className={app.messages}>
+                <div className={app.userMsg}>
+                  <p className={app.msgBody}>
+                    Quick one — should I build this in Next.js or Remix? And
+                    Postgres or Mongo?
+                  </p>
+                </div>
+                <div className={app.coachMsg}>
+                  <span className={app.avatar}>म</span>
+                  <p className={app.msgBody}>
+                    Fair question, wrong week. Both of those are BUILD&apos;s
+                    problem, and neither answer survives a user you haven&apos;t
+                    met. The Mom Test says talk about their life, not your idea
+                    — go ask the mess aunty what she does when orders pile up.
+                    Bring me notes tonight.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
         </section>
 
         <section className={styles.section}>

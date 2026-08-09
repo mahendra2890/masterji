@@ -38,11 +38,22 @@
   gap: 16px;
 }
 
+/* Finger-sized. At 13px the link's own box was 20px tall, and this is one of
+   only two doors into the product — the other being the hero button, which
+   was already fine. The padding is the target and the row is centred, so the
+   header reads exactly as it did.
+   The changelog trigger beside it is the same size and the same problem; it
+   is a shared component that the signed-in header also mounts, so it gets
+   fixed with that header rather than from here. */
 .topLink {
   color: var(--muted);
   font-size: 13px;
   text-decoration: none;
   white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 4px;
 }
 
 .topLink:hover {
@@ -143,6 +154,60 @@
 
 .link {
   color: var(--accent);
+}
+
+/* --- the product, standing still ------------------------------------------ */
+
+/* The frame around a picture of the app, built out of the app's own classes
+   from masterji.module.css — borrowed pixels, not redrawn ones, which is the
+   rule app/demo/Tour.tsx already keeps and for the same reason: a second copy
+   of the styling drifts from the product the first time either one moves.
+   The cost is that this route now ships the app's stylesheet, which is the
+   price of the picture being the real thing.
+   Its own background is the page colour, so the cards inside it sit on the
+   surface they sit on in the product rather than on a lighter slab. */
+.shot {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 14px;
+  padding: 14px;
+  margin-top: 18px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.shotCards {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* The other half of the app: a column that is nothing but the conversation.
+   No padding of its own — the app's .messages brings its own padding, column
+   and gap, so the bubbles sit exactly as they sit in the product. */
+.shotChat {
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+/* A still frame, so nothing in it may claim to be pressable. The stepper's
+   finished phases are buttons in the product — they carry a cursor and light
+   up under the pointer, because there they open that phase's days — and a
+   picture that does the same is offering something it can't do. */
+.shot ol {
+  pointer-events: none;
+}
+
+/* Stacked, in the app's own order: what happened today, then what he said
+   about it. Same breakpoint the product uses to stop being two columns. */
+@media (max-width: 820px) {
+  .shot {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 /* --- the daily loop ------------------------------------------------------- */
