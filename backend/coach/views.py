@@ -50,6 +50,19 @@ HISTORY_LIMIT = 30
 # available for the stepper drill-in, not just the current phase's recent few.
 CHECKIN_HISTORY = 90
 
+# How much of the banked record travels in a prompt (prompts.RECORD_BLOCK).
+#
+# Ten is more proofs than any phase asks for — three is the largest bar — so it
+# covers the whole of a long VALIDATION and then some, while keeping the block a
+# paragraph rather than a transcript. Newest first, so what falls off the end is
+# the oldest, which is also the least likely to be re-asked for tonight.
+RECORD_LIMIT = 10
+# Each proof trimmed to its opening. Enough to recognise which conversation or
+# which artifact it was, which is all either reader needs: the coach has to know
+# not to ask again, the judge has to know a repeat when it sees one. The
+# untrimmed text stays on the record, which is the thing that has to be whole.
+RECORD_CHARS = 400
+
 # Named, never pointed at. "Above" was true in no layout the product has:
 # on a laptop the check-in is the LEFT column, and on a phone it is behind a
 # tab you can't see while you're reading this. Both spellings sent half the
@@ -307,6 +320,79 @@ def _archive(user) -> list[dict]:
     something. Read-only everywhere; nothing writes to a retired goal."""
     retirements = GoalRetirement.objects.filter(goal__user=user).select_related("goal")
     return RetirementSerializer(retirements, many=True).data
+
+
+def _banked(goal: Goal, exclude: CheckIn | None = None) -> list[dict]:
+    """Accepted proofs on this goal, newest first, as facts for a prompt.
+
+    The counterpart of _archive for the goal that is still alive. `_archive`
+    carries goals that ended and `notes_block` carries the evening in progress;
+    between them sat every day this goal has already banked, which no prompt
+    could see. The coach knew "2/3 accepted toward BUILD" and nothing about what
+    the 2 were.
+
+    Whatever phase stamped them, deliberately — the same reason
+    gates.accepted_proofs_total exists. A conversation the builder had while
+    still in IDEA is a conversation they had, and asking them to repeat it
+    because the row carries the wrong label is the exact failure this fixes.
+
+    `exclude` is the row being judged right now: it is not ACCEPTED yet, so it
+    cannot match, but a resubmission against a PUSHED_BACK row must not be able
+    to read itself back either if that ever changes.
+    """
+    rows = CheckIn.objects.filter(
+        goal=goal, proof_status=CheckIn.ProofStatus.ACCEPTED
+    ).order_by("-date", "-created_at")
+    if exclude is not None and exclude.pk:
+        rows = rows.exclude(pk=exclude.pk)
+    return [
+        {
+            "date": row.date.isoformat(),
+            "phase": row.phase or goal.phase,
+            "declared": row.am_declaration,
+            "proof": row.pm_proof_text[:RECORD_CHARS],
+        }
+        for row in rows[:RECORD_LIMIT]
+    ]
+
+
+def _same_words(text: str) -> str:
+    """Proof text flattened for comparison — case and whitespace carry no
+    evidence, so two submissions that differ only there are one submission."""
+    return " ".join(text.lower().split())
+
+
+def _already_banked(goal: Goal, checkin: CheckIn, text: str) -> CheckIn | None:
+    """An accepted proof on this goal that is tonight's submission again.
+
+    The deterministic half of the repeat problem, and the reason it needs one at
+    all: a day may hold several declare→prove cycles (CheckIn's docstring — real
+    work counts when it happens) and each accepted proof banks toward the phase,
+    so one conversation filed three times in an evening cleared VALIDATION. The
+    model could not have known; nothing it was shown reached past tonight's
+    refused tries on this one row.
+
+    Exact after flattening, and no looser. The same words twice is arithmetic and
+    belongs in server code; a conversation *retold* is a judgement, and it is the
+    model's with prompts.RECORD_FOR_JUDGE in front of it. Guessing at
+    near-matches here would refuse genuine second work by similarity, which is a
+    gate that fails in the one direction this product cannot afford.
+    """
+    normalised = _same_words(text)
+    if not normalised:
+        return None
+    # The comparison is normalised text, which no database does portably, so the
+    # scan happens here — over three columns rather than whole rows, since a
+    # goal's whole accepted history is what has to be looked at.
+    for other in (
+        CheckIn.objects.filter(goal=goal, proof_status=CheckIn.ProofStatus.ACCEPTED)
+        .exclude(pk=checkin.pk)
+        .order_by("-date", "-created_at")
+        .only("pk", "date", "pm_proof_text")
+    ):
+        if _same_words(other.pm_proof_text) == normalised:
+            return other
+    return None
 
 
 def _gate_payload(goal: Goal) -> dict:
@@ -603,16 +689,22 @@ def _react_to_declaration(goal: Goal, text: str, tone: str) -> tuple[str, str, s
     Same deterministic floor as _react_to_proof: any failure logs and leaves
     the check-in UNJUDGED with no tailored ask, so the form falls back to the
     phase's static proof hint rather than showing nothing.
+
+    Fenced like the evening's proof, and for a less obvious reason than that one:
+    the `proof_ask` this produces is fed to the evening as "this morning you
+    asked them to bring: …", so a declaration carrying an instruction gets to
+    write tonight's bar — in a room the builder has already left.
     """
     try:
         system = prompts.DECLARATION_SYSTEM.format(
             respect_rule=prompts.RESPECT_RULE,
             tone_rule=prompts.HINGLISH_RULE if tone == "HINGLISH" else "",
+            evidence_rule=prompts.EVIDENCE_NOT_INSTRUCTIONS,
             phase=goal.phase,
             phase_rules=prompts.PHASE_RULES[Phase(goal.phase)],
             proof_hint=guidance.PROOF_HINT[Phase(goal.phase)],
         )
-        raw = llm.complete(system, text)
+        raw = llm.complete(system, prompts.fence_submission(text))
         payload = json.loads(raw[raw.index("{") : raw.rindex("}") + 1])
         fit = (
             CheckIn.DeclarationFit.OFF_PHASE
@@ -855,9 +947,30 @@ def _react_to_proof(
     notes go into the prompt so the evening cannot demand a fact the afternoon
     already took as given. The verdict is otherwise entirely the model's —
     nothing here passes work because the builder tried often enough.
+
+    Two things bound what the model is deciding. It sees the proofs this goal has
+    already banked, so a proof cannot be banked twice by being retold; and the
+    submission arrives inside a fence with the rule that text in there is
+    evidence and never instructions, because this is the one call in the product
+    whose input the builder writes and whose output is a decision about them.
     """
     offer = checkin.proof_offer.strip()
     missing = checkin.proof_missing.strip()
+
+    # Before anything else, including the draft shortcut below — a draft filed
+    # unedited skips the model entirely, so a repeat that went through it would
+    # be banked with nothing having read it at all.
+    repeat = _already_banked(goal, checkin, checkin.pm_proof_text)
+    if repeat is not None:
+        logger.info(
+            f"Proof on checkin {checkin.id} repeats accepted checkin {repeat.id}"
+        )
+        line = prompts.STOCK_DUPLICATE.get(tone, prompts.STOCK_DUPLICATE["ENGLISH"])
+        # "5 Aug", the same shape the record card shows (Masterji.tsx's
+        # formatDate). Built rather than strftime'd because the format that
+        # drops the leading zero is a platform extension, not a guarantee.
+        return "push_back", line.format(date=f"{repeat.date.day} {repeat.date:%b}")
+
     if offer and not missing and checkin.pm_proof_text.strip() == offer:
         # He read the conversation, decided it cleared the bar, and wrote this
         # out himself. Asking him again could only produce a disagreement with
@@ -889,12 +1002,16 @@ def _react_to_proof(
             else "",
             prior_try=prompts.prior_tries(tries),
             from_offer=prompts.from_draft(offer, missing),
+            banked=prompts.record_block(
+                _banked(goal, exclude=checkin), prompts.RECORD_FOR_JUDGE
+            ),
+            evidence_rule=prompts.EVIDENCE_NOT_INSTRUCTIONS,
         )
         if image:
             system += prompts.PROOF_IMAGE_RULE
-        user_text = checkin.pm_proof_text
-        if checkin.proof_url:
-            user_text += f"\nLink: {checkin.proof_url}"
+        user_text = prompts.fence_submission(
+            checkin.pm_proof_text, checkin.proof_url
+        )
         raw = (
             llm.complete_with_image(system, user_text, image, content_type)
             if image
@@ -966,6 +1083,10 @@ class ChatView(APIView):
             mode=request.user.mode,
             offer=target.proof_offer if target else "",
             missing=target.proof_missing if target else "",
+            # Not scoped to the current phase: a builder who already told him
+            # who they spoke to should not be asked again because the goal has
+            # since moved on. Same call as gates.accepted_proofs_total.
+            banked=_banked(goal),
         )
         # SYSTEM rows are excluded, not mapped: they are the app talking about a
         # turn that failed, and the only role this mapping had for them was

@@ -64,10 +64,41 @@ The product's spine is a **server-enforced state machine**, not a prompt:
   check lives in [backend/coach/gates.py](backend/coach/gates.py) — the
   LLM can *propose* an advance via a function call; Django verifies
   against the database and refuses. You cannot jailbreak a `WHERE` clause.
+  What that sentence does **not** cover is the row it counts: whether a
+  proof becomes `ACCEPTED` is one model call over text the builder wrote
+  themselves, which is the only place in this product where someone
+  composes the input to a decision about them. So both judging prompts
+  fence the submission and say that text inside it is evidence and never
+  instructions — no line addressed to the model, no quoted "system"
+  message, no verdict written out as though already reached, can move the
+  verdict. An instruction found in there is worth nothing rather than worth
+  a refusal: a pasted chat log carries all sorts of things, and a builder
+  who did the work must not lose the evening to a paragraph they never
+  wrote. The chat is deliberately *not* fenced — talking a coach into
+  believing a customer said something is lying about the work, and no fence
+  has ever fixed that.
+- **A proof cannot be banked twice.** Several declare→prove cycles in a day
+  are supported on purpose (real work counts when it happens), and each
+  accepted proof banks toward the phase — so one conversation filed three
+  times in an evening used to clear VALIDATION, the phase whose entire job
+  is preventing that. The judge could not have known: it was shown tonight's
+  refused tries on that one row and nothing further back. Now the same words
+  twice is refused in server code with no model in the loop (arithmetic, not
+  a judgement), and the goal's already-accepted proofs go into the evening
+  prompt so a conversation *retold* is caught too. Neither refuses a second
+  real piece of work, a second conversation the same evening, or the next
+  step on the same artifact — a gate that fails in that direction is worse
+  than the hole it closed.
 - **The daily loop:** declare one task every morning, submit proof every
-  evening. A lenient LLM pass reacts (accept / push back) — and if the
-  model is down, the proof is accepted with a stock reaction: the loop
-  never breaks because an API flaked. A resubmission is judged against every
+  evening. A lenient LLM pass reacts (accept / push back) — and if the model
+  is unreachable the proof is filed `UNJUDGED`, which is neither verdict:
+  the day counts everywhere days are counted (the record, the streak — those
+  read a declaration and a proof, never a verdict) and it banks nothing
+  toward the phase, so the cycle stays open and filing again once the model
+  answers gets that evening a real reading. The loop surviving an outage was
+  always right; banking a gate proof on the same word was a second decision
+  riding along, and it handed the gate to whoever caught the model on a bad
+  afternoon. A resubmission is judged against every
   try that was refused *and the words that refused each one*, so the second
   look can't invent a reason the first didn't give. Past `STALEMATE_AT`
   refusals the prompt stops asking for a verdict and asks for a diagnosis
@@ -100,6 +131,17 @@ The product's spine is a **server-enforced state machine**, not a prompt:
   sees both under **Today**; the next chat turn and the evening's judgement
   both read the notes as facts already given, so nothing in them can be asked
   for a second time.
+- **And what the days before produced.** All of that was scoped to one
+  evening. The record of every earlier day reached no prompt at all, so on the
+  fourth evening of VALIDATION the coach had the count — *2/3 accepted proofs
+  toward BUILD* — and not one word of what was in the 2, and would send a
+  builder back to the person they interviewed on Tuesday. The goal's accepted
+  proofs now travel with the phase and the streak as facts from the database:
+  what they said, what was declared, which phase stamped it. Not scoped to the
+  current phase, deliberately — a conversation had while still in IDEA is a
+  conversation they had, and re-asking for it because the row carries the
+  wrong label is the failure being fixed. `gates.py` still counts the rows and
+  has still never read a prompt.
 - **The counting is the server's, not the model's.** VALIDATION asks for
   three things the customer said, and the failure that started this was a
   builder giving three in one sentence and being told *"that's one usable
@@ -181,19 +223,20 @@ Deployment (Vercel + Render + Neon + Namecheap DNS): see
 ## What exists vs. what's next
 
 **Today:** the full coaching loop — goal, phases, gates, daily check-ins,
-streaks, grounded chat, Hinglish, thinking-partner mode, and a four-step
-guided tour of the real screens that needs no sign-in — starting where a
-builder actually starts, on the goal-commit screen and the first morning in
-IDEA. What has moved since
+streaks, grounded chat, Hinglish, thinking-partner mode, screenshot proofs
+graded by a vision model in the same call as the text (`LLM_VISION_MODEL`,
+inlined as a data URL so a private record never gets a fetchable link), and a
+four-step guided tour of the real screens that needs no sign-in — starting
+where a builder actually starts, on the goal-commit screen and the first
+morning in IDEA. What has moved since
 the first build is in the product itself — **What's new** in the header opens
 the changelog, served from the `ChangelogEntry` table (public endpoint, so the
 tour reads it too) and written from the admin rather than from a deploy.
 
 **Phase 2 (Product Month):** Telegram-bot channel · missed check-in
-nudges · pgvector memory over past check-ins · screenshot proofs with
-VLM grading · citation-per-refusal (every pushback names the playbook
-and `gates.py` condition that grounded it) · ₹99–199/mo via UPI (free
-for students) · incubator/E-Cell dashboards.
+nudges · pgvector memory over past check-ins · citation-per-refusal (every
+pushback names the playbook and `gates.py` condition that grounded it) ·
+₹99–199/mo via UPI (free for students) · incubator/E-Cell dashboards.
 
 **vs. the field:** Overlord (YC) enforces generic habits at $12.99/mo;
 Pre (YC S24) coaches funded US founders. Neither encodes a lean-startup
