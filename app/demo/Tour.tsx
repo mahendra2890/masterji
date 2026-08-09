@@ -581,9 +581,9 @@ const SLIDES: Slide[] = [
               <Line who="COACH">
                 &quot;She just stops taking orders&quot; — that&apos;s the
                 workaround, and it&apos;s the part most builders never reach.
-                I&apos;ve written that down under Today. I&apos;ve got who she
-                is and what she does about it; what I still need is what you
-                asked her for at the end.
+                I&apos;ve written that down under Today, with the three things
+                she said. I&apos;ve got who she is and what she does about it;
+                what I still need is what you asked her for at the end.
               </Line>
             </Mark>
           </div>
@@ -613,7 +613,9 @@ const SLIDES: Slide[] = [
               <div className={app.proofGap}>
                 <p className={app.proofGapLabel}>Still needed tonight</p>
                 <ul className={app.proofGapList}>
-                  <li>the commitment you asked her for</li>
+                  {/* bar.BAR[VALIDATION] — the label is quoted, because the
+                      server writes this list, not the coach. */}
+                  <li>the commitment you asked for, and whether you got it</li>
                 </ul>
               </div>
               <span className={app.proofOfferBtn}>
@@ -645,9 +647,11 @@ const SLIDES: Slide[] = [
       </>,
       <>
         Everything in the notes is banked and can never be asked for again.
-        <strong> Still needed tonight</strong> is the whole of what he can still
-        put to you — when that list empties, this becomes tonight&apos;s proof
-        and filing it unedited goes <strong>straight through</strong>.
+        <strong> Still needed tonight</strong> is written by the{" "}
+        <strong>server</strong>, not by him — it counts the pieces you&apos;ve
+        given and subtracts. He cannot decide that three things you said in one
+        breath were one. When that list empties, this becomes tonight&apos;s
+        proof and filing it unedited goes <strong>straight through</strong>.
       </>,
       <>
         Notes are not a pass. A half-finished draft filed as-is is judged like

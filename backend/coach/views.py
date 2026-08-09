@@ -24,7 +24,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from . import gates, guidance, llm, prompts, storage, streaks
+from . import bar, gates, guidance, llm, prompts, storage, streaks
 from .models import (
     ChangelogEntry,
     CheckIn,
@@ -937,7 +937,12 @@ class ChatView(APIView):
                 for kind, payload in llm.stream_chat(
                     system,
                     history,
-                    tools=[prompts.PROPOSE_ADVANCE_TOOL, prompts.SUGGEST_PROOF_TOOL],
+                    tools=[
+                        prompts.PROPOSE_ADVANCE_TOOL,
+                        # Shaped by the phase, because the arguments ARE the
+                        # phase's bar — a list per part that has a count on it.
+                        prompts.suggest_proof_tool(Phase(goal.phase)),
+                    ],
                 ):
                     if kind == "delta":
                         parts.append(payload)
@@ -947,13 +952,16 @@ class ChatView(APIView):
                         if name == "propose_phase_advance":
                             advance_proposed = True
                         elif name == "suggest_proof":
-                            # Read as a pair, and always both: a later call in
-                            # the same turn replaces the draft, and a `missing`
-                            # left over from the earlier one would describe a
-                            # gap in text that is no longer there.
-                            arguments = payload.get("arguments", {})
-                            offered = str(arguments.get("text") or "").strip()
-                            missing = str(arguments.get("missing") or "").strip()
+                            # The model sends the parts; bar.read does the
+                            # counting, and what is still owed is arithmetic
+                            # over them rather than the model's opinion of its
+                            # own paragraph. Assigned as a pair, always both: a
+                            # later call in the same turn replaces the draft,
+                            # and a gap left over from the earlier one would
+                            # describe text that is no longer there.
+                            offered, missing = bar.read(
+                                goal.phase, payload.get("arguments", {})
+                            )
             except Exception as e:
                 logger.error(f"Chat stream failed: {e}")
                 broke = True

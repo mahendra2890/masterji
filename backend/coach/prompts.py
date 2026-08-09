@@ -9,7 +9,7 @@ by the phase, so "retrieval" is a dict lookup.
 from functools import lru_cache
 from pathlib import Path
 
-from . import guidance
+from . import bar, guidance
 from .models import Goal, Phase
 
 PLAYBOOKS_DIR = Path(__file__).resolve().parent / "playbooks"
@@ -170,26 +170,32 @@ missing. The misreading is yours to repair, not theirs to work around."""
 SPOT_PROOF = """KEEPING TONIGHT'S PROOF AS THE CONVERSATION GOES:
 Read everything the builder tells you against the bar above — all the time, not \
 only when they submit something. The moment any real piece of tonight's proof \
-appears, even in passing, WRITE IT DOWN: call suggest_proof with everything you \
-have so far as the draft, and `missing` naming the pieces the bar still needs. \
-Call it again each time another piece arrives, with the fuller draft — every \
-call replaces the last, so the draft must always be the whole of what you have, \
-never the newest fragment on its own.
+appears, even in passing, WRITE IT DOWN: call suggest_proof, filling in every \
+argument you now have an answer for and leaving the rest out. Call it again each \
+time another piece arrives, with everything you have — every call replaces the \
+last, so send the whole of it, never the newest fragment on its own.
 
-That draft is the evening's running record, and it is why they never have to \
-repeat themselves: everything in it is banked, and you may not ask for any of \
-it again. Ask for what is in `missing`, and nothing else.
+Split as you fill it in. Where an argument takes a list, one entry is one thing: \
+three things said in one breath are three entries, and you break them apart here \
+rather than deciding whether a sentence counted as one. Never merge two into a \
+summary to make them fit.
 
-When `missing` is empty the draft clears the bar. Say so plainly — "that's \
-tonight's proof, it's under Today, yours to file" — and stop mining the answer \
-for more. They can edit it or ignore it; nothing is recorded until they file it.
+You do not decide what is still missing, and you are not asked to. The check-in \
+works that out from what you sent — which arguments are empty, and how many \
+entries a list is short — and hands it back to you next turn as WHAT YOU HAVE \
+ALREADY WRITTEN DOWN. Everything in there is banked and may never be asked for \
+again; the list under it is the whole of what you may still ask for. When that \
+list is empty the draft clears the bar: say so plainly — "that's tonight's \
+proof, it's under Today, yours to file" — and stop mining the answer for more. \
+They can edit it or ignore it; nothing is recorded until they file it.
 
 Rules for the draft:
 - Their facts and their words. Never invent a detail, a number, a name or a \
 quote they did not give you — a proof you embroidered is a lie on their record.
-- Never call a gap filled. A piece the bar genuinely needs goes in `missing`, \
-never into the draft as a guess.
-- Write the proof itself, not instructions for writing it.
+- Never pad a list to make it long enough. An argument you have no answer for is \
+left out; a fabricated entry is worse than a short one, because the count is \
+believed.
+- `text` is the proof itself in plain sentences, not instructions for writing it.
 The tidying-up is your job. A builder who has done the work is not also \
 required to learn how we phrase it."""
 
@@ -212,7 +218,8 @@ NOTES_COMPLETE = """Nothing is missing: that draft clears the bar. It is sitting
 waiting to be filed — point them at it instead of asking for more."""
 
 NOTES_MISSING = """Still missing before it clears the bar: {missing}
-That list is the whole of what you may still ask for tonight."""
+Counted from what you sent, not from your reading of it. That list is the whole \
+of what you may still ask for tonight — ask for those, and nothing else."""
 
 # Switched on per user (User.Mode.THINKING). The gate, the phase rules and the
 # bar are all still in the prompt above this — what changes is which side of
@@ -557,51 +564,67 @@ STOCK_OFFER_ACCEPT = {
     ),
 }
 
-SUGGEST_PROOF_TOOL = {
-    "type": "function",
-    "function": {
-        "name": "suggest_proof",
-        "description": (
-            "Write down tonight's proof as you have it so far, out of what the "
-            "builder has already told you in this conversation. Call this as "
-            "soon as ANY real piece of it appears, and again every time another "
-            "piece arrives — each call replaces the last, so always send the "
-            "whole of what you have. Everything you write down here is banked "
-            "and must never be asked for again. When `missing` is empty the "
-            "draft clears the bar and the builder can file it in one tap. "
-            "NOTHING is recorded until they do. Only useful once a task has "
-            "been declared today and its proof is still owed."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "text": {
-                    "type": "string",
-                    "description": (
-                        "The proof itself, in the builder's own facts and "
-                        "words — what they did, who they spoke to, what was "
-                        "said, what it showed. Everything you have so far, not "
-                        "just the newest piece. Not a description of what they "
-                        "ought to write, and nothing they did not tell you."
-                    ),
-                },
-                "missing": {
-                    "type": "string",
-                    "description": (
-                        "The pieces the phase's bar still needs that they have "
-                        "not given you, one short phrase each, separated by "
-                        "semicolons (e.g. 'what he last did about the problem; "
-                        "the commitment you asked for'). The builder sees this "
-                        "list, and it is the whole of what you may still ask "
-                        "them for. Empty string when the draft is complete — "
-                        "never list something the text above already covers."
-                    ),
-                },
+SUGGEST_PROOF_TOOL_DESCRIPTION = (
+    "Write down tonight's proof as you have it so far, out of what the builder "
+    "has already told you in this conversation. Call this as soon as ANY real "
+    "piece of it appears, and again every time another piece arrives — each "
+    "call replaces the last, so always send the whole of what you have, not "
+    "the newest piece alone. Fill in every argument you have an answer for and "
+    "leave the rest out; where an argument takes a list, ONE ENTRY IS ONE "
+    "THING, and several said in one breath are several entries. Everything you "
+    "write down here is banked and must never be asked for again. What is "
+    "still missing is counted from these arguments by the server, not decided "
+    "by you, and comes back to you next turn. NOTHING is recorded until the "
+    "builder files it. Only useful once a task has been declared today and its "
+    "proof is still owed."
+)
+
+SUGGEST_PROOF_TEXT_ASK = (
+    "The proof itself in plain sentences, in the builder's own facts and "
+    "words — everything you have so far, not just the newest piece. Not a "
+    "description of what they ought to write, and nothing they did not tell "
+    "you."
+)
+
+
+def suggest_proof_tool(phase: Phase) -> dict:
+    """The suggest_proof schema for THIS phase: the bar, as arguments.
+
+    Built per phase rather than kept as one constant, because the arguments are
+    the phase's bar (bar.BAR) and a single generic {text, missing} pair was
+    exactly the shape that let a counting question be answered with an opinion.
+    A list argument is a part with a count on it; filling one in is an act of
+    enumeration, and there is nowhere in it to round three down to one.
+
+    The schema is prompt, so it is assembled here — but the parts and their
+    wording live in bar.py with the arithmetic that reads them back, because
+    two lists of what VALIDATION needs would drift apart within a week.
+    """
+    properties: dict[str, dict] = {
+        "text": {"type": "string", "description": SUGGEST_PROOF_TEXT_ASK}
+    }
+    for part in bar.BAR[Phase(phase)].parts:
+        properties[part.key] = (
+            {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": part.ask,
+            }
+            if part.need > 1
+            else {"type": "string", "description": part.ask}
+        )
+    return {
+        "type": "function",
+        "function": {
+            "name": "suggest_proof",
+            "description": SUGGEST_PROOF_TOOL_DESCRIPTION,
+            "parameters": {
+                "type": "object",
+                "properties": properties,
+                "required": ["text"],
             },
-            "required": ["text"],
         },
-    },
-}
+    }
 
 PROPOSE_ADVANCE_TOOL = {
     "type": "function",

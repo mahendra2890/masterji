@@ -20,12 +20,14 @@ SEED = [
         "end. What he has so far shows up under Today as notes, with the "
         "pieces still owed listed under it, and anything in those notes is "
         "banked: he is not allowed to ask you for it a second time, in chat or "
-        "when you file. He is also told to count what you gave him rather than "
-        "how you packaged it — three things in one line are three things — and "
-        "that when you tell him he has misread you, re-reading is his job, not "
-        "yours to work around. Notes are not a pass: only a draft with nothing "
-        "missing files straight through, and the gate counts exactly what it "
-        "counted before.",
+        "when you file. The counting also stopped being his. He hands over the "
+        "pieces one by one — each thing said is its own entry — and the server "
+        "does the arithmetic, so \"1 more thing they said\" is a subtraction "
+        "and not his reading of his own paragraph. When you tell him he has "
+        "misread you, re-reading is his job, not yours to work around. Notes "
+        "are not a pass: only a draft with nothing missing files straight "
+        "through, a short one filed anyway is judged on its merits like any "
+        "other proof, and the gate counts exactly what it counted before.",
     ),
 ]
 

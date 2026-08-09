@@ -18,7 +18,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import SimpleTestCase, override_settings
 from rest_framework.test import APITestCase
 
-from . import gates, guidance, prompts, views
+from . import bar, gates, guidance, prompts, views
 from .models import ChangelogEntry, CheckIn, Goal, Message, Phase
 
 User = get_user_model()
@@ -1601,6 +1601,19 @@ class ProofOfferTests(CoachTestCase):
         "Also called Sunita at the girls' hostel mess. Same 9pm crush, and she "
         "counts plates by hand every night."
     )
+    # The same evening, as the parts the tool now takes. A prose draft alone no
+    # longer clears anything: what is missing is counted off these (bar.read),
+    # so a complete offer is one where every part of the phase's bar is filled.
+    PARTS = {
+        "who": "Ramesh, the mess contractor",
+        "quotes": [
+            "40-50 plates go to waste most nights",
+            "nobody replied by 18:00",
+            "I'm not sharing my numbers",
+        ],
+        "last_action": "Tried a WhatsApp group for counts; it died in a week",
+        "commitment": "Asked for an intro to the Block B contractor — he gave it",
+    }
 
     def setUp(self):
         super().setUp()
@@ -1610,7 +1623,10 @@ class ProofOfferTests(CoachTestCase):
     def chat(self, text=DRAFT, events=None):
         events = events or [
             ("delta", "That's tonight's proof. Yes?"),
-            ("tool_call", {"name": "suggest_proof", "arguments": {"text": text}}),
+            (
+                "tool_call",
+                {"name": "suggest_proof", "arguments": {"text": text, **self.PARTS}},
+            ),
         ]
         with mock.patch("coach.views.llm.stream_chat", return_value=iter(events)):
             response = self.client.post("/api/coach/chat/", {"content": "talked to him"})
@@ -1759,7 +1775,13 @@ class ProofOfferTests(CoachTestCase):
         where it went, on the wire as well as in the record, because the
         refetch is a second late and they are looking now."""
         events = [
-            ("tool_call", {"name": "suggest_proof", "arguments": {"text": self.DRAFT}})
+            (
+                "tool_call",
+                {
+                    "name": "suggest_proof",
+                    "arguments": {"text": self.DRAFT, **self.PARTS},
+                },
+            )
         ]
         with mock.patch("coach.views.llm.stream_chat", return_value=iter(events)):
             response = self.client.post("/api/coach/chat/", {"content": "talked to him"})
@@ -1794,6 +1816,146 @@ class ProofOfferTests(CoachTestCase):
         self.assertIn(prompts.SPOT_PROOF, system)
 
 
+class BarTests(SimpleTestCase):
+    """The counting, on its own. This is the module that exists because the
+    model got a length wrong.
+
+    A builder gave three things their customer said, in one sentence, and was
+    told "that's one usable line, not three" — then asked for all of it again.
+    Nothing in the server could have known better, because the only thing that
+    had ever read that answer was the model reading its own paragraph back.
+    suggest_proof takes the parts now, and everything below is arithmetic: a
+    len(), a subtraction, and which arguments came back empty.
+
+    No database, deliberately. If any of this needed a row it would be a
+    judgement wearing a count.
+    """
+
+    def read(self, phase=Phase.VALIDATION, **arguments):
+        arguments.setdefault("text", "draft")
+        return bar.read(phase, arguments)
+
+    # --- the length that started it -----------------------------------------
+
+    def test_three_things_in_one_list_are_three_things(self):
+        """The regression, stated as plainly as it can be: the count comes off
+        the list, and there is no prose left for it to be wrong about."""
+        draft = self.read(
+            who="Ramesh",
+            quotes=["40 plates wasted", "nobody replied by 18:00", "won't share numbers"],
+            last_action="tried a WhatsApp group",
+            commitment="intro to Block B — got it",
+        )
+        self.assertEqual(draft.missing, "")
+
+    def test_a_short_list_asks_for_the_difference_not_the_whole_thing_again(self):
+        """"Give me three things he said", to a builder who has given two, is
+        the sentence that made them retype all three."""
+        draft = self.read(who="Ramesh", quotes=["40 plates wasted", "nobody replied"])
+        self.assertIn("1 more thing they said in their own words", draft.missing)
+
+    def test_an_empty_list_asks_for_all_of_them(self):
+        draft = self.read(who="Ramesh")
+        self.assertIn("3 things they said in their own words", draft.missing)
+
+    def test_a_full_list_is_never_named_as_owed(self):
+        draft = self.read(quotes=["one", "two", "three"])
+        self.assertNotIn("they said in their own words", draft.missing)
+
+    # --- what the model can hand back ---------------------------------------
+
+    def test_a_bare_string_where_a_list_belongs_is_one_entry(self):
+        """Model-authored JSON, so the shape is a suggestion. Counting it as
+        one is right and counting it as three would be the old bug with extra
+        steps."""
+        draft = self.read(quotes="40 plates go to waste most nights")
+        self.assertIn("2 more things they said in their own words", draft.missing)
+
+    def test_blanks_and_padding_do_not_count(self):
+        draft = self.read(quotes=["  40 plates  ", "", "   "])
+        self.assertIn("2 more things they said in their own words", draft.missing)
+
+    def test_prose_alone_owes_the_whole_bar(self):
+        """A paragraph with no parts is exactly the call the old tool took, and
+        it is no longer an offer of anything: the enumeration IS the evidence
+        that he counted."""
+        draft = self.read()
+        self.assertIn("who you spoke to", draft.missing)
+        self.assertIn("3 things they said in their own words", draft.missing)
+
+    def test_a_call_with_nothing_in_it_is_not_a_draft_owing_everything(self):
+        """views drops an empty draft. Reporting the full bar as missing would
+        put an empty note on the check-in with a complaint under it, for a turn
+        in which the builder said nothing to bank."""
+        draft = bar.read(Phase.VALIDATION, {})
+        self.assertEqual(draft, bar.Draft(text="", missing=""))
+
+    def test_parts_without_prose_still_read_back_as_a_draft(self):
+        """The deterministic floor: a model that spends its answer on the
+        structure must not leave the builder an empty box."""
+        draft = bar.read(Phase.VALIDATION, {"who": "Ramesh", "quotes": ["40 wasted"]})
+        self.assertIn("Ramesh", draft.text)
+        self.assertIn("40 wasted", draft.text)
+
+    def test_the_models_own_wording_wins_when_it_sends_one(self):
+        draft = self.read(text="Spoke to Ramesh, the mess contractor.", who="Ramesh")
+        self.assertEqual(draft.text, "Spoke to Ramesh, the mess contractor.")
+
+    # --- phases whose bar is an "or" ----------------------------------------
+
+    def test_one_part_clears_a_bar_that_asks_for_either(self):
+        """BUILD takes a link OR evidence someone touched it. Demanding both
+        would be a bar the playbook never set."""
+        draft = bar.read(Phase.BUILD, {"text": "it's up", "link": "https://x.test"})
+        self.assertEqual(draft.missing, "")
+
+    def test_an_either_bar_with_nothing_owes_the_whole_choice(self):
+        draft = bar.read(Phase.BUILD, {"text": "worked on it"})
+        self.assertEqual(draft.missing, bar.BAR[Phase.BUILD].either_label)
+
+    # --- the shape of the table ---------------------------------------------
+
+    def test_every_phase_has_a_bar(self):
+        """A phase with no entry would 500 the chat turn for whoever reached
+        it, and LAUNCH is where the builders who got furthest are."""
+        self.assertEqual(set(bar.BAR), set(Phase))
+
+    def test_every_part_can_be_asked_for_and_named(self):
+        for phase, entry in bar.BAR.items():
+            for part in entry.parts:
+                with self.subTest(phase=phase, part=part.key):
+                    self.assertTrue(part.label.strip())
+                    self.assertTrue(part.ask.strip())
+                    # A list part needs the singular too, or the last one owed
+                    # reads "1 more things they said".
+                    if part.need > 1:
+                        self.assertTrue(part.one_label.strip())
+            if not entry.every:
+                self.assertTrue(entry.either_label.strip())
+
+    def test_the_tool_asks_for_this_phases_parts_and_nothing_else(self):
+        schema = prompts.suggest_proof_tool(Phase.VALIDATION)
+        properties = schema["function"]["parameters"]["properties"]
+        self.assertEqual(
+            set(properties),
+            {"text", *(p.key for p in bar.BAR[Phase.VALIDATION].parts)},
+        )
+        # The count is what makes it a list, and the list is what makes the
+        # model enumerate instead of judge.
+        self.assertEqual(properties["quotes"]["type"], "array")
+        self.assertEqual(properties["who"]["type"], "string")
+
+    def test_the_tool_never_asks_the_model_what_is_missing(self):
+        """The whole transfer, in one assertion: there is nowhere left for the
+        model to assert its own completeness."""
+        for phase in Phase:
+            with self.subTest(phase=phase):
+                schema = prompts.suggest_proof_tool(phase)
+                self.assertNotIn(
+                    "missing", schema["function"]["parameters"]["properties"]
+                )
+
+
 class RunningNotesTests(CoachTestCase):
     """The draft kept as the conversation goes, and the one thing it is for:
     the builder never says anything twice.
@@ -1813,14 +1975,31 @@ class RunningNotesTests(CoachTestCase):
 
     PART = "Spoke to Ramesh, the mess contractor. 40-50 plates wasted most nights."
     WHOLE = PART + " Tried a WhatsApp group for counts; it died in a week."
-    GAP = "what he last did about it; the commitment you asked for"
+    SOME = {"who": "Ramesh, the mess contractor", "quotes": ["40-50 plates wasted"]}
+    ALL = {
+        "who": "Ramesh, the mess contractor",
+        "quotes": [
+            "40-50 plates go to waste most nights",
+            "nobody replied by 18:00",
+            "I'm not sharing my numbers",
+        ],
+        "last_action": "Tried a WhatsApp group for counts; it died in a week",
+        "commitment": "Asked for an intro to the Block B contractor — he gave it",
+    }
+    # What SOME leaves owed, in the server's words, not the model's — two more
+    # quotes counted off a list of one, and the two parts that are empty.
+    GAP = (
+        "2 more things they said in their own words; "
+        "what they last did about this problem; "
+        "the commitment you asked for, and whether you got it"
+    )
 
     def setUp(self):
         super().setUp()
         self.goal = self.make_goal(phase=Phase.VALIDATION)
         self.client.post("/api/coach/checkins/declare/", {"text": "talk to Ramesh"})
 
-    def draft(self, text=PART, missing=GAP, said="Got it. What did he last do?"):
+    def draft(self, text=PART, parts=None, said="Got it. What did he last do?"):
         """One chat turn in which Masterji writes down what he has so far.
         An empty `said` is a turn he spent entirely on the tool call."""
         events = [
@@ -1828,7 +2007,7 @@ class RunningNotesTests(CoachTestCase):
                 "tool_call",
                 {
                     "name": "suggest_proof",
-                    "arguments": {"text": text, "missing": missing},
+                    "arguments": {"text": text, **(self.SOME if parts is None else parts)},
                 },
             ),
         ]
@@ -1876,7 +2055,7 @@ class RunningNotesTests(CoachTestCase):
         """Each call is the whole of what he has. Appending would double every
         fact the builder repeated, and the draft goes on their record."""
         self.draft()
-        self.draft(text=self.WHOLE, missing="")
+        self.draft(text=self.WHOLE, parts=self.ALL)
         checkin = CheckIn.objects.get()
         self.assertEqual(checkin.proof_offer, self.WHOLE)
         self.assertEqual(checkin.proof_missing, "")
@@ -1886,14 +2065,18 @@ class RunningNotesTests(CoachTestCase):
         earlier call it would describe a hole in a draft that has since been
         filled — and would go on blocking the one-tap filing below."""
         self.draft()
-        self.draft(text=self.WHOLE, missing="")
+        self.draft(text=self.WHOLE, parts=self.ALL)
         self.assertEqual(CheckIn.objects.get().proof_missing, "")
         system = self.system_prompt_now()
         self.assertIn("Nothing is missing", system)
 
     def test_an_evening_with_no_notes_yet_leaves_no_hole_in_the_prompt(self):
+        # Not the block's heading — SPOT_PROOF names that heading when it tells
+        # him where the notes come back. These two lines only exist inside the
+        # block itself, so they are absent exactly when there are no notes.
         system = self.system_prompt_now()
-        self.assertNotIn("WHAT YOU HAVE ALREADY WRITTEN DOWN", system)
+        self.assertNotIn("every word of it is GIVEN", system)
+        self.assertNotIn("Still missing before it clears the bar", system)
 
     def test_notes_are_dropped_when_the_task_they_belong_to_changes(self):
         """Re-declaring rewrites the day's task; a gap measured against the old
@@ -1944,7 +2127,7 @@ class RunningNotesTests(CoachTestCase):
     def test_a_finished_draft_still_goes_straight_through(self):
         """The shortcut the notes must not break: he judged the substance when
         he said nothing was missing."""
-        self.draft(text=self.WHOLE, missing="")
+        self.draft(text=self.WHOLE, parts=self.ALL)
         with mock.patch("coach.views.llm.complete") as called:
             response = self.client.post("/api/coach/checkins/prove/", {"text": self.WHOLE})
         called.assert_not_called()
