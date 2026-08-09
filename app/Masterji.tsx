@@ -1442,9 +1442,25 @@ export default function Masterji({ user }: { user: SessionUser }) {
                     `Masterji is writing this up under Today — ${owed.length} piece${
                       owed.length === 1 ? "" : "s"
                     } still needed. Nothing counts until you file it.`
-                  : today?.amDeclaration
-                    ? "Nothing here counts until you file it under Today."
-                    : "Nothing here counts. Declare today's task under Today first."}
+                  : /* The same correction, two states late. Credit first,
+                       gate second — the rule itself is unchanged and still
+                       in the sentence, it just stops being the opening
+                       words. Alone and first, "nothing here counts" reads
+                       as don't bother typing, and it is false besides: the
+                       draft that lands under Today is written from this box
+                       and nowhere else.
+
+                       The two differ on what is true yet. _offer_target
+                       returns None until there is an am_declaration to hang
+                       a draft on, so before one exists he genuinely is not
+                       taking notes — that line promises the draft as the
+                       thing declaring buys, rather than claiming it is
+                       already happening. Says "this conversation" in both,
+                       the same words the card uses when it hands the draft
+                       back, so the promise and the payoff match. */
+                    today?.amDeclaration
+                      ? "Masterji writes tonight's proof from this conversation. Nothing counts until you file it under Today."
+                      : "Declare today's task under Today — then Masterji writes tonight's proof from this conversation."}
             </p>
           )}
         </section>

@@ -58,14 +58,23 @@ CHECKIN_HISTORY = 90
 # and on the phone tab, so it survives the breakpoint.
 WHERE_TO_FILE = "Today"
 
+# Ends on the gate, not on "talking to me records nothing on its own", which
+# is the first thing a builder ever reads from him and told them their half
+# of the deal was worthless before they had said a word. It was also out of
+# date: he drafts the evening's proof from the conversation, so the chat is
+# where the proof comes FROM even though it is not where it lands. Same order
+# as the note under the reply box — what he does with it first, the gate
+# second — and the promise waits on a declaration for the same reason
+# _offer_target does: with no task to hang notes on, there is nothing to write
+# up yet.
 WELCOME = (
     'Goal locked: "{title}". Rule one: one goal at a time, and this is yours '
     "now. You start in IDEA — write a one-paragraph problem statement, then "
     "the route to these people: one place they already are, why you think "
     "they're there, and how you'd get one conversation this week. No names "
-    "needed, and you won't message anyone until VALIDATION. Talking to me "
-    f"records nothing on its own — declare today's task under {WHERE_TO_FILE}, "
-    "and file your proof there tonight."
+    "needed, and you won't message anyone until VALIDATION. Declare today's "
+    f"task under {WHERE_TO_FILE} and I'll write tonight's proof out of what "
+    "you tell me here — but nothing counts until you file it there."
 )
 
 # A draft Masterji wrote out of the conversation with no check-in to pin it
