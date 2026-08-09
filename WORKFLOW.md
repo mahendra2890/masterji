@@ -125,7 +125,7 @@ writing files. That ratio is the part I'd defend hardest: UI defects were caught
 by the thing that made them, in the browser, minutes after the edit, instead of
 by me an hour later.
 
-Three other things carried weight:
+Four other things carried weight:
 
 - **Checks ran against production, not localhost.** The deployed app, the OAuth
   redirect, and — the one worth running yourself — that the development
@@ -139,6 +139,30 @@ Three other things carried weight:
   toward the next phase. One word was carrying two decisions, and with the
   model down a declaration of "think about the problem" could unlock
   VALIDATION. Splitting them is four lines; noticing was the work.
+- **The suite cannot reach the network, and that is checked rather than
+  assumed.** Every test stubs the model, and the base case stubs it to *raise*,
+  so the whole suite exercises the deterministic floor unless a test says
+  otherwise. That is easy to claim and easy to be wrong about — one unstubbed
+  call in one test and the suite quietly starts costing money and failing on a
+  train. So it is verified the only way it can be: run the whole thing with the
+  provider pointed at a dead port (`OPENAI_BASE_URL=http://127.0.0.1:1`). Every
+  test still passes, in the same time. A single real call would have hung or
+  failed.
+- **The model paths were then run for real, once, with a live key.** The
+  opposite check, and it needs saying because everything above is deliberately
+  hermetic: a suite that stubs every model call proves the server's decisions
+  and nothing about whether the coach works. So nine scenarios were driven
+  end-to-end against `gpt-5.4-mini` with no mocks — a real proof accepted, a
+  plan pushed back, `suggest_proof` firing from a real conversation and the
+  server counting three quotes as three, a drafted proof filed in one tap,
+  Hinglish, thinking-partner mode, and the gate refusing an advance the model
+  had proposed. Two mattered most. An evening the model could not read is filed
+  as unread, keeps the day, banks nothing, and is accepted on the next press
+  once the model answers — the fix above, composed with a real verdict rather
+  than a stubbed one. And four insistent submissions of "I plan to talk to
+  them" earned four refusals and zero banked proofs, which is the cap I
+  rejected staying rejected when a real model, not a fixture, is the one
+  holding the line.
 - **A public changelog row for every builder-visible change**, written in the
   same pull request that ships it. The product asks builders for evidence
   someone else can read; the repo owes them the same.
