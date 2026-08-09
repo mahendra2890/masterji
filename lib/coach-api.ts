@@ -64,10 +64,15 @@ export type CheckIn = {
   /** What tonight's proof must show for THIS task. Empty when unjudged —
    * fall back to the phase's static ask in CoachState.guidance. */
   proofAsk: string;
-  /** Tonight's proof as Masterji drafted it from work the builder had already
-   * described in chat. An offer, not a record — nothing counts until they
-   * file it, and filing it unedited is accepted without a second judgement. */
+  /** Tonight's proof as Masterji has it so far, written from work the builder
+   * described in chat and rewritten each time another piece arrives. An offer,
+   * not a record — nothing counts until they file it. */
   proofOffer: string;
+  /** What that draft still lacks, one phrase per piece, semicolon-separated.
+   * Empty means it clears the phase's bar — and only then does filing it
+   * unedited skip the evening's judgement. Non-empty makes it notes: proof of
+   * being heard, and the whole of what Masterji may still ask for tonight. */
+  proofMissing: string;
   pmProofText: string;
   proofUrl: string;
   /** Signed, short-lived link to the screenshot backing this proof. Minted
@@ -187,6 +192,7 @@ type ServerCheckIn = {
   declaration_reaction?: string;
   proof_ask?: string;
   proof_offer?: string;
+  proof_missing?: string;
   pm_proof_text: string;
   proof_url: string;
   proof_image_url?: string;
@@ -217,6 +223,7 @@ const fromServerCheckIn = (c: ServerCheckIn): CheckIn => ({
   declarationReaction: c.declaration_reaction ?? "",
   proofAsk: c.proof_ask ?? "",
   proofOffer: c.proof_offer ?? "",
+  proofMissing: c.proof_missing ?? "",
   pmProofText: c.pm_proof_text,
   proofUrl: c.proof_url,
   proofImageUrl: c.proof_image_url ?? "",

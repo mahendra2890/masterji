@@ -1794,6 +1794,191 @@ class ProofOfferTests(CoachTestCase):
         self.assertIn(prompts.SPOT_PROOF, system)
 
 
+class RunningNotesTests(CoachTestCase):
+    """The draft kept as the conversation goes, and the one thing it is for:
+    the builder never says anything twice.
+
+    The failure it answers, from a real evening: the builder named three things
+    their customer had said, in one sentence, and got back "that's one usable
+    line, not three". They answered "there are three" and were told to write
+    them plainly. Five round trips to recover what the first message already
+    held — because nothing accumulated anywhere and every turn re-derived the
+    evening from a transcript.
+
+    So Masterji writes it down as it arrives, and the notes carry both halves:
+    what he has (banked, never asked for again) and what is still owed. Notes
+    are a record of what the builder said, never a verdict — the half-finished
+    ones buy no proof, and the gate counts exactly what it counted before.
+    """
+
+    PART = "Spoke to Ramesh, the mess contractor. 40-50 plates wasted most nights."
+    WHOLE = PART + " Tried a WhatsApp group for counts; it died in a week."
+    GAP = "what he last did about it; the commitment you asked for"
+
+    def setUp(self):
+        super().setUp()
+        self.goal = self.make_goal(phase=Phase.VALIDATION)
+        self.client.post("/api/coach/checkins/declare/", {"text": "talk to Ramesh"})
+
+    def draft(self, text=PART, missing=GAP, said="Got it. What did he last do?"):
+        """One chat turn in which Masterji writes down what he has so far.
+        An empty `said` is a turn he spent entirely on the tool call."""
+        events = [
+            (
+                "tool_call",
+                {
+                    "name": "suggest_proof",
+                    "arguments": {"text": text, "missing": missing},
+                },
+            ),
+        ]
+        if said:
+            events.insert(0, ("delta", said))
+        with mock.patch("coach.views.llm.stream_chat", return_value=iter(events)):
+            response = self.client.post("/api/coach/chat/", {"content": "talked to him"})
+            b"".join(response.streaming_content)
+
+    def system_prompt_now(self):
+        """The system prompt the NEXT turn would be built with — captured off
+        the real view, so this can't pass while the wiring is broken."""
+        seen = []
+
+        def capture(system, *args, **kwargs):
+            seen.append(system)
+            return iter([])
+
+        with mock.patch("coach.views.llm.stream_chat", side_effect=capture):
+            response = self.client.post("/api/coach/chat/", {"content": "and then?"})
+            b"".join(response.streaming_content)
+        return seen[0]
+
+    # --- what he has, and what he still needs -------------------------------
+
+    def test_a_part_of_tonights_proof_is_written_down_the_moment_it_arrives(self):
+        """He used to hold every piece in his head until the bar was fully met,
+        which is why nothing survived a turn."""
+        self.draft()
+        checkin = CheckIn.objects.get()
+        self.assertEqual(checkin.proof_offer, self.PART)
+        self.assertEqual(checkin.proof_missing, self.GAP)
+
+    def test_the_next_turn_reads_the_notes_as_given(self):
+        """The whole fix in one assertion: what the conversation already
+        produced arrives as state, not as something to re-derive from thirty
+        messages and possibly re-derive differently."""
+        self.draft()
+        system = self.system_prompt_now()
+        self.assertIn(self.PART, system)
+        self.assertIn(self.GAP, system)
+        self.assertIn("none of it may be asked for again", system)
+
+    def test_a_fuller_draft_replaces_the_one_before_it(self):
+        """Each call is the whole of what he has. Appending would double every
+        fact the builder repeated, and the draft goes on their record."""
+        self.draft()
+        self.draft(text=self.WHOLE, missing="")
+        checkin = CheckIn.objects.get()
+        self.assertEqual(checkin.proof_offer, self.WHOLE)
+        self.assertEqual(checkin.proof_missing, "")
+
+    def test_a_finished_draft_clears_the_gap_it_used_to_have(self):
+        """`missing` is read as a pair with the text. Left behind from an
+        earlier call it would describe a hole in a draft that has since been
+        filled — and would go on blocking the one-tap filing below."""
+        self.draft()
+        self.draft(text=self.WHOLE, missing="")
+        self.assertEqual(CheckIn.objects.get().proof_missing, "")
+        system = self.system_prompt_now()
+        self.assertIn("Nothing is missing", system)
+
+    def test_an_evening_with_no_notes_yet_leaves_no_hole_in_the_prompt(self):
+        system = self.system_prompt_now()
+        self.assertNotIn("WHAT YOU HAVE ALREADY WRITTEN DOWN", system)
+
+    def test_notes_are_dropped_when_the_task_they_belong_to_changes(self):
+        """Re-declaring rewrites the day's task; a gap measured against the old
+        one would have him chasing evidence for work nobody is doing."""
+        self.draft()
+        self.client.post("/api/coach/checkins/declare/", {"text": "talk to Priya"})
+        checkin = CheckIn.objects.get()
+        self.assertEqual(checkin.proof_offer, "")
+        self.assertEqual(checkin.proof_missing, "")
+
+    def test_the_gap_rides_the_state_payload(self):
+        self.draft()
+        response = self.client.get("/api/coach/state/")
+        self.assertEqual(response.data["today"]["proof_missing"], self.GAP)
+
+    # --- notes are not a pass ------------------------------------------------
+
+    def test_half_finished_notes_do_not_file_themselves(self):
+        """The load-bearing one. A COMPLETE draft filed unedited is accepted
+        with no model call, because he decided it when he offered it. Running
+        notes live in the same field and were never a decision — filing them
+        verbatim must still be judged, or the gate decides nothing."""
+        self.draft()
+        with mock.patch(
+            "coach.views.llm.complete",
+            return_value='{"verdict": "push_back", "reaction": "Still no commitment."}',
+        ) as called:
+            response = self.client.post("/api/coach/checkins/prove/", {"text": self.PART})
+        called.assert_called_once()
+        self.assertEqual(response.data["checkin"]["proof_status"], "PUSHED_BACK")
+        self.assertEqual(gates.accepted_proofs(self.goal), 0)
+
+    def test_the_evening_does_not_re_open_what_the_notes_already_hold(self):
+        """Same failure as asking twice in chat, one room over: every fact in
+        the notes came from the builder and was taken as given at the time."""
+        self.draft()
+        with mock.patch(
+            "coach.views.llm.complete", return_value='{"verdict": "accept", "reaction": "ok"}'
+        ) as called:
+            self.client.post(
+                "/api/coach/checkins/prove/", {"text": self.PART + " He agreed to meet."}
+            )
+        system = called.call_args.args[0]
+        self.assertIn("YOU KEPT RUNNING NOTES", system)
+        self.assertIn(self.PART, system)
+        self.assertIn(self.GAP, system)
+
+    def test_a_finished_draft_still_goes_straight_through(self):
+        """The shortcut the notes must not break: he judged the substance when
+        he said nothing was missing."""
+        self.draft(text=self.WHOLE, missing="")
+        with mock.patch("coach.views.llm.complete") as called:
+            response = self.client.post("/api/coach/checkins/prove/", {"text": self.WHOLE})
+        called.assert_not_called()
+        self.assertEqual(response.data["checkin"]["proof_status"], "ACCEPTED")
+
+    # --- the turn the builder is watching ------------------------------------
+
+    def test_notes_with_nothing_to_pin_them_to_are_not_read_back_in_the_chat(self):
+        """A FINISHED draft with no declaration is handed back — it is one move
+        from being filed. Half-finished notes are a paraphrase of the
+        conversation they are already having, and handing those back every turn
+        until they declare is noise, not help."""
+        CheckIn.objects.all().delete()
+        self.draft(said="Who is he, and what did he last do?")
+        said = Message.objects.filter(role=Message.Role.COACH).latest("id").content
+        self.assertEqual(said, "Who is he, and what did he last do?")
+        self.assertNotIn(self.PART, said)
+
+    def test_a_turn_spent_entirely_on_the_notes_says_what_is_still_owed(self):
+        """The tool call WAS the turn. A receipt that didn't carry the gap
+        would read as a finished proof waiting to be filed, and the builder
+        would be pushed back for a piece nobody told them was missing."""
+        self.draft(said="")
+        said = Message.objects.filter(role=Message.Role.COACH).latest("id").content
+        self.assertEqual(said, views.NOTES_LANDED.format(missing=self.GAP))
+        self.assertIn(views.WHERE_TO_FILE, said)
+
+    def test_he_is_told_not_to_make_them_say_it_twice(self):
+        system = prompts.build_system_prompt(
+            self.goal, gates.gate_status(self.goal), 0, "state", "ENGLISH"
+        )
+        self.assertIn(prompts.NEVER_TWICE, system)
+
+
 class ChangelogTests(APITestCase):
     """The product's own record. Public, active-only, newest first — and, as
     the one unscoped table here, it must not leak a way to write to it."""

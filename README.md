@@ -78,14 +78,26 @@ The product's spine is a **server-enforced state machine**, not a prompt:
   lose an evening was to describe real work in chat, get coached at about
   it, and file nothing — because translating what you said into what the
   box wanted was your job. Now the coach reads the conversation against the
-  phase's bar and, when it's met, calls `suggest_proof` with tonight's proof
-  written up in the builder's own words. It lands on the check-in as a
-  draft. Filed unedited it skips a second judgement (he decided when he
-  offered); edited, it's judged with his own draft in the prompt. The offer
-  records nothing by itself: filing is the builder's, and so is the gate
-  credit. Evidence is judged on what it *contains*, never on reproducing
-  the playbooks' format — nobody is tested on how well they learned our
+  phase's bar and calls `suggest_proof` with tonight's proof written up in
+  the builder's own words. It lands on the check-in as a draft. Filed
+  unedited it skips a second judgement (he decided when he offered);
+  edited, it's judged with his own draft in the prompt. The offer records
+  nothing by itself: filing is the builder's, and so is the gate credit.
+  Evidence is judged on what it *contains*, never on reproducing the
+  playbooks' format — nobody is tested on how well they learned our
   vocabulary.
+- **He writes it down as you say it, so you never say it twice.** He used to
+  hold every piece in his head until the bar was fully met, which meant
+  nothing accumulated anywhere and every turn re-derived the evening from a
+  transcript — the mechanism behind the loudest complaint this product has
+  had: *it keeps asking for things I already gave it*. The draft is now a
+  running record (`CheckIn.proof_offer`), rewritten as each piece arrives and
+  paired with what the bar still lacks (`CheckIn.proof_missing`). The builder
+  sees both under **Today**; the next chat turn and the evening's judgement
+  both read the notes as facts already given, so nothing in them can be asked
+  for a second time. It buys no leniency: `proof_missing` is exactly what
+  separates notes from an offer, only a draft with nothing missing files
+  straight through, and `gates.py` counts what it always counted.
 - **Phase-gated coaching:** the system prompt is assembled per-request
   from database state plus the phase's playbook — small, self-authored
   distillations of the lean-execution canon (crediting *The Mom Test*,

@@ -448,10 +448,15 @@ export default function Masterji({ user }: { user: SessionUser }) {
     !today?.amDeclaration ||
     !today.pmProofText ||
     today.proofStatus === "PUSHED_BACK";
-  // A proof Masterji drafted out of the conversation and nobody has filed.
-  // Distinct from dayOpen on purpose: dayOpen is lit from the moment the day
-  // starts, so it cannot announce anything that arrives mid-day.
-  const draftWaiting = dayOpen && Boolean(today?.proofOffer);
+  // A FINISHED proof Masterji drafted out of the conversation and nobody has
+  // filed. Distinct from dayOpen on purpose: dayOpen is lit from the moment the
+  // day starts, so it cannot announce anything that arrives mid-day.
+  //
+  // Running notes deliberately don't light it. The dot means "there is
+  // something on the other pane for you to do", and notes are the evening's
+  // working-out — they'd relight it on nearly every turn and teach the builder
+  // that the dot means nothing.
+  const draftWaiting = dayOpen && Boolean(today?.proofOffer) && !today?.proofMissing;
 
   const showPane = (next: "today" | "chat") => {
     setPane(next);
@@ -837,18 +842,42 @@ export default function Masterji({ user }: { user: SessionUser }) {
                     described in chat. The ask above says what tonight needs;
                     this says "you've already told me — here it is". Filed
                     unedited it skips a second judgement server-side, so the
-                    button copies it verbatim rather than reformatting it. */}
+                    button copies it verbatim rather than reformatting it.
+                    While pieces are still owed it is notes rather than an
+                    offer — the same words, doing a different job. This is the
+                    only place the builder can SEE that he heard them, which is
+                    the whole reason they stop saying it twice, and it has to
+                    show the gap in the same breath or a half-finished draft
+                    reads as one that's ready to file. */}
                 {today.proofOffer && (
                   <div className={styles.proofOffer}>
                     <p className={styles.proofOfferLabel}>
-                      Masterji wrote this from your conversation
+                      {today.proofMissing
+                        ? "What Masterji has from your conversation so far"
+                        : "Masterji wrote this from your conversation"}
                     </p>
                     <p className={styles.proofOfferText}>{today.proofOffer}</p>
+                    {today.proofMissing && (
+                      <div className={styles.proofGap}>
+                        <p className={styles.proofGapLabel}>Still needed tonight</p>
+                        <ul className={styles.proofGapList}>
+                          {today.proofMissing
+                            .split(";")
+                            .map((piece) => piece.trim())
+                            .filter(Boolean)
+                            .map((piece, i) => (
+                              <li key={i}>{piece}</li>
+                            ))}
+                        </ul>
+                      </div>
+                    )}
                     <button
                       className={styles.proofOfferBtn}
                       onClick={() => setPmText(today.proofOffer)}
                     >
-                      Use this — edit it below if it&rsquo;s not right
+                      {today.proofMissing
+                        ? "Start from these — add the rest below"
+                        : "Use this — edit it below if it’s not right"}
                     </button>
                   </div>
                 )}

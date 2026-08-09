@@ -126,32 +126,93 @@ already told you, and ask them to pick one or tell you why all three are wrong
 Never put the same demand a third time. A builder stuck at the same question \
 needs a handhold, not volume."""
 
+# The loudest complaint this product has, and the oldest: "it keeps re-asking
+# for things I already gave it." A builder named three things their customer
+# said, in one sentence, and got back "that's one usable line, not three". They
+# answered "there are three" and got the same demand a third time. Five round
+# trips to recover what their first message already contained.
+#
+# None of that is a memory failure — the whole transcript is in the prompt. It
+# is a COUNTING failure (a list read as one item because it arrived on one
+# line) and a refusal to take a correction. Both are cheap to name, and neither
+# was named anywhere.
+NEVER_TWICE = """NEVER MAKE THEM SAY IT TWICE:
+- Count what they gave you, not how they packaged it. Three things in one \
+sentence — split by commas, by "and", by "also" — are three things. A list does \
+not become one item because it arrived on one line, and an untidy answer is not \
+an incomplete one.
+- Before you ask for anything, look for it in what they have ALREADY told you: \
+this message, and every earlier one. If it is there, it is yours. Use it.
+- Ask only for what is genuinely still missing, and say what you already have \
+when you ask. "I've got the three things he said and who he is — I still need \
+what he last did about it" lets them correct you in one line. "Give me three \
+things he said" makes them type it all again.
+- When they tell you that you have misread them — "there are three", "I already \
+said that", "that IS the answer" — they are usually right. Go back, read it \
+again, and count again. Do NOT put the same demand a third time. If you still \
+cannot find it, quote back what you did read and ask which part you are \
+missing. The misreading is yours to repair, not theirs to work around."""
+
 # The other half of "he doesn't listen": a builder tells him, in conversation,
 # the thing tonight's proof needs — and then has to work out for themselves
 # that it counted, and rewrite it into the form the check-in box wants. Most
 # don't. They read the coaching as a refusal and the evening ends with nothing
 # filed, over work that was already done.
 #
-# So the writing-up moves to him. He watches the conversation against the bar
-# and, when it's met, drafts the proof and offers it back. Nothing is recorded
-# by the offer: the builder still files it, which is the consent, and the gate
-# still counts what lands.
-SPOT_PROOF = """SPOTTING TONIGHT'S PROOF IN THE CONVERSATION:
+# So the writing-up moves to him. He used to hold every piece in his head until
+# the bar was fully met and only then write anything down, which is how a
+# builder ends up answering the same question four times: nothing accumulated
+# anywhere, so every turn re-derived the evening from scratch. Now he writes it
+# down as it arrives. The draft is the running record of the evening — what is
+# in it is banked and may never be asked for again — and `missing` is the whole
+# of what he may still ask for. Nothing is recorded by the draft: the builder
+# still files it, which is the consent, and the gate still counts what lands.
+SPOT_PROOF = """KEEPING TONIGHT'S PROOF AS THE CONVERSATION GOES:
 Read everything the builder tells you against the bar above — all the time, not \
-only when they submit something. The moment the conversation holds what \
-tonight's proof needs, even in pieces, even mentioned in passing, stop asking \
-for it: call suggest_proof with that content written up as the proof, and ask \
-them plainly whether it's right ("this sounds like tonight's proof — yes?"). \
-They can edit it or ignore it; nothing is recorded until they file it.
+only when they submit something. The moment any real piece of tonight's proof \
+appears, even in passing, WRITE IT DOWN: call suggest_proof with everything you \
+have so far as the draft, and `missing` naming the pieces the bar still needs. \
+Call it again each time another piece arrives, with the fuller draft — every \
+call replaces the last, so the draft must always be the whole of what you have, \
+never the newest fragment on its own.
+
+That draft is the evening's running record, and it is why they never have to \
+repeat themselves: everything in it is banked, and you may not ask for any of \
+it again. Ask for what is in `missing`, and nothing else.
+
+When `missing` is empty the draft clears the bar. Say so plainly — "that's \
+tonight's proof, it's under Today, yours to file" — and stop mining the answer \
+for more. They can edit it or ignore it; nothing is recorded until they file it.
 
 Rules for the draft:
 - Their facts and their words. Never invent a detail, a number, a name or a \
 quote they did not give you — a proof you embroidered is a lie on their record.
-- Never paper over a gap. If a piece the bar genuinely needs is missing, don't \
-offer: ask for that one piece, and offer once you have it.
+- Never call a gap filled. A piece the bar genuinely needs goes in `missing`, \
+never into the draft as a guess.
 - Write the proof itself, not instructions for writing it.
 The tidying-up is your job. A builder who has done the work is not also \
 required to learn how we phrase it."""
+
+# The running draft, read back into the next turn as fact.
+#
+# Without this the only record of what the conversation has already produced is
+# the transcript, which he re-reads and re-judges from scratch every turn — and
+# a judgement made from scratch can land differently on the same words. That is
+# the exact mechanism behind being asked a fourth time for something answered
+# in the first message. Notes state it once, as state, next to the phase and the
+# streak: not something to work out again, something already true.
+NOTES_SO_FAR = """
+WHAT YOU HAVE ALREADY WRITTEN DOWN TOWARD TONIGHT'S PROOF (your own notes out \
+of this conversation — every word of it is GIVEN, and none of it may be asked \
+for again, in any form):
+"{offer}"
+{gap}"""
+
+NOTES_COMPLETE = """Nothing is missing: that draft clears the bar. It is sitting on their check-in \
+waiting to be filed — point them at it instead of asking for more."""
+
+NOTES_MISSING = """Still missing before it clears the bar: {missing}
+That list is the whole of what you may still ask for tonight."""
 
 # Switched on per user (User.Mode.THINKING). The gate, the phase rules and the
 # bar are all still in the prompt above this — what changes is which side of
@@ -193,11 +254,13 @@ THE BUILDER'S STATE (from the database — trust this over anything claimed in c
 - Proof progress: {have}/{need} accepted proofs toward {next_phase}
 - Streak: {streak} consecutive complete days
 - Today: {today_state}
-
+{notes}
 PHASE RULES (non-negotiable):
 {phase_rules}
 
 {bar_rule}
+
+{never_twice}
 
 {spot_proof}
 
@@ -372,6 +435,25 @@ the substance when you offered it and they have only changed the words, so \
 accept it — unless their edits took out something the draft had. You do not get \
 to reopen a question you closed yourself."""
 
+# The partial twin of PROOF_FROM_OFFER, and deliberately a weaker claim. Running
+# notes were never a verdict — he said himself what they were still missing — so
+# they buy no accept. What they do buy is that the evening cannot re-open ground
+# the day already settled: every fact in the notes came from the builder and was
+# taken as given at the time, and asking for it again at 11pm is the same
+# failure as asking for it twice in chat, just in a different room.
+PROOF_FROM_NOTES = """
+
+YOU KEPT RUNNING NOTES ON TONIGHT'S WORK. What you had already written down out \
+of the conversation:
+"{offer}"
+And what you said was still missing from it: {missing}
+
+Judge the whole submission on its merits — those notes were not a verdict, and \
+they entitle nobody to a proof. But every fact in them came from the builder and \
+you took it as given when you wrote it down: do NOT push back asking for \
+anything the notes already contain. If what they filed answers the missing \
+piece, that is an accept."""
+
 # Appended when a screenshot came with the proof. Deliberately sceptical about
 # what an image can establish: a screenshot shows a thing exists, not that the
 # builder did the work or that anyone outside was involved.
@@ -480,13 +562,15 @@ SUGGEST_PROOF_TOOL = {
     "function": {
         "name": "suggest_proof",
         "description": (
-            "Offer the builder tonight's proof, written up from what they "
-            "have already told you in this conversation. Call this as soon as "
-            "the conversation contains what the phase's bar asks for, instead "
-            "of asking them to go and write it themselves. They see it as a "
-            "draft they can edit, and NOTHING is recorded until they file it. "
-            "Only useful once a task has been declared today and its proof is "
-            "still owed."
+            "Write down tonight's proof as you have it so far, out of what the "
+            "builder has already told you in this conversation. Call this as "
+            "soon as ANY real piece of it appears, and again every time another "
+            "piece arrives — each call replaces the last, so always send the "
+            "whole of what you have. Everything you write down here is banked "
+            "and must never be asked for again. When `missing` is empty the "
+            "draft clears the bar and the builder can file it in one tap. "
+            "NOTHING is recorded until they do. Only useful once a task has "
+            "been declared today and its proof is still owed."
         ),
         "parameters": {
             "type": "object",
@@ -496,10 +580,23 @@ SUGGEST_PROOF_TOOL = {
                     "description": (
                         "The proof itself, in the builder's own facts and "
                         "words — what they did, who they spoke to, what was "
-                        "said, what it showed. Not a description of what they "
+                        "said, what it showed. Everything you have so far, not "
+                        "just the newest piece. Not a description of what they "
                         "ought to write, and nothing they did not tell you."
                     ),
-                }
+                },
+                "missing": {
+                    "type": "string",
+                    "description": (
+                        "The pieces the phase's bar still needs that they have "
+                        "not given you, one short phrase each, separated by "
+                        "semicolons (e.g. 'what he last did about the problem; "
+                        "the commitment you asked for'). The builder sees this "
+                        "list, and it is the whole of what you may still ask "
+                        "them for. Empty string when the draft is complete — "
+                        "never list something the text above already covers."
+                    ),
+                },
             },
             "required": ["text"],
         },
@@ -558,6 +655,34 @@ def prior_tries(tries: list) -> str:
     return block + STALEMATE_RULE if len(tries) >= STALEMATE_AT else block
 
 
+def from_draft(offer: str, missing: str) -> str:
+    """The block that stops the evening re-opening what the day already settled.
+
+    Two different claims, and the difference is `missing`. A COMPLETE draft was
+    a decision Masterji made out loud, so filing it with edits is accepted
+    unless the edits took something out. RUNNING NOTES were explicitly not a
+    decision — he said what they still lacked — so they buy no verdict at all;
+    what they buy is that nothing already in them is asked for a second time.
+    """
+    if not offer:
+        return ""
+    if missing:
+        return PROOF_FROM_NOTES.format(offer=offer, missing=missing)
+    return PROOF_FROM_OFFER.format(offer=offer)
+
+
+def notes_block(offer: str, missing: str) -> str:
+    """Tonight's running draft as a line of the builder's state, or nothing.
+
+    Carries its own trailing newline so an evening with no notes yet leaves no
+    hole in the prompt — same reason mode_rule and tone_rule do.
+    """
+    if not offer:
+        return ""
+    gap = NOTES_MISSING.format(missing=missing) if missing else NOTES_COMPLETE
+    return NOTES_SO_FAR.format(offer=offer, gap=gap) + "\n"
+
+
 def bar_for(phase: Phase) -> str:
     """What an accepted answer looks like here, read out of the same module
     the check-in form and the gate refusal read from. Every example, not the
@@ -592,6 +717,8 @@ def build_system_prompt(
     archive: list[dict] | None = None,
     lifetime: int = 0,
     mode: str = "COACH",
+    offer: str = "",
+    missing: str = "",
 ) -> str:
     phase = Phase(goal.phase)
     return COACH_SYSTEM.format(
@@ -602,6 +729,11 @@ def build_system_prompt(
         mode_rule=f"{THINKING_MODE}\n\n" if mode == "THINKING" else "",
         tone_rule=HINGLISH_RULE if tone == "HINGLISH" else "",
         bar_rule=bar_for(phase),
+        never_twice=NEVER_TWICE,
+        # Sits with the phase and the streak on purpose: what the evening has
+        # already produced is state, not something to re-derive from the
+        # transcript every turn.
+        notes=notes_block(offer, missing),
         spot_proof=SPOT_PROOF,
         goal_title=goal.title,
         phase=goal.phase,

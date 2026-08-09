@@ -561,12 +561,13 @@ const SLIDES: Slide[] = [
   /* 6 ---------------------------------------------------------------- */
   {
     eyebrow: "The shortcut that isn't a shortcut",
-    title: "Tell him what happened. He writes it up.",
+    title: "Tell him what happened. He writes it down as you go.",
     kicker:
       "Most evenings die on that box, not on the work — you did the thing, " +
       "said it in the chat, and never translated it into what the box wanted. " +
-      "So he does it. Describe the real work; if it clears the phase's bar, " +
-      "he writes tonight's proof up in your own words and puts it in the box.",
+      "So he does it. Every piece you give him lands under Today the moment " +
+      "you say it, with what's still owed listed under it. Nothing in those " +
+      "notes gets asked for twice.",
     stage: "stack",
     mock: (
       <div className={styles.pair}>
@@ -580,9 +581,9 @@ const SLIDES: Slide[] = [
               <Line who="COACH">
                 &quot;She just stops taking orders&quot; — that&apos;s the
                 workaround, and it&apos;s the part most builders never reach.
-                That clears the bar, so I&apos;ve written it up as
-                tonight&apos;s proof. Check it under Today and file it; you
-                don&apos;t have to say it again in my words.
+                I&apos;ve written that down under Today. I&apos;ve got who she
+                is and what she does about it; what I still need is what you
+                asked her for at the end.
               </Line>
             </Mark>
           </div>
@@ -601,7 +602,7 @@ const SLIDES: Slide[] = [
           <Mark n={2}>
             <div className={app.proofOffer}>
               <p className={app.proofOfferLabel}>
-                Masterji wrote this from your conversation
+                What Masterji has from your conversation so far
               </p>
               <p className={app.proofOfferText}>
                 Spoke to the mess aunty about the 9pm rush. She gets around 40
@@ -609,8 +610,14 @@ const SLIDES: Slide[] = [
                 fast, so she stops taking orders — she doesn&apos;t turn people
                 away, she just goes quiet. That&apos;s the workaround today.
               </p>
+              <div className={app.proofGap}>
+                <p className={app.proofGapLabel}>Still needed tonight</p>
+                <ul className={app.proofGapList}>
+                  <li>the commitment you asked her for</li>
+                </ul>
+              </div>
               <span className={app.proofOfferBtn}>
-                Use this — edit it below if it&rsquo;s not right
+                Start from these — add the rest below
               </span>
             </div>
           </Mark>
@@ -627,9 +634,9 @@ const SLIDES: Slide[] = [
     ),
     notes: [
       <>
-        He only drafts when the work already clears the phase&apos;s bar.
-        It&apos;s not a way round the bar — it&apos;s him admitting you cleared
-        it before you&apos;ve typed it up.
+        He says what he already has before he asks for the rest — so you can
+        correct him in one line instead of typing the whole thing again. Tell
+        him he&apos;s misread you and re-reading is <em>his</em> job.
       </>,
       <>
         His facts and your words — he is not allowed to invent a name, a number
@@ -637,13 +644,15 @@ const SLIDES: Slide[] = [
         on your record, not his.
       </>,
       <>
-        Filed unedited it goes <strong>straight through</strong>{" "}
-        — he already decided it counted. Edit it and it&apos;s judged again,
-        with his draft in front of him.
+        Everything in the notes is banked and can never be asked for again.
+        <strong> Still needed tonight</strong> is the whole of what he can still
+        put to you — when that list empties, this becomes tonight&apos;s proof
+        and filing it unedited goes <strong>straight through</strong>.
       </>,
       <>
-        The offer records nothing on its own. Pressing submit is yours, and so
-        is the credit at the gate.
+        Notes are not a pass. A half-finished draft filed as-is is judged like
+        any other proof, and pressing submit is yours — so is the credit at the
+        gate.
       </>,
     ],
   },
