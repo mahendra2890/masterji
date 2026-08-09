@@ -162,6 +162,8 @@ export default function Masterji({ user }: { user: SessionUser }) {
   const [streamingText, setStreamingText] = useState<string | null>(null);
   const [pendingUserMsg, setPendingUserMsg] = useState<string | null>(null);
   const messagesRef = useRef<HTMLDivElement>(null);
+  // The box you talk back in, so it can be measured against what's in it.
+  const composerRef = useRef<HTMLTextAreaElement>(null);
 
   // Phone only: the dashboard and the chat take turns instead of stacking.
   const [pane, setPane] = useState<"today" | "chat">("today");
@@ -222,6 +224,66 @@ export default function Masterji({ user }: { user: SessionUser }) {
     const box = messagesRef.current;
     if (box) box.scrollTop = box.scrollHeight;
   }, [state?.messages.length, streamingText, pane]);
+
+  // The composer is the height of what's in it: one row while it's empty, a
+  // row taller for every line typed into it, scrolling once it reaches the cap
+  // in CSS. Any fixed height is wrong in both directions at once — it sits
+  // there as an empty slab on the screen whose whole point is the conversation
+  // above it, and it still hides the line after the last one it has room for.
+  //
+  // Re-pinning the log is half the job, not a garnish. The log is the flex
+  // child that gives up whatever the box takes, so a box growing by a line
+  // slides the newest message up under it: you'd watch Masterji's reply leave
+  // the screen as you typed your answer to it. Only re-pins a log that was
+  // already at the bottom — a builder who scrolled up to re-read something
+  // keeps their place.
+  const fitComposer = useCallback(() => {
+    const box = composerRef.current;
+    // display:none, which is how the phone hides whichever pane isn't showing.
+    // Nothing to measure there, and measuring anyway writes a 0px height onto
+    // the box that the builder then meets when they switch to it.
+    if (!box || !box.offsetParent) return;
+    const log = messagesRef.current;
+    const pinned =
+      !!log && log.scrollHeight - log.scrollTop - log.clientHeight < 4;
+    // Measured back at one row rather than at whatever the last keystroke left
+    // it: scrollHeight can't report less than the height already set on the
+    // element, so a box that had been tall once could only ever stay tall.
+    box.style.height = "auto";
+    // scrollHeight counts padding but not border, and box-sizing is border-box
+    // repo-wide, so the height we set has to carry the border itself. Read off
+    // the element rather than written as 2px — the border is CSS's to change.
+    box.style.height = `${box.scrollHeight + box.offsetHeight - box.clientHeight}px`;
+    if (log && pinned) log.scrollTop = log.scrollHeight;
+  }, []);
+
+  // Fit the box when it attaches, not only when the draft changes. The chat
+  // section unmounts with the goal — retire, land on onboarding, commit a new
+  // one — and `draft` outlives that, because the only thing that clears it is
+  // sending. So the box can come back holding five lines with the one row
+  // `rows` gives a fresh element, and nothing below would re-run: none of that
+  // effect's deps changed. It would sit a row tall, hiding a draft the builder
+  // never lost, until the next keystroke.
+  const attachComposer = useCallback(
+    (el: HTMLTextAreaElement | null) => {
+      composerRef.current = el;
+      if (el) fitComposer();
+    },
+    [fitComposer]
+  );
+
+  // `pane` because the phone mounts this box inside a display:none pane and
+  // there is nothing to measure until it shows; window resize because how many
+  // lines a paragraph wraps to is a function of width, and a phone turned on
+  // its side re-wraps every one of them.
+  useEffect(() => {
+    fitComposer();
+  }, [draft, pane, fitComposer]);
+
+  useEffect(() => {
+    window.addEventListener("resize", fitComposer);
+    return () => window.removeEventListener("resize", fitComposer);
+  }, [fitComposer]);
 
   // Escape closes the phase drill-in. DayDetail — which opens ON TOP of it —
   // has always had this; the panel underneath never did, so the way out was
@@ -1177,16 +1239,19 @@ export default function Masterji({ user }: { user: SessionUser }) {
             </div>
             <div className={styles.composerRow}>
               <textarea
+                ref={attachComposer}
                 className={styles.composerInput}
-                /* Four rows, not one. What gets typed here is a night's
-                   thinking, not a chat line — and at one row the second
-                   sentence scrolled the first out of sight, so re-reading
-                   your own reply before sending it meant dragging a box the
-                   height of a single line. Four holds the length these
-                   actually run to and still leaves the log above it worth
-                   reading; past that the conversation is the thing that
-                   suffers. Longer than four still scrolls. */
-                rows={4}
+                /* One row is the starting height, not the height. fitComposer
+                   grows the box a line at a time as it fills, the way every
+                   chat composer a builder has ever used does, up to the cap in
+                   CSS. Four fixed rows were an attempt at the same thing with
+                   a single number, and a single number can't do it: it was a
+                   109px slab of nothing above the conversation while the box
+                   was empty, and it still cut the fifth line off anyone whose
+                   answer ran to five. `rows` is what's left if the JS hasn't
+                   run yet, so it states the resting height rather than the
+                   biggest one this could reach. */
+                rows={1}
                 /* Short on purpose. The rule this box needs to state doesn't
                    fit in it: at 375px the composer clears 205px of text, and
                    the sentence needs 444px — it truncated to "Think out loud
