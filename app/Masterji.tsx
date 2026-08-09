@@ -1097,7 +1097,15 @@ export default function Masterji({ user }: { user: SessionUser }) {
             <div className={styles.composerRow}>
               <textarea
                 className={styles.composerInput}
-                rows={1}
+                /* Four rows, not one. What gets typed here is a night's
+                   thinking, not a chat line — and at one row the second
+                   sentence scrolled the first out of sight, so re-reading
+                   your own reply before sending it meant dragging a box the
+                   height of a single line. Four holds the length these
+                   actually run to and still leaves the log above it worth
+                   reading; past that the conversation is the thing that
+                   suffers. Longer than four still scrolls. */
+                rows={4}
                 /* Short on purpose. The rule this box needs to state doesn't
                    fit in it: at 375px the composer clears 205px of text, and
                    the sentence needs 444px — it truncated to "Think out loud
