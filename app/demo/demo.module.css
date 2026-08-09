@@ -127,13 +127,8 @@
   align-items: start;
 }
 
-/* Chat is the wide half of the app — flip which column is generous. */
-.stageWide {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 330px);
-}
-
-/* When the mock is two panels and an arrow between them, it takes the width
-   and the notes go underneath. */
+/* When the mock is two panels side by side, it takes the width and the notes
+   go underneath. */
 .stageStack {
   grid-template-columns: minmax(0, 1fr);
 }
@@ -184,13 +179,6 @@
   font-weight: 700;
   display: grid;
   place-items: center;
-}
-
-/* For a mark inside a flex row (the composer), where the wrapper has to take
-   the space the input would have taken. */
-.markedGrow {
-  flex: 1;
-  min-width: 0;
 }
 
 /* Around a button, where a block ring would circle the empty half of the row
@@ -425,6 +413,24 @@
   min-width: 0;
 }
 
+/* Two screens shown against each other rather than in sequence — no arrow,
+   because neither one leads to the other. The slide that teaches the two text
+   boxes has to put them side by side; described one after the other, in the
+   order a day happens, they read as one box you visit twice. */
+.twoUp {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  align-items: start;
+}
+
+.twoUpCol {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
 /* The app header's right-hand controls, on their own for the slide that
    teaches them. */
 .headerStrip {
@@ -482,35 +488,9 @@
 
 /* --- the last slide ------------------------------------------------------- */
 
-.recap {
-  display: grid;
-  gap: 12px;
-  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
-}
-
-.recapStep {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--accent);
-  border-radius: 0 var(--radius) var(--radius) 0;
-  padding: 14px;
-}
-
-.recapWhen {
-  margin: 0 0 6px;
-  font-family: var(--font-mono), monospace;
-  font-size: 11px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--accent);
-}
-
-.recapWhat {
-  margin: 0;
-  font-size: 14.5px;
-  line-height: 1.5;
-}
-
+/* The four-line recap this used to sit under is gone: the landing page carries
+   the same four lines, and the tour repeating its own front door only made the
+   tour longer. The button was the point of that slide anyway. */
 .finish {
   margin-top: 26px;
   display: flex;
@@ -564,10 +544,16 @@
 /* --- responsive ----------------------------------------------------------- */
 
 @media (max-width: 900px) {
-  .stage,
-  .stageWide {
+  .stage {
     grid-template-columns: minmax(0, 1fr);
     gap: 24px;
+  }
+
+  /* The two boxes stack. They lose the side-by-side comparison, so each keeps
+     its own caption above it — which is why those are in the mock rather than
+     on the slide. */
+  .twoUp {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   /* Notes are under the mock at every width below this, so the tail points

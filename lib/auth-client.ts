@@ -17,7 +17,7 @@ export type SessionUser = {
 /** The backend hasn't answered anything Django wrote — Render's free
  * instance is still coming up. Kept apart from a 401 on purpose: a boot in
  * progress is "wait", not "signed out", and the difference is what stops an
- * idle tab from throwing a signed-in user back to /login/. */
+ * idle tab from showing a signed-in user the landing page. */
 export class ApiNotReady extends Error {}
 
 /** Past this, assume the instance is booting rather than slow. Warm, these

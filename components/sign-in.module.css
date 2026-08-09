@@ -1,0 +1,143 @@
+/* The sign-in popup. Everything here is the old /login/ page's styling, moved
+   into a dialog and given a backdrop — see components/SignIn.tsx for why the
+   page became a popup. */
+
+.dialog {
+  /* A <dialog> arrives with a border, a background and a margin of its own,
+     and centres itself only once those are gone. */
+  border: none;
+  padding: 0;
+  background: none;
+  max-width: min(420px, calc(100vw - 32px));
+  margin: auto;
+  color: var(--text);
+}
+
+/* The screen behind, still making its case. The blur is the point: the
+   argument someone was reading is what got them this far, and a solid overlay
+   throws it away at the moment it is working. */
+.dialog::backdrop {
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(6px);
+}
+
+/* No blur where it isn't supported: a plain, more opaque overlay reads as
+   deliberate, where a half-applied effect reads as broken. */
+@supports not (backdrop-filter: blur(6px)) {
+  .dialog::backdrop {
+    background: rgba(0, 0, 0, 0.72);
+  }
+}
+
+/* The panel, and the click target that isn't the backdrop. SignIn.tsx tells
+   the two apart by whether the click landed on the dialog itself, so nothing
+   visible may sit outside this element. */
+.panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 28px 24px;
+  text-align: center;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+/* No tracking on Devanagari — at 0.2em मास्टरजी came apart into "मा स्ट र जी",
+   four fragments rather than a word, on the first screen the product shows
+   anyone. See the same note in masterji.module.css. */
+.wordmark {
+  margin: 0;
+  font-size: 15px;
+  color: var(--accent);
+}
+
+.title {
+  margin: 0;
+  font-size: 28px;
+  font-style: italic;
+}
+
+.sub {
+  margin: 0 0 4px;
+  color: var(--muted);
+  font-size: 14.5px;
+  line-height: 1.5;
+}
+
+.googleBtn {
+  background: var(--accent);
+  color: var(--accent-ink);
+  text-decoration: none;
+  font-weight: 700;
+  padding: 12px 26px;
+  border-radius: var(--radius);
+}
+
+.googleBtn:hover {
+  filter: brightness(1.08);
+}
+
+.error {
+  margin: 0;
+  color: var(--bad);
+  font-size: 14px;
+}
+
+.back {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+/* --- the question the backdrop asks --------------------------------------- */
+
+/* Inside the panel, under everything, and separated by a rule: the sign-in
+   button stays where it was and stays usable, because "stay here" is the
+   answer most people clicking the backdrop by accident actually want. */
+.ask {
+  width: 100%;
+  margin-top: 4px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.askQ {
+  margin: 0 0 10px;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.askActions {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.stayBtn,
+.leaveBtn {
+  font-size: 13.5px;
+  padding: 8px 16px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+/* Staying is the safe answer, so it looks like the answer. */
+.stayBtn {
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--accent);
+  font-weight: 700;
+}
+
+.leaveBtn {
+  background: none;
+  color: var(--muted);
+  border: 1px solid var(--border);
+}
+
+.leaveBtn:hover {
+  color: var(--text);
+}

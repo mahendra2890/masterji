@@ -1,0 +1,11 @@
+/* Dashed, muted, and the smallest thing on the page — it is scaffolding that
+   happens to be visible in development, not a control the product offers. */
+.devBtn {
+  background: none;
+  border: 1px dashed var(--border);
+  color: var(--muted);
+  font-size: 12px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+}

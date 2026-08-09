@@ -129,7 +129,10 @@ def google_callback(request):
     next_path = _safe_next(state.get("next") if isinstance(state, dict) else None)
 
     if "error" in request.GET:  # user hit "cancel" on the consent screen
-        return redirect(f"{settings.FRONTEND_URL}/login/?error=cancelled")
+        # "/" rather than the old /login/, which no longer exists: the landing
+        # page is where sign-in starts now, so it is also where a sign-in that
+        # didn't happen belongs. It reads ?error and says so.
+        return redirect(f"{settings.FRONTEND_URL}/?error=cancelled")
     code = request.GET.get("code")
     if not code:
         return HttpResponseBadRequest("Missing authorization code.")

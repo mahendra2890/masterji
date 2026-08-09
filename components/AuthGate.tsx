@@ -13,17 +13,18 @@ import noteStyles from "@/components/waking-note.module.css";
 
 const RETRY_EVERY_MS = 3000;
 
-/** Sign out, then go to "/" — the landing page, not the sign-in wall.
+/** Sign out, then go to "/" — the landing page.
  *
- * Sending them to /login/ was right back when "/" was the app and nothing
- * else: there was nowhere else to put someone without a session. But it
- * answered "I'm done" with a Google button, which reads as "sign in again"
+ * This used to land on /login/, which was right back when "/" was the app and
+ * nothing else: there was nowhere else to put someone without a session. But
+ * it answered "I'm done" with a Google button, which reads as "sign in again"
  * — the one thing they just said they didn't want.
  *
- * "/" is now a real page, and the door back in is the Sign in link in its
- * corner. Nothing flashes on the way: logout clears the access cookie, so
- * page.tsx's first paint is already the landing, and AuthGate leaves a
- * visitor there once Django confirms there's no session.
+ * "/" is now a real page, and since /login/ was folded into it, the only one.
+ * The door back in is the Sign in link in its corner. Nothing flashes on the
+ * way: logout clears the access cookie, so page.tsx's first paint is already
+ * the landing, and AuthGate leaves a visitor there once Django confirms
+ * there's no session.
  */
 export async function signOutAndLeave() {
   await apiLogout();
@@ -36,15 +37,15 @@ export async function signOutAndLeave() {
  * While the backend is still booting there is no answer to act on, so the
  * gate waits behind the cold-start note and keeps asking. Rendering nothing
  * — the old behaviour — left a blank screen for the two minutes a Render
- * free instance takes to start; sending them to /login/ would be worse
- * still, since a signed-in visitor would look signed out.
+ * free instance takes to start; bouncing them elsewhere would be worse still,
+ * since a signed-in visitor would look signed out.
  *
  * `signedOut` is the page to show when there turns out to be no session. Given
  * one, nobody is redirected anywhere: a stranger arriving at "/" is the normal
  * case, and bouncing them to a sign-in wall meant the entire product a
  * first-time visitor ever saw was a button asking for their Google account.
- * Without one, the old redirect stands, which is right for a URL that is only
- * ever the app.
+ * Without one there is nothing to show, so the visitor is sent to "/", which
+ * is both the page written for them and the way in.
  */
 export default function AuthGate({
   children,
@@ -78,15 +79,18 @@ export default function AuthGate({
   useEffect(() => {
     let stopped = false;
     const noSession = () => {
-      // A stranger stays on the page written for them. Someone who arrived
-      // with an auth cookie is a returning builder whose session has since
-      // died, and they wanted their dashboard — hand them the sign-in page
-      // they were always given rather than a pitch for the product they
-      // already use.
-      const leaving = !hasSignedOutPage || firstPaint === "app";
+      // Anyone with a page written for them stays on it — including the
+      // returning builder whose session died on the way here, who used to be
+      // sent to /login/ instead. There is no /login/ to send them to now, and
+      // nothing is lost by keeping them: "/" carries the Google button, so the
+      // page they land on is one click from signed in either way.
+      //
+      // Only a route with no signed-out page has to leave, and "/" is where it
+      // goes, carrying where they were trying to get to.
+      const leaving = !hasSignedOutPage;
       setNoOne(leaving ? "leaving" : "stay");
       if (leaving) {
-        window.location.replace(`/login/?next=${encodeURIComponent(pathname)}`);
+        window.location.replace(`/?next=${encodeURIComponent(pathname)}`);
       }
     };
 
@@ -112,15 +116,21 @@ export default function AuthGate({
     return () => {
       stopped = true;
     };
-  }, [pathname, hasSignedOutPage, firstPaint]);
+    // firstPaint is deliberately not a dependency: it decides what to draw
+    // before the answer arrives, and nothing this effect does reads it.
+  }, [pathname, hasSignedOutPage]);
 
   if (user) return <>{children(user)}</>;
 
   // A visitor who was given a signed-out page gets it instead of the
   // cold-start note: the landing needs no backend, and a stranger meeting
   // "the server is waking up" as their first impression of the product is the
-  // worst version of an honest message. Never while a redirect is in flight —
-  // that would flash a landing page at someone on their way to sign in.
+  // worst version of an honest message.
+  //
+  // `noOne === "stay"` is what makes the returning builder wait for the
+  // answer rather than being shown the landing on the way to their own
+  // dashboard. A redirect can never be in flight here — the only route that
+  // redirects is one with no signedOut page, and this branch needs one.
   if (signedOut && (firstPaint === "signedOut" || noOne === "stay")) {
     return <>{signedOut}</>;
   }
