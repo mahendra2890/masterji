@@ -449,11 +449,16 @@
   color: var(--muted);
 }
 
-/* The real composer's textarea is one row tall and scrolls whatever it holds;
-   the mock's is a div, so on a narrow screen the placeholder wraps to three
-   lines and stretches the Send button down with it. */
-.sendBtn {
-  align-self: center;
+/* The real composer's textarea is four rows tall — 109px, the number derived
+   on .composerInput — and a div wearing its class is only as tall as the one
+   line of placeholder inside it. The tour is quoting that screen, so it has to
+   quote its height too, or the box a builder is told to type into on the next
+   page is half the size of the one they meet.
+
+   The Send button needs no rule of its own any more: the real .composerRow
+   bottom-aligns it, and the mock inherits that with the class. */
+.composerBox {
+  min-height: 109px;
 }
 
 /* The app's file-attach control, quoted rather than wired. */

@@ -407,10 +407,12 @@ const SLIDES: Slide[] = [
               </div>
             </Mark>
             <div className={app.composerRow}>
-              <div className={`${app.composerInput} ${styles.ph}`}>
+              <div
+                className={`${app.composerInput} ${styles.ph} ${styles.composerBox}`}
+              >
                 Talk it through…
               </div>
-              <span className={`${app.primaryBtn} ${styles.sendBtn}`}>Send</span>
+              <span className={app.primaryBtn}>Send</span>
             </div>
           </div>
           <Mark n={5}>
