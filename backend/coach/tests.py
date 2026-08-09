@@ -1596,6 +1596,11 @@ class ProofOfferTests(CoachTestCase):
         "Spoke to Ramesh (mess contractor). 40-50 plates wasted most nights. "
         "Tried a WhatsApp group for counts; it died in a week."
     )
+    # Work described AFTER the day's cycle was already filed and accepted.
+    SECOND = (
+        "Also called Sunita at the girls' hostel mess. Same 9pm crush, and she "
+        "counts plates by hand every night."
+    )
 
     def setUp(self):
         super().setUp()
@@ -1693,6 +1698,43 @@ class ProofOfferTests(CoachTestCase):
         said = Message.objects.filter(role=Message.Role.COACH).latest("id").content
         self.assertIn(self.DRAFT, said)
         self.assertIn(views.WHERE_TO_FILE, said)
+        self.assertIn(views.OFFER_NO_DECLARATION.format(offer=self.DRAFT), said)
+
+    def test_a_finished_day_is_not_told_nothing_was_declared(self):
+        """The bug this pair of strings exists to fix, seen in real use: the
+        builder filed, got accepted, kept talking, described more work — and
+        was told "there's no task declared this morning" while the card beside
+        the chat read "Declared: talk to Ramesh" with a green "✓ accepted"
+        under it.
+
+        _offer_target answers None here for the opposite reason: not an empty
+        day, a finished one. The draft still comes back, because the work
+        behind it still happened."""
+        self.prove('{"verdict": "accept", "reaction": "Counted."}', "Talked to him.")
+        self.chat(text=self.SECOND)
+        said = Message.objects.filter(role=Message.Role.COACH).latest("id").content
+        self.assertIn(self.SECOND, said)
+        self.assertIn(views.OFFER_DAY_CLOSED.format(offer=self.SECOND), said)
+        self.assertNotIn(views.OFFER_NO_DECLARATION.format(offer=self.SECOND), said)
+        # And the closed cycle is left exactly as the builder earned it: the
+        # draft is a sentence in the transcript, not a scribble on a row whose
+        # proof is already on the record.
+        checkin = CheckIn.objects.get()
+        self.assertEqual(checkin.proof_offer, "")
+        self.assertEqual(checkin.proof_status, CheckIn.ProofStatus.ACCEPTED)
+
+    def test_declaring_the_second_task_gives_the_draft_somewhere_to_go(self):
+        """The way out that copy points at, walked. More than one cycle a day
+        is supported on purpose (CheckIn's docstring), so "declare another
+        task and file this against it" has to be a real instruction and not a
+        polite way of dropping the draft."""
+        self.prove('{"verdict": "accept", "reaction": "Counted."}', "Talked to him.")
+        self.client.post("/api/coach/checkins/declare/", {"text": "talk to Sunita"})
+        self.chat(text=self.SECOND)
+        second = CheckIn.objects.latest("id")
+        self.assertEqual(second.am_declaration, "talk to Sunita")
+        self.assertEqual(second.proof_offer, self.SECOND)
+        self.assertEqual(CheckIn.objects.count(), 2)
 
     def test_a_draft_that_landed_is_not_also_read_back_in_the_chat(self):
         """It is on the check-in where it can be filed in one tap. Repeating
