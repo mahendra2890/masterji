@@ -34,12 +34,21 @@
 .overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.55);
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(6px);
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 20px;
   z-index: 50;
+}
+
+/* No blur where it isn't supported: a plain, more opaque overlay reads as
+   deliberate, where a half-applied effect reads as broken. */
+@supports not (backdrop-filter: blur(6px)) {
+  .overlay {
+    background: rgba(0, 0, 0, 0.72);
+  }
 }
 
 .modal {
