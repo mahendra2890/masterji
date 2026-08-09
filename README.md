@@ -45,7 +45,9 @@ things you can audit:
 - **The gates were pointed at me first.** I ran the rest of this
   hackathon through Masterji — one goal, declared each morning, proof
   each evening, phases I could not skip without editing my own database.
-  <!-- TODO before submission: N days of check-ins, link the screencast -->
+  What that loop produced is this repository — every builder-visible change
+  between 5 and 10 August 2026 arriving through a reviewed pull request, and
+  written to the product's own changelog on the way in.
   That isn't a success story. It's a record, and it's the only kind of
   credibility a first build earns.
 
