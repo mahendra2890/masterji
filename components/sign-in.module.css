@@ -42,6 +42,33 @@
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
+  /* Holds the close button in the corner. */
+  position: relative;
+}
+
+/* Finger-sized from the start: this is the control that exists so nobody
+   feels held, and one that has to be aimed at is only half an exit. The glyph
+   is small; the button around it is 44px. */
+.close {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: var(--muted);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.close:hover {
+  color: var(--text);
 }
 
 /* No tracking on Devanagari — at 0.2em मास्टरजी came apart into "मा स्ट र जी",
@@ -66,17 +93,44 @@
   line-height: 1.5;
 }
 
+/* The gap does the spacing between mark and label, rather than a space in the
+   JSX — a text node that starts on its own source line loses its leading
+   space in the build, and this is the one label on the site that must never
+   come out as "Continue withGoogle". */
 .googleBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
   background: var(--accent);
   color: var(--accent-ink);
   text-decoration: none;
   font-weight: 700;
-  padding: 12px 26px;
+  padding: 10px 22px 10px 10px;
   border-radius: var(--radius);
 }
 
 .googleBtn:hover {
   filter: brightness(1.08);
+}
+
+/* White, because the four-colour mark is specified for light backgrounds and
+   marigold is not one. Square-ish and just bigger than the glyph, so it reads
+   as the mark's own plate rather than as a second button. */
+.googleChip {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  background: #fff;
+}
+
+/* Said under the button because it describes the button. It is also the one
+   fact a stranger wants and the sign-in screen never gave: what this costs. */
+.scope {
+  margin: -4px 0 0;
+  color: var(--muted);
+  font-size: 12.5px;
 }
 
 .error {

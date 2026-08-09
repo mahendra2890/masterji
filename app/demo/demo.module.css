@@ -38,12 +38,20 @@
   gap: 14px;
 }
 
+/* Finger-sized. The text box was 22px tall, which is under the 24px WCAG 2.2
+   asks for and well under what a thumb wants — on the deck's own call to
+   action, which is the entire reason the deck exists. The row is centred, so
+   the padding is target and nothing on screen moves. */
 .cta {
   color: var(--accent);
   text-decoration: none;
   font-weight: 700;
   font-size: 14px;
   white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 4px;
 }
 
 /* --- the rail ------------------------------------------------------------ */
@@ -54,32 +62,60 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  margin: 4px 0 22px;
+  margin: 0 0 14px;
   flex-wrap: wrap;
 }
 
+/* The bar is 7px; the button around it is a finger.
+ *
+ * These are how a reader moves through the deck, and they were 7px tall with
+ * no padding — 7px of hittable target, on the device most of this deck is
+ * read on, in front of the visitors who haven't signed up yet. A slide runs
+ * two to four screens on a phone, so the rail is the only fast way back to
+ * one you've already passed, and it was the one control that couldn't be
+ * pressed.
+ *
+ * The bar moved to a pseudo-element so the button can grow without it: height
+ * on the button alone would have inflated the pill itself into a slab, and
+ * background-clip can't help while the border is what draws the outline. So
+ * the button is a 28px transparent strip and ::before is the 7px pill inside
+ * it, which leaves the rail looking exactly as it did and the target four
+ * times the size. The rail's top margin pays for the height it gained. */
 .step,
 .stepOn,
 .stepPast {
   flex: 1;
   min-width: 22px;
-  height: 7px;
+  display: flex;
+  align-items: center;
+  height: 28px;
   padding: 0;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  background: var(--surface-2);
+  border: none;
+  background: none;
   cursor: pointer;
 }
 
-.step:hover {
+.step::before,
+.stepOn::before,
+.stepPast::before {
+  content: "";
+  display: block;
+  width: 100%;
+  height: 7px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.step:hover::before {
   border-color: var(--accent);
 }
 
-.stepPast {
+.stepPast::before {
   background: var(--border);
 }
 
-.stepOn {
+.stepOn::before {
   background: var(--accent);
   border-color: var(--accent);
 }

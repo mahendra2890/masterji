@@ -41,6 +41,39 @@ type SignIn = {
 
 const Ctx = createContext<SignIn | null>(null);
 
+/** Google's own mark, because a button that says "Continue with Google" and
+ * doesn't look like one is asking for more trust than it has earned. This is
+ * the moment a stranger hands over an account to a product they met four
+ * minutes ago, and the most recognisable thing we can put in front of them is
+ * Google's, not ours.
+ *
+ * It sits on a white chip inside the marigold button: the four-colour mark is
+ * specified for light backgrounds, and on marigold it goes muddy. The chip is
+ * what keeps the colours correct without giving the popup a white button that
+ * belongs to a different product than the one behind it. */
+function GoogleG() {
+  return (
+    <svg viewBox="0 0 48 48" width="18" height="18" aria-hidden="true">
+      <path
+        fill="#EA4335"
+        d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"
+      />
+      <path
+        fill="#4285F4"
+        d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"
+      />
+      <path
+        fill="#FBBC05"
+        d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"
+      />
+      <path
+        fill="#34A853"
+        d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"
+      />
+    </svg>
+  );
+}
+
 /** Wraps a screen that can sign someone in, and owns the one popup for it.
  *
  * `children` is whatever was on screen — server-rendered nodes included; this
@@ -195,6 +228,23 @@ function SignInDialog({
       onClose={onClosed}
     >
       <div className={styles.panel}>
+        {/* The way out, in the corner people look for one.
+            Leaving was already possible — the backdrop asks, and Escape asks
+            then closes — but a phone has no Escape key and a backdrop that
+            only responds to a tap advertises nothing. So the one screen where
+            a stray click costs the signup was also the one screen with no
+            visible exit, which is how a careful dialog reads as a trap.
+            It asks the same question the backdrop does rather than closing
+            outright, and a second press leaves: exactly what Escape does, so
+            there is one rule here and not two. */}
+        <button
+          type="button"
+          className={styles.close}
+          aria-label="Close sign-in"
+          onClick={() => (asking ? leave() : setAsking(true))}
+        >
+          ×
+        </button>
         <p className={styles.wordmark}>मास्टरजी</p>
         <h2 id="sign-in-title" className={styles.title}>
           Sign in to Masterji
@@ -204,8 +254,20 @@ function SignInDialog({
           to install or configure.
         </p>
         <a className={styles.googleBtn} href={href}>
+          <span className={styles.googleChip}>
+            <GoogleG />
+          </span>
           Continue with Google
         </a>
+        {/* What the button actually costs, next to the button.
+            The scope requested is "openid email profile" and the callback
+            keeps the email, given_name and family_name (accounts/oauth.py) —
+            so this is the whole of it, and it is worth a line because the
+            reader is about to grant it. If that scope ever widens, this
+            sentence is the first thing that has to move. */}
+        <p className={styles.scope}>
+          Masterji only reads your name and email address.
+        </p>
         {error === "cancelled" && (
           <p className={styles.error}>
             Sign-in was cancelled — Masterji will pretend not to notice. Once.
