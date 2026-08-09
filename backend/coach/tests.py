@@ -1930,6 +1930,35 @@ class NotAboutTheWorkTests(CoachTestCase):
             "Only ever when they raise it", prompts.WHEN_IT_IS_NOT_ABOUT_THE_WORK
         )
 
+    def test_a_clause_on_the_way_to_something_else_is_still_raising_it(self):
+        """How it actually arrives. "Only when they raise it" read as "only
+        when it is the SUBJECT of the message" would walk straight past the
+        commonest presentation there is — a line about being done with all
+        this, in front of a question about tomorrow's outreach — which is the
+        one this rule most needed to catch."""
+        block = prompts.WHEN_IT_IS_NOT_ABOUT_THE_WORK
+        self.assertIn("does not have to be what the message is ABOUT", block)
+        self.assertIn("That clause is them raising it", block)
+
+    def test_their_question_is_still_answered(self):
+        """The other half of the same case, and the failure mode of fixing
+        only the first half: attending to them solemnly while their actual
+        question goes unanswered is not care, it is a different way of not
+        listening."""
+        block = prompts.WHEN_IT_IS_NOT_ABOUT_THE_WORK
+        self.assertIn("if they asked you something, answer that too", block)
+        self.assertIn("may not do is answer only the question", block)
+
+    def test_frustration_with_the_work_is_still_the_work(self):
+        """The boundary that keeps the rule from eating the product. A builder
+        saying the outreach is going nowhere wants a coach; going soft there is
+        RESPECT_RULE's own failure again — a response that costs nothing to
+        give gets given where it was never wanted."""
+        self.assertIn(
+            "Frustration with the WORK is still the work",
+            prompts.WHEN_IT_IS_NOT_ABOUT_THE_WORK,
+        )
+
     def test_he_stays_a_coach_and_does_not_invent_a_service(self):
         """Past a hard week the honest answer is that this is not what a
         coaching app is for. A model reaching for a helpline number it half
