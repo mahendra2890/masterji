@@ -208,7 +208,10 @@ Browser ──► Next.js 16 (Vercel) ── /api/* rewrite ──► Django 5 +
   judge rather than the chat model, because the only call that ever sends an
   image is that same evening verdict — so upgrading the judge cannot leave half
   a verdict behind on the cheap model. Both default to `LLM_MODEL`: unset, the
-  ladder collapses to one model and behaviour is identical.
+  ladder collapses to one model and behaviour is identical. Upgrading the judge
+  does **not** mean switching provider — the step to reach for is the non-mini
+  sibling of whatever `LLM_MODEL` names (`openai/gpt-5.4` against today's
+  default), so it is one env var and the key you already have.
 - **Observability:** loguru for domain events; optional OpenTelemetry
   tracing (`coach.turn` span per interaction with phase/model/gate
   attributes) — a no-op unless `OTEL_EXPORTER_OTLP_ENDPOINT` is set.

@@ -200,6 +200,19 @@ LLM_MODEL = os.environ.get("LLM_MODEL", "openai/gpt-5.4-mini")
 #
 # Defaults to LLM_MODEL, so unset changes nothing and today's deploy behaves
 # exactly as it did.
+#
+# The step to reach for is the NON-MINI SIBLING of whatever LLM_MODEL names —
+# "openai/gpt-5.4" against the default above. Same provider, so OPENAI_API_KEY
+# is the only key involved and this is one env var and no code. The
+# cross-provider example on LLM_MODEL is about provider optionality and reads,
+# wrongly, as though upgrading the judge meant switching vendor; it doesn't, and
+# that misreading cost a round trip once already.
+#
+# Whatever it names must be VISION-CAPABLE, because LLM_VISION_MODEL falls back
+# to it (see below) and a judge that cannot see would silently break screenshot
+# proofs. Cost is ~3x per token on these two calls and nothing else — the chat
+# carries the volume and stays on LLM_MODEL — which at the prompt sizes here is
+# cents per builder per month.
 LLM_JUDGE_MODEL = os.environ.get("LLM_JUDGE_MODEL", LLM_MODEL)
 
 # Reading a screenshot needs a vision-capable model, which is not necessarily
