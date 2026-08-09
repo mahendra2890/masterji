@@ -16,9 +16,15 @@
 //
 // Copy rule for this file: every number, refusal and worked example here is
 // quoted from the thing that produces it — gates.PROOFS_REQUIRED,
-// gates.try_advance, guidance.PROOF_HINT/PROOF_EXAMPLES/GATE_NUDGE. If one of
-// those changes and this file doesn't, the tour teaches a product that no
-// longer exists.
+// gates.try_advance, guidance.PHASE_HINT/PROOF_HINT/PROOF_EXAMPLES/GATE_NUDGE,
+// views.WELCOME. If one of those changes and this file doesn't, the tour
+// teaches a product that no longer exists.
+//
+// It also starts where the builder does. The deck used to open on a goal
+// already three-quarters through VALIDATION, which taught the one phase a
+// visitor is guaranteed not to be in: everyone who signs in lands in IDEA, is
+// told to write a problem statement, and is told they may not message anyone
+// yet. Skipping that made the tour a guide to the middle of the product.
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
@@ -80,6 +86,113 @@ type Slide = {
 
 const SLIDES: Slide[] = [
   /* 1 ---------------------------------------------------------------- */
+  {
+    eyebrow: "Your first two minutes",
+    title: "Commit one goal. He tells you which week you're in.",
+    kicker:
+      "There is nothing to set up — no plan to upload, no profile, no " +
+      "settings. You type the goal, he locks it, and his first message is the " +
+      "only work that counts this week and the thing he won't let you do yet.",
+    stage: "stack",
+    mock: (
+      <div className={`${styles.pair} ${styles.pairTop}`}>
+        <div className={styles.onboardPanel}>
+          <p className={app.wordmark}>मास्टरजी</p>
+          <h2 className={app.onboardTitle}>One goal.</h2>
+          <p className={app.onboardSub}>
+            Masterji coaches one thing at a time — pick the goal that matters
+            and commit. You can retire it later, but he&apos;ll remember.
+          </p>
+          <Mark n={1}>
+            <div className={app.onboardForm}>
+              <div className={`${app.input} ${styles.ph}`}>
+                e.g. Tiffin-delivery app for my college
+              </div>
+              <span className={app.primaryBtn}>Commit</span>
+            </div>
+          </Mark>
+        </div>
+
+        <p className={styles.bigArrow}>
+          <span className={styles.bigArrowGlyph} aria-hidden="true" />
+          <span className={styles.bigArrowLabel}>one tap later</span>
+        </p>
+
+        <div className={styles.pairStack}>
+          <section className={app.card}>
+            <p className={app.cardLabel}>The goal</p>
+            <h2 className={app.goalTitle}>Tiffin-delivery app for my college</h2>
+            <Mark n={2}>
+              <ol className={app.stepper}>
+                <li className={app.stepNow}>IDEA</li>
+                <li className={app.stepTodo}>VALIDATION</li>
+                <li className={app.stepTodo}>BUILD</li>
+                <li className={app.stepTodo}>LAUNCH</li>
+              </ol>
+              <p className={app.phaseHint}>
+                Write the problem statement, and where you&apos;d find these
+                people — no outreach yet.
+              </p>
+              <div className={app.gateRow}>
+                <span>
+                  <strong>0</strong>/1 proofs toward VALIDATION
+                </span>
+              </div>
+              <div className={app.gateBar}>
+                <div className={app.gateFill} style={{ width: "0%" }} />
+              </div>
+            </Mark>
+          </section>
+
+          <div className={styles.chatPanel}>
+            <div className={app.messages}>
+              <Mark n={3}>
+                <Line who="COACH">
+                  Goal locked: &quot;Tiffin-delivery app for my college&quot;.
+                  Rule one: one goal at a time, and this is yours now. You start
+                  in IDEA — write a one-paragraph problem statement, then the
+                  route to these people: one place they already are, why you
+                  think they&apos;re there, and how you&apos;d get one
+                  conversation this week. No names needed, and you won&apos;t
+                  message anyone until VALIDATION. Talking to me records nothing
+                  on its own — declare today&apos;s task under Today, and file
+                  your proof there tonight.
+                </Line>
+              </Mark>
+            </div>
+          </div>
+        </div>
+      </div>
+    ),
+    notes: [
+      <>
+        <strong>One goal, and that&apos;s the whole setup.</strong>{" "}
+        A second one is refused by a database constraint, not by a nag. Closing
+        this one is always available — it just goes on the record.
+      </>,
+      <>
+        You start in <strong>IDEA</strong> at <strong>0/1</strong>, whatever
+        stage you think you&apos;re at. The line under the stepper is what this
+        phase is for; the counter is what gets you out of it.
+      </>,
+      <>
+        The surprising half is the last line of what he asks for:{" "}
+        <strong>you may not message anyone yet</strong>. IDEA is desk work — the
+        problem, and the route to the people who have it. Zero conversations
+        here isn&apos;t being behind; talking to people is VALIDATION&apos;s job
+        and it&apos;s the next thing he unlocks.
+      </>,
+    ],
+    takeaway: (
+      <>
+        Most tools would let you start building on day one. The first thing this
+        one does is tell you which week you&apos;re in — and keep you there
+        until there&apos;s evidence.
+      </>
+    ),
+  },
+
+  /* 2 ---------------------------------------------------------------- */
   {
     eyebrow: "The shape of it",
     title: "Four phases. You don't get to skip one.",
@@ -156,7 +269,7 @@ const SLIDES: Slide[] = [
     ),
   },
 
-  /* 2 ---------------------------------------------------------------- */
+  /* 3 ---------------------------------------------------------------- */
   {
     eyebrow: "Every morning",
     title: "Declare one task, out loud.",
@@ -226,7 +339,7 @@ const SLIDES: Slide[] = [
     ],
   },
 
-  /* 3 ---------------------------------------------------------------- */
+  /* 4 ---------------------------------------------------------------- */
   {
     eyebrow: "During the day",
     title: "Talk to him all day. The chat records nothing.",
@@ -238,10 +351,12 @@ const SLIDES: Slide[] = [
     caption: "Masterji — the chat",
     mock: (
       <>
-        <div className={styles.headerStrip}>
-          <span className={app.toneBtn}>EN</span>
-          <span className={app.streak}>4 days 🔥</span>
-        </div>
+        <Mark n={1}>
+          <div className={styles.headerStrip}>
+            <span className={app.toneBtn}>EN</span>
+            <span className={app.streak}>4 days 🔥</span>
+          </div>
+        </Mark>
 
         <div className={styles.chatPanel}>
           <div className={app.messages}>
@@ -249,7 +364,7 @@ const SLIDES: Slide[] = [
               Quick one — should I build this in Next.js or Remix? And Postgres
               or Mongo?
             </Line>
-            <Mark n={1}>
+            <Mark n={2}>
               <Line who="COACH">
                 Fair question, wrong week. Both of those are BUILD&apos;s
                 problem, and neither answer survives a user you haven&apos;t
@@ -262,7 +377,7 @@ const SLIDES: Slide[] = [
             <Line who="USER">
               Fine. Can we at least move to BUILD? I feel ready.
             </Line>
-            <Mark n={2}>
+            <Mark n={3}>
               <Line who="COACH">
                 Ready isn&apos;t the thing I count — let me check the ledger…
                 {"\n\n"}
@@ -274,7 +389,7 @@ const SLIDES: Slide[] = [
             </Mark>
           </div>
           <div className={app.composer}>
-            <Mark n={3}>
+            <Mark n={4}>
               <div className={app.modeBar}>
                 {/* No role and no aria-label, unlike the real control this
                     borrows its classes from: these are spans that cannot be
@@ -298,7 +413,7 @@ const SLIDES: Slide[] = [
               <span className={`${app.primaryBtn} ${styles.sendBtn}`}>Send</span>
             </div>
           </div>
-          <Mark n={4}>
+          <Mark n={5}>
             <p className={app.composerNote}>
               Nothing here counts until you file it under Today.
             </p>
@@ -307,6 +422,13 @@ const SLIDES: Slide[] = [
       </>
     ),
     notes: [
+      <>
+        <strong>EN → हिं</strong>{" "}
+        switches him to Hinglish — &quot;Kaam dikhao, baatein nahi&quot;. The
+        streak counts <em>complete</em>{" "}
+        days in a row: one where you both declared a task and filed proof of it.
+        Neither one touches the gate.
+      </>,
       <>
         He&apos;s phase-aware. The answer you get in VALIDATION is not the
         answer the same question gets in BUILD — the playbook for your phase is
@@ -317,16 +439,16 @@ const SLIDES: Slide[] = [
         can propose an advance, Django checks the database and says no.
       </>,
       <>
-        Two ways of talking, both yours to set — and both on screen, so
-        neither can hide behind the other. <strong>Think with me</strong>{" "}
-        trades assignments for questions, for the part of the work that comes
-        before there&apos;s anything to declare. <strong>EN → हिं</strong>{" "}
-        switches him to Hinglish. Neither one touches the gate.
+        <strong>Think with me</strong>{" "}
+        trades assignments for questions and puts options on the table
+        instead — for the part of the work that comes
+        before there&apos;s anything to declare. It stays set until you change
+        it, on every device, and it moves the gate by nothing.
       </>,
       <>
-        The rule lives under the box, not in it. A placeholder is clipped to a
-        third of itself on a phone and disappears the moment you start typing —
-        which is exactly when this needs saying.
+        The rule, where you can&apos;t miss it. Everything above this line is a
+        conversation; the day is recorded under <strong>Today</strong>, and that
+        is the only box the gate has ever counted.
       </>,
     ],
     takeaway: (
@@ -336,96 +458,6 @@ const SLIDES: Slide[] = [
         describe it here, and file nothing.
       </>
     ),
-  },
-
-  /* 4 ---------------------------------------------------------------- */
-  {
-    eyebrow: "The shortcut that isn't a shortcut",
-    title: "Tell him what happened. He writes it up.",
-    kicker:
-      "Translating what you did into what the proof box wanted used to be " +
-      "your job, and it's where most evenings died. Now: describe the real " +
-      "work in the chat, and if it clears the phase's bar he drafts tonight's " +
-      "proof in your own words.",
-    stage: "stack",
-    mock: (
-      <div className={styles.pair}>
-        <div className={styles.chatPanel}>
-          <div className={app.messages}>
-            <Line who="USER">
-              Talked to the mess aunty. Says the 9pm rush is 40 plates in 20
-              minutes and she just stops taking orders.
-            </Line>
-            <Mark n={1}>
-              <Line who="COACH">
-                &quot;She just stops taking orders&quot; — that&apos;s the
-                workaround, and it&apos;s the part most builders never reach.
-                That clears the bar, so I&apos;ve written it up as
-                tonight&apos;s proof. Check it under Today and file it; you
-                don&apos;t have to say it again in my words.
-              </Line>
-            </Mark>
-          </div>
-        </div>
-
-        <p className={styles.bigArrow}>
-          <span className={styles.bigArrowGlyph} aria-hidden="true" />
-          <span className={styles.bigArrowLabel}>lands under Today</span>
-        </p>
-
-        <section className={app.card}>
-          <p className={app.cardLabel}>Today</p>
-          <p className={app.declared}>
-            Declared: <em>Interview the mess aunty about the 9pm rush</em>
-          </p>
-          <Mark n={2}>
-            <div className={app.proofOffer}>
-              <p className={app.proofOfferLabel}>
-                Masterji wrote this from your conversation
-              </p>
-              <p className={app.proofOfferText}>
-                Spoke to the mess aunty about the 9pm rush. She gets around 40
-                plates of orders inside 20 minutes and can&apos;t cook that
-                fast, so she stops taking orders — she doesn&apos;t turn people
-                away, she just goes quiet. That&apos;s the workaround today.
-              </p>
-              <span className={app.proofOfferBtn}>
-                Use this — edit it below if it&rsquo;s not right
-              </span>
-            </div>
-          </Mark>
-          <Mark n={3}>
-            <div className={`${app.textarea} ${styles.field} ${styles.ph}`}>
-              Evening proof — what actually happened?
-            </div>
-          </Mark>
-          <Mark n={4} tight>
-            <span className={app.primaryBtn}>Submit proof</span>
-          </Mark>
-        </section>
-      </div>
-    ),
-    notes: [
-      <>
-        He only drafts when the work already clears the phase&apos;s bar.
-        It&apos;s not a way round the bar — it&apos;s him admitting you cleared
-        it before you&apos;ve typed it up.
-      </>,
-      <>
-        The draft lands on the check-in, and on a phone the{" "}
-        <strong>Today</strong> tab says <em>draft</em>{" "}
-        so you don&apos;t miss it on the screen you weren&apos;t looking at.
-      </>,
-      <>
-        Filed unedited it goes <strong>straight through</strong>{" "}
-        — he already decided it counted. Edit it and it&apos;s judged again,
-        with his draft in front of him.
-      </>,
-      <>
-        The offer records nothing on its own. Pressing submit is yours, and so
-        is the credit at the gate.
-      </>,
-    ],
   },
 
   /* 5 ---------------------------------------------------------------- */
@@ -528,6 +560,96 @@ const SLIDES: Slide[] = [
 
   /* 6 ---------------------------------------------------------------- */
   {
+    eyebrow: "The shortcut that isn't a shortcut",
+    title: "Tell him what happened. He writes it up.",
+    kicker:
+      "Most evenings die on that box, not on the work — you did the thing, " +
+      "said it in the chat, and never translated it into what the box wanted. " +
+      "So he does it. Describe the real work; if it clears the phase's bar, " +
+      "he writes tonight's proof up in your own words and puts it in the box.",
+    stage: "stack",
+    mock: (
+      <div className={styles.pair}>
+        <div className={styles.chatPanel}>
+          <div className={app.messages}>
+            <Line who="USER">
+              Talked to the mess aunty. Says the 9pm rush is 40 plates in 20
+              minutes and she just stops taking orders.
+            </Line>
+            <Mark n={1}>
+              <Line who="COACH">
+                &quot;She just stops taking orders&quot; — that&apos;s the
+                workaround, and it&apos;s the part most builders never reach.
+                That clears the bar, so I&apos;ve written it up as
+                tonight&apos;s proof. Check it under Today and file it; you
+                don&apos;t have to say it again in my words.
+              </Line>
+            </Mark>
+          </div>
+        </div>
+
+        <p className={styles.bigArrow}>
+          <span className={styles.bigArrowGlyph} aria-hidden="true" />
+          <span className={styles.bigArrowLabel}>lands under Today</span>
+        </p>
+
+        <section className={app.card}>
+          <p className={app.cardLabel}>Today</p>
+          <p className={app.declared}>
+            Declared: <em>Interview the mess aunty about the 9pm rush</em>
+          </p>
+          <Mark n={2}>
+            <div className={app.proofOffer}>
+              <p className={app.proofOfferLabel}>
+                Masterji wrote this from your conversation
+              </p>
+              <p className={app.proofOfferText}>
+                Spoke to the mess aunty about the 9pm rush. She gets around 40
+                plates of orders inside 20 minutes and can&apos;t cook that
+                fast, so she stops taking orders — she doesn&apos;t turn people
+                away, she just goes quiet. That&apos;s the workaround today.
+              </p>
+              <span className={app.proofOfferBtn}>
+                Use this — edit it below if it&rsquo;s not right
+              </span>
+            </div>
+          </Mark>
+          <Mark n={3}>
+            <div className={`${app.textarea} ${styles.field} ${styles.ph}`}>
+              Evening proof — what actually happened?
+            </div>
+          </Mark>
+          <Mark n={4} tight>
+            <span className={app.primaryBtn}>Submit proof</span>
+          </Mark>
+        </section>
+      </div>
+    ),
+    notes: [
+      <>
+        He only drafts when the work already clears the phase&apos;s bar.
+        It&apos;s not a way round the bar — it&apos;s him admitting you cleared
+        it before you&apos;ve typed it up.
+      </>,
+      <>
+        His facts and your words — he is not allowed to invent a name, a number
+        or a quote you didn&apos;t give him. Read it before you file it; it goes
+        on your record, not his.
+      </>,
+      <>
+        Filed unedited it goes <strong>straight through</strong>{" "}
+        — he already decided it counted. Edit it and it&apos;s judged again,
+        with his draft in front of him.
+      </>,
+      <>
+        The offer records nothing on its own. Pressing submit is yours, and so
+        is the credit at the gate.
+      </>,
+    ],
+  },
+
+  /* 7 ---------------------------------------------------------------- */
+  {
     eyebrow: "The gate",
     title: "It opens on evidence. Asking doesn't move it.",
     kicker:
@@ -585,9 +707,10 @@ const SLIDES: Slide[] = [
         validating&quot;.
       </>,
       <>
-        A phase you&apos;ve left closes behind you but stays open to read: tap
-        it in the stepper and the days you did there come back, one row at a
-        time.
+        Unlocking changes what he&apos;ll talk about. The tech-stack question
+        he declined all through VALIDATION is the right question in BUILD — new
+        phase, new playbook, new bar for what tonight&apos;s proof has to
+        contain.
       </>,
     ],
     takeaway: (
@@ -607,7 +730,7 @@ const SLIDES: Slide[] = [
     ),
   },
 
-  /* 7 ---------------------------------------------------------------- */
+  /* 8 ---------------------------------------------------------------- */
   {
     eyebrow: "What you're building besides the thing",
     title: "The record is the point.",
@@ -674,7 +797,9 @@ const SLIDES: Slide[] = [
     notes: [
       <>
         Every row opens: what you declared, what you filed, the screenshot, the
-        tries he refused, and what he said about each one.
+        tries he refused, and what he said about each one. A phase you&apos;ve
+        left closes behind you but stays open to read — tap it in the stepper
+        and its days come back, one row at a time.
       </>,
       <>
         Closing is never blocked, in either direction — and the sentence you
@@ -690,7 +815,7 @@ const SLIDES: Slide[] = [
     ],
   },
 
-  /* 8 ---------------------------------------------------------------- */
+  /* 9 ---------------------------------------------------------------- */
   {
     eyebrow: "That's the whole thing",
     title: "A day with Masterji, in four lines.",
