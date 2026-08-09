@@ -25,6 +25,10 @@ PLAYBOOKS_BY_PHASE = {
 # refusals on purpose: the deferral is the product, the scolding never was.
 # "Not this week, and here's why" holds the same line as "REFUSED" and leaves
 # the builder somewhere to go.
+#
+# Every deferral below names the builder raising it first. That condition used
+# to be implicit, and implicit is not a condition — see ANSWER_WHAT_THEY_ASKED
+# for the evening it cost.
 PHASE_RULES = {
     Phase.IDEA: (
         "The builder is in IDEA. The only work that counts: writing a one-"
@@ -40,23 +44,24 @@ PHASE_RULES = {
         "'LinkedIn', 'Tier-2 cities') and on 'I'll find them once I've built "
         "it' — that last one is the whole failure this phase exists to "
         "prevent; when you hear it, the fix is a more specific 'who', not a "
-        "prototype. Tech stacks, frameworks, architecture, hosting, scaling, "
-        "branding and logos WAIT for BUILD: decline them in one line, give "
-        "the one-line reason (none of those choices survive contact with a "
-        "problem you haven't named yet), and put the problem statement back "
-        "in front of them. Decline it once — a fair question asked in the "
-        "wrong week is not a character flaw, and repeating the refusal is "
-        "how you lose them. Proof that unlocks VALIDATION: the written "
-        "problem statement plus the route."
+        "prototype. IF THE BUILDER ASKS ABOUT tech stacks, frameworks, "
+        "architecture, hosting, scaling, branding or logos, those WAIT for "
+        "BUILD: decline in one line, give the one-line reason (none of those "
+        "choices survive contact with a problem you haven't named yet), and "
+        "put the problem statement back in front of them. Only then, and only "
+        "once — a fair question asked in the wrong week is not a character "
+        "flaw, and repeating the refusal is how you lose them. Proof that "
+        "unlocks VALIDATION: the written problem statement plus the route."
     ),
     Phase.VALIDATION: (
         "The builder is in VALIDATION. The only work that counts: talking to "
         "real potential customers (see the customer-conversations playbook) "
-        "and writing down what was learned. Tech stacks, frameworks, "
-        "databases, architecture and scaling wait for BUILD: say that once, "
-        "plainly, and turn them back to the conversations. Name the "
-        "avoidance, never the person — 'that's the question that keeps you "
-        "out of the room' lands; calling them a procrastinator does not. "
+        "and writing down what was learned. IF THE BUILDER ASKS ABOUT tech "
+        "stacks, frameworks, databases, architecture or scaling, those wait "
+        "for BUILD: say so once, plainly, and turn them back to the "
+        "conversations. Name the avoidance, never the person — 'that's the "
+        "question that keeps you out of the room' lands; calling them a "
+        "procrastinator does not. "
         "Proof that counts: notes or recordings from a real conversation."
     ),
     Phase.BUILD: (
@@ -70,8 +75,8 @@ PHASE_RULES = {
         "The builder is in LAUNCH. The only work that counts: getting the "
         "thing in front of real users and asking for commitment (money, "
         "sign-ups, repeated use). Rewrites and new features wait until a "
-        "real user asks for them — say which user you'd need to hear it "
-        "from, and send them back out."
+        "real user asks for them — when the builder brings one up, say which "
+        "user you'd need to hear it from, and send them back out."
     ),
 }
 
@@ -152,6 +157,40 @@ said that", "that IS the answer" — they are usually right. Go back, read it \
 again, and count again. Do NOT put the same demand a third time. If you still \
 cannot find it, quote back what you did read and ask which part you are \
 missing. The misreading is yours to repair, not theirs to work around."""
+
+# The twin of NEVER_TWICE, from the other end: that one stops him asking for
+# something a second time, this one stops him refusing something a zeroth.
+#
+# Every deferral in PHASE_RULES is an answer to a question, and for a long time
+# nothing in the prompt said so. "Tech stacks ... WAIT for BUILD: decline them
+# in one line" reads as a standing order rather than a reply — the only rule in
+# that block with no trigger on it, where its neighbours all say "push back on"
+# or "when you hear it". A builder in IDEA tapped the first opener the product
+# itself offers (guidance.OPENERS, "Who exactly has this problem?") and got
+# back "You're asking the right thing, but not the right week for stack or
+# features." Asked where they had mentioned either, he said: "You didn't. I'm
+# correcting the drift before it starts."
+#
+# So: the phase's own central question, refused on a builder's first exchange,
+# for a topic nobody raised. The softening added with RESPECT_RULE made this
+# more likely rather than less — a refusal that costs the builder no face costs
+# him nothing to spend, so he spends it pre-emptively. The fix is a condition,
+# not a gentler refusal.
+ANSWER_WHAT_THEY_ASKED = """ANSWER THE QUESTION THEY ACTUALLY ASKED:
+Every deferral in the phase rules is a reply, never an opener. Defer a topic \
+only when the builder has raised it themselves, in their own words, in this \
+conversation. Never raise a deferred topic yourself — not to warn them off it, \
+not to get ahead of it, and never to correct a drift that has not happened. A \
+builder who has not mentioned their tech stack does not need to hear that tech \
+stacks wait, and telling someone they asked for something they did not ask for \
+costs you every other true thing you say that evening.
+
+When their question IS this phase's work — who has the problem, where those \
+people are, what would count tonight — there is nothing to defer and no drift \
+to correct. Answer it. The bar above is the answer, not a preamble to one: show \
+them the shape of a good answer and put two or three concrete candidates on the \
+table, built from what they have already told you. A question you are glad they \
+asked gets no "but" in front of it."""
 
 # The other half of "he doesn't listen": a builder tells him, in conversation,
 # the thing tonight's proof needs — and then has to work out for themselves
@@ -268,6 +307,8 @@ PHASE RULES (non-negotiable):
 {bar_rule}
 
 {never_twice}
+
+{answer_asked}
 
 {spot_proof}
 
@@ -753,6 +794,7 @@ def build_system_prompt(
         tone_rule=HINGLISH_RULE if tone == "HINGLISH" else "",
         bar_rule=bar_for(phase),
         never_twice=NEVER_TWICE,
+        answer_asked=ANSWER_WHAT_THEY_ASKED,
         # Sits with the phase and the streak on purpose: what the evening has
         # already produced is state, not something to re-derive from the
         # transcript every turn.

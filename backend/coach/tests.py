@@ -1390,6 +1390,58 @@ class BarInThePromptTests(CoachTestCase):
                 self.assertIn(guidance.PROOF_HINT[phase], prompts.bar_for(phase))
 
 
+class DeclineOnlyWhatWasAskedTests(CoachTestCase):
+    """A builder tapped the first opener this product offers them — "Who
+    exactly has this problem?" — and was told they were asking about the wrong
+    week for stack or features, which they had not mentioned. The phase rule
+    deferring tech talk was the one rule in the block written without a
+    trigger, so it fired at nobody."""
+
+    def system_for(self, goal=None, **kwargs):
+        goal = goal or self.make_goal()
+        return prompts.build_system_prompt(
+            goal, gates.gate_status(goal), 0, "no declaration yet", "ENGLISH", **kwargs
+        )
+
+    def test_every_phase_is_told_to_answer_what_was_asked(self):
+        """One goal walked through the phases, not four goals — a user is only
+        ever allowed one open goal at a time."""
+        goal = self.make_goal()
+        for phase in Phase:
+            with self.subTest(phase=phase):
+                goal.phase = phase
+                goal.save(update_fields=["phase"])
+                self.assertIn(prompts.ANSWER_WHAT_THEY_ASKED, self.system_for(goal))
+
+    def test_it_holds_in_both_ways_of_talking(self):
+        """THINKING_MODE moves him to the builder's side of the table. Refusing
+        a question nobody asked is wrong from either side of it."""
+        self.assertIn(prompts.ANSWER_WHAT_THEY_ASKED, self.system_for(mode="THINKING"))
+
+    def test_no_phase_defers_a_topic_without_naming_who_raised_it(self):
+        """The invariant the incident came from. A deferral is a reply, so the
+        rule that carries one has to say what it is replying to — otherwise it
+        reads as a standing order and gets spent on a builder who never went
+        near the topic."""
+        triggers = ("if the builder asks", "when the builder brings")
+        for phase, rule in prompts.PHASE_RULES.items():
+            with self.subTest(phase=phase):
+                if "wait" in rule.lower():
+                    self.assertTrue(
+                        any(t in rule.lower() for t in triggers),
+                        f"{phase} defers something without naming who raised it",
+                    )
+
+    def test_every_phase_can_offer_an_opener(self):
+        """The other half of the same failure: the product suggests these, so
+        a coach that treats one as off-phase drift is arguing with the app the
+        builder is sitting in. A phase missing from the dict is a KeyError on
+        the guidance payload the moment it unlocks."""
+        for phase in Phase:
+            with self.subTest(phase=phase):
+                self.assertTrue(guidance.OPENERS[phase])
+
+
 class ThinkingModeTests(CoachTestCase):
     """A per-user way of talking. Never a way past the door."""
 
