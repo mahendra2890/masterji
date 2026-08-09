@@ -30,7 +30,7 @@ const LOOP = [
   },
   {
     when: "During",
-    what: "Do it. Think out loud with him when you're stuck — the chat records nothing on its own.",
+    what: "Do it. Think out loud with him when you're stuck — and remember the chat records nothing.",
   },
   {
     when: "Evening",

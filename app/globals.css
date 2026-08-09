@@ -55,11 +55,15 @@ button {
    and left every button to whatever the browser draws — which on a dark
    surface is a thin default outline that a builder tabbing through the day's
    controls can genuinely lose. Marigold, offset, and only for keyboard focus,
-   so a mouse press doesn't ring the button it just pressed. */
+   so a mouse press doesn't ring the button it just pressed.
+
+   No border-radius here: browsers already draw the outline around whatever
+   shape the element is, and setting one would flatten the pill controls
+   (the pane switcher, both segmented switches) for as long as they held
+   focus. */
 :focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
-  border-radius: 4px;
 }
 
 input,

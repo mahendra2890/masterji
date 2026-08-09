@@ -52,9 +52,14 @@ const formatDate = (iso: string) =>
  * sentence to be reading at the best moment in the product. Pinning each
  * answer to the state that produced it lets the card tell that it has been
  * overtaken instead of asserting a refusal the database no longer agrees with.
+ *
+ * The goal id is in it because this component survives a goal ending: retiring
+ * takes the render down the no-goal branch without unmounting, so a refusal
+ * left over from the last idea would match a brand-new goal standing in IDEA
+ * at 0 proofs and greet it with a refusal it never earned.
  */
 const gateKey = (s: CoachState | null) =>
-  s?.goal ? `${s.goal.phase}:${s.gate?.have ?? 0}` : "";
+  s?.goal ? `${s.goal.id}:${s.goal.phase}:${s.gate?.have ?? 0}` : "";
 
 /** A day's verdict in one glyph, for the compact rows. Same shape as
  * CLOSED_CHIP above — a property access, not a string lookup, so a renamed
@@ -298,17 +303,29 @@ export default function Masterji({ user }: { user: SessionUser }) {
     setError("");
     setPendingUserMsg(content);
     setStreamingText("");
+    // Whether Masterji got a word out before it fell over. Decides who owns
+    // reporting a broken turn — see onError.
+    let spoke = false;
     try {
       await streamChat(content, {
-        onDelta: (text) => setStreamingText((s) => (s ?? "") + text),
+        onDelta: (text) => {
+          spoke = true;
+          setStreamingText((s) => (s ?? "") + text);
+        },
         onGate: (gate) =>
           setStreamingText((s) => `${s ?? ""}\n\n${gate.detail}`.trim()),
-        // Deliberately not the error banner. The server writes this line into
-        // the transcript itself, so raising it up top as well put the same
-        // sentence twice on one screen — once in the log being read, once in
-        // a corner above it. A turn that broke mid-stream is a thing that
-        // happened in the conversation, and that is where it stays.
-        onError: () => {},
+        // Only when the transcript won't carry it. A turn that died before
+        // its first word is saved as this exact sentence server-side (`if
+        // broke and not content`), so the banner would put it twice on one
+        // screen — once in the log being read, once in a corner above it.
+        // A turn that broke PART of the way through is saved as far as it
+        // got and no further: the log ends mid-answer with nothing to say
+        // it was cut off, and the banner is the only thing that tells the
+        // builder to try again rather than read a truncated instruction as
+        // the whole one.
+        onError: (detail) => {
+          if (spoke) setError(detail);
+        },
       });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something broke.");
