@@ -287,6 +287,16 @@ const SLIDES: Slide[] = [
                 tonight is a guess about a user you haven&apos;t met.
               </p>
             </Mark>
+            {/* Outside the ring and with no note of its own, like the goal
+                examples on slide 1. What the card does at this hour is the
+                point of the slide's own kicker — the morning is ten seconds
+                and then it lets you go — and a mock that still showed the
+                whole evening form here would be a picture of a screen that no
+                longer exists. */}
+            <p className={app.morningDone}>
+              That&apos;s the morning done. Nothing owed until tonight.
+            </p>
+            <span className={app.secondaryBtn}>File tonight&apos;s proof</span>
           </section>
         </div>
 

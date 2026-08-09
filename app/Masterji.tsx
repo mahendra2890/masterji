@@ -68,6 +68,26 @@ const GOAL_EXAMPLES = [
 const formatDate = (iso: string) =>
   new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short" });
 
+/** The hour the evening half of the Today card stops being folded away.
+ *
+ * Declaring at nine in the morning used to hand the builder the whole evening
+ * back in the same breath — the ask, the box, the link field, the attach
+ * control and "Submit proof", four-fifths of the card, for work that cannot
+ * happen for another ten hours. The product sells two minutes a day and the
+ * screen after those two minutes looked like homework.
+ *
+ * Local, and deliberately the same local day the check-in itself is stamped
+ * with (see CheckIn.date) — this is the builder's evening, not the server's.
+ * Read at render rather than pinned at mount, so a card left open on a desk
+ * since morning has caught up by the time anyone looks at it again.
+ *
+ * Five is early for an evening on purpose. Being an hour too eager costs a
+ * builder one fold they can ignore; being an hour too late costs them the
+ * proof, because the card would be hiding the only box that counts at the
+ * moment they came to use it.
+ */
+const EVENING_FROM = 17;
+
 /** Whether the return key should send the reply, or make a line.
  *
  * "Enter sends, Shift+Enter breaks the line" is a hardware-keyboard bargain,
@@ -109,6 +129,44 @@ const enterSends = () =>
  */
 const gateKey = (s: CoachState | null) =>
   s?.goal ? `${s.goal.id}:${s.goal.phase}:${s.gate?.have ?? 0}` : "";
+
+/** The way out, with a press between the thumb and the door.
+ *
+ * It was a 16px-tall underlined link in the top-right of a phone — the thumb's
+ * own parking spot — 12px from "What's new", firing on the first press. The
+ * cost of that miss isn't a wasted tap: the session is gone and the way back is
+ * a full round trip through Google, on the one product whose entire premise is
+ * that you come back tomorrow.
+ *
+ * So: a target you can mean to hit, and a second press. The first press only
+ * changes what the button says, which is the cheapest way to make an accident
+ * visible, and it undoes itself the moment focus moves — nobody is left holding
+ * a question they didn't ask. A timer would do neither well: it either fires
+ * while they're still deciding or leaves the question up long after they
+ * stopped caring.
+ *
+ * The underline goes too. It made the exit the only underlined thing in the
+ * header, which is a strange honour for the door.
+ */
+function SignOutButton() {
+  const [asking, setAsking] = useState(false);
+  return (
+    <button
+      className={asking ? styles.signOutAsking : styles.signOut}
+      onBlur={() => setAsking(false)}
+      onKeyDown={(e) => e.key === "Escape" && setAsking(false)}
+      onClick={() => (asking ? signOutAndLeave() : setAsking(true))}
+      /* The visible label stays inside one fixed box — see .signOut's
+         min-width — so the press doesn't slide the rest of the header
+         sideways under the finger that made it. The sentence the question
+         mark is short for lives here, for anyone not reading pixels. */
+      aria-label={asking ? "Press again to sign out" : "Sign out"}
+      title={asking ? "Press again to sign out" : undefined}
+    >
+      {asking ? "sign out?" : "sign out"}
+    </button>
+  );
+}
 
 /** A day's verdict in one glyph, for the compact rows. Same shape as
  * CLOSED_CHIP above — a property access, not a string lookup, so a renamed
@@ -241,6 +299,10 @@ export default function Masterji({ user }: { user: SessionUser }) {
   const [viewDay, setViewDay] = useState<CheckIn | null>(null);
   // Opening a second cycle after today's proof already landed.
   const [declaringAgain, setDeclaringAgain] = useState(false);
+  // A builder who reached for tonight's box before tonight — finished early,
+  // or filing at four because they're out at seven. Only ever forces the
+  // evening half OPEN; everything that opens it on its own is in eveningOpen.
+  const [filingNow, setFilingNow] = useState(false);
   // Retiring the current goal: the form, and what Masterji said about it.
   const [retiring, setRetiring] = useState(false);
   const [retireReason, setRetireReason] = useState("");
@@ -347,6 +409,15 @@ export default function Masterji({ user }: { user: SessionUser }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [viewPhase, viewDay]);
 
+  // Put them in the box the button just revealed — the same move the draft
+  // button and the goal examples make, and for the same reason: a press that
+  // ends in a hunt for the caret is a press that half worked. In an effect
+  // rather than in the handler because this box does not exist at the moment
+  // of the press; the render that creates it is what focus has to wait for.
+  useEffect(() => {
+    if (filingNow) pmBoxRef.current?.focus();
+  }, [filingNow]);
+
   const run = async (fn: () => Promise<void>) => {
     setError("");
     setBusy(true);
@@ -380,6 +451,10 @@ export default function Masterji({ user }: { user: SessionUser }) {
         const checkin = await declare(amText.trim());
         setAmText("");
         setDeclaringAgain(false);
+        // A second cycle starts at its own morning. Without this, declaring
+        // again after an early filing would drop the builder straight back
+        // onto the evening form for a task thirty seconds old.
+        setFilingNow(false);
         await refresh();
         // Outside the awaited path on purpose: the task is already on the
         // record and the form is already usable. Masterji's read of it
@@ -666,9 +741,7 @@ export default function Masterji({ user }: { user: SessionUser }) {
         )}
 
         <div className={styles.onboardFooter}>
-          <button className={styles.linkBtn} onClick={signOutAndLeave}>
-            sign out
-          </button>
+          <SignOutButton />
           <Changelog />
         </div>
 
@@ -705,6 +778,22 @@ export default function Masterji({ user }: { user: SessionUser }) {
   // they were looking at while being heard denied it.
   const owed = today?.proofMissing ? missingPieces(today.proofMissing) : [];
   const notesRunning = dayOpen && Boolean(today?.proofOffer) && owed.length > 0;
+  // Whether the Today card is showing tonight's half yet.
+  //
+  // Every clause but the clock is an evening that has already started, so the
+  // only builder who meets the folded card is one who declared this morning and
+  // has done nothing since — which is exactly who it is for. A push-back is
+  // owed work; an earlier try means they were here tonight already; and any
+  // proofOffer at all, finished or still gathering, means Masterji has been
+  // writing this evening down and hiding that would undo what the running
+  // notes are for.
+  const eveningOpen =
+    filingNow ||
+    !today?.amDeclaration ||
+    today.proofStatus === "PUSHED_BACK" ||
+    today.attempts.length > 0 ||
+    Boolean(today.proofOffer) ||
+    new Date().getHours() >= EVENING_FROM;
 
   const showPane = (next: "today" | "chat") => {
     setPane(next);
@@ -790,9 +879,7 @@ export default function Masterji({ user }: { user: SessionUser }) {
           )}
           <span className={styles.who}>{user.username}</span>
           <Changelog />
-          <button className={styles.linkBtn} onClick={signOutAndLeave}>
-            sign out
-          </button>
+          <SignOutButton />
         </div>
       </header>
 
@@ -1094,100 +1181,133 @@ export default function Masterji({ user }: { user: SessionUser }) {
                 {judging && !today.declarationReaction && (
                   <p className={styles.judging}>Masterji is reading it…</p>
                 )}
-                {/* Masterji's own draft, written from work the builder already
-                    described in chat. It says "you've already told me — here
-                    it is", and while pieces are still owed it is notes rather
-                    than an offer — the same words, doing a different job. This
-                    is the only place the builder can SEE that he heard them,
-                    which is the whole reason they stop saying it twice, and it
-                    has to show the gap in the same breath or a half-finished
-                    draft reads as one that's ready to file.
+                {/* The morning, finished — and said so, which is the whole
+                    change here. This card used to answer a declaration by
+                    unfolding the entire evening underneath it: the ask, the
+                    box, the link, the attachment and "Submit proof", four
+                    fifths of the card, for work that cannot happen for another
+                    ten hours. A product that promises two minutes a day cannot
+                    end those two minutes on a form.
 
-                    ABOVE the ask, not below it. This is the answer and the ask
-                    is the question; a card that puts the question first makes
-                    the builder read a rule they have already satisfied before
-                    it will show them the words that satisfy it. Filed unedited
-                    a complete draft skips a second judgement server-side, so
-                    the button copies it verbatim rather than reformatting. */}
-                {today.proofOffer && (
-                  <div className={styles.proofOffer}>
-                    <p className={styles.proofOfferLabel}>
-                      {today.proofMissing
-                        ? "What Masterji has from your conversation so far"
-                        : "Masterji wrote this from your conversation"}
+                    The evening is one press away and every real evening opens
+                    it by itself (see eveningOpen), so nothing is buried — what
+                    is gone is the homework that used to be handed over at
+                    nine in the morning. */}
+                {!eveningOpen ? (
+                  <>
+                    <p className={styles.morningDone}>
+                      That&apos;s the morning done. Nothing owed until tonight.
                     </p>
-                    <p className={styles.proofOfferText}>{today.proofOffer}</p>
-                    {owed.length > 0 && (
-                      <div className={styles.proofGap}>
-                        <p className={styles.proofGapLabel}>Still needed tonight</p>
-                        <ul className={styles.proofGapList}>
-                          {owed.map((piece, i) => (
-                            <li key={i}>{piece}</li>
-                          ))}
-                        </ul>
+                    <button
+                      className={styles.secondaryBtn}
+                      onClick={() => setFilingNow(true)}
+                    >
+                      File tonight&apos;s proof
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    {/* Masterji's own draft, written from work the builder
+                        already described in chat. It says "you've already told
+                        me — here it is", and while pieces are still owed it is
+                        notes rather than an offer — the same words, doing a
+                        different job. This is the only place the builder can
+                        SEE that he heard them, which is the whole reason they
+                        stop saying it twice, and it has to show the gap in the
+                        same breath or a half-finished draft reads as one that's
+                        ready to file.
+
+                        ABOVE the ask, not below it. This is the answer and the
+                        ask is the question; a card that puts the question first
+                        makes the builder read a rule they have already
+                        satisfied before it will show them the words that
+                        satisfy it. Filed unedited a complete draft skips a
+                        second judgement server-side, so the button copies it
+                        verbatim rather than reformatting. */}
+                    {today.proofOffer && (
+                      <div className={styles.proofOffer}>
+                        <p className={styles.proofOfferLabel}>
+                          {today.proofMissing
+                            ? "What Masterji has from your conversation so far"
+                            : "Masterji wrote this from your conversation"}
+                        </p>
+                        <p className={styles.proofOfferText}>{today.proofOffer}</p>
+                        {owed.length > 0 && (
+                          <div className={styles.proofGap}>
+                            <p className={styles.proofGapLabel}>
+                              Still needed tonight
+                            </p>
+                            <ul className={styles.proofGapList}>
+                              {owed.map((piece, i) => (
+                                <li key={i}>{piece}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                        <button
+                          className={styles.proofOfferBtn}
+                          onClick={() => {
+                            setPmText(today.proofOffer);
+                            // And put them in the box it filled. The draft sits
+                            // above the ask now, so the textarea is further down
+                            // the card than the button that fills it — a press
+                            // whose effect happens off-screen is a press that
+                            // reads as broken, and this is the one press in the
+                            // card that can end the evening.
+                            pmBoxRef.current?.focus();
+                          }}
+                        >
+                          {today.proofMissing
+                            ? "Start from these — add the rest below"
+                            : "Use this — edit it below if it’s not right"}
+                        </button>
                       </div>
                     )}
-                    <button
-                      className={styles.proofOfferBtn}
-                      onClick={() => {
-                        setPmText(today.proofOffer);
-                        // And put them in the box it filled. The draft sits
-                        // above the ask now, so the textarea is further down
-                        // the card than the button that fills it — a press
-                        // whose effect happens off-screen is a press that
-                        // reads as broken, and this is the one press in the
-                        // card that can end the evening.
-                        pmBoxRef.current?.focus();
-                      }}
-                    >
-                      {today.proofMissing
-                        ? "Start from these — add the rest below"
-                        : "Use this — edit it below if it’s not right"}
-                    </button>
-                  </div>
-                )}
-                {(today.proofAsk || guidance) && (
-                  <ProofAsk
-                    ask={today.proofAsk || guidance?.proofHint || ""}
-                    examples={guidance?.proofExamples ?? []}
-                    folded={draftWaiting}
-                  />
-                )}
-                <textarea
-                  ref={pmBoxRef}
-                  className={styles.textarea}
-                  rows={3}
-                  placeholder="Evening proof — what actually happened?"
-                  value={pmText}
-                  onChange={(e) => setPmText(e.target.value)}
-                />
-                <input
-                  className={styles.input}
-                  placeholder="Link (optional)"
-                  value={pmUrl}
-                  onChange={(e) => setPmUrl(e.target.value)}
-                />
-                {/* Only offered when the bucket is actually wired, so the form
-                    never promises to take something the server would drop. */}
-                {state.uploadsEnabled && (
-                  <label className={styles.attach}>
-                    <input
-                      type="file"
-                      accept="image/png,image/jpeg,image/webp"
-                      onChange={(e) => setPmImage(e.target.files?.[0] ?? null)}
+                    {(today.proofAsk || guidance) && (
+                      <ProofAsk
+                        ask={today.proofAsk || guidance?.proofHint || ""}
+                        examples={guidance?.proofExamples ?? []}
+                        folded={draftWaiting}
+                      />
+                    )}
+                    <textarea
+                      ref={pmBoxRef}
+                      className={styles.textarea}
+                      rows={3}
+                      placeholder="Evening proof — what actually happened?"
+                      value={pmText}
+                      onChange={(e) => setPmText(e.target.value)}
                     />
-                    <span>
-                      {pmImage ? `📎 ${pmImage.name}` : "📎 Attach a screenshot"}
-                    </span>
-                  </label>
+                    <input
+                      className={styles.input}
+                      placeholder="Link (optional)"
+                      value={pmUrl}
+                      onChange={(e) => setPmUrl(e.target.value)}
+                    />
+                    {/* Only offered when the bucket is actually wired, so the
+                        form never promises to take something the server would
+                        drop. */}
+                    {state.uploadsEnabled && (
+                      <label className={styles.attach}>
+                        <input
+                          type="file"
+                          accept="image/png,image/jpeg,image/webp"
+                          onChange={(e) => setPmImage(e.target.files?.[0] ?? null)}
+                        />
+                        <span>
+                          {pmImage ? `📎 ${pmImage.name}` : "📎 Attach a screenshot"}
+                        </span>
+                      </label>
+                    )}
+                    <button
+                      className={styles.primaryBtn}
+                      disabled={busy}
+                      onClick={onProve}
+                    >
+                      {busy && pmImage ? "Masterji is looking…" : "Submit proof"}
+                    </button>
+                  </>
                 )}
-                <button
-                  className={styles.primaryBtn}
-                  disabled={busy}
-                  onClick={onProve}
-                >
-                  {busy && pmImage ? "Masterji is looking…" : "Submit proof"}
-                </button>
               </>
             ) : (
               <>
@@ -1310,6 +1430,54 @@ export default function Masterji({ user }: { user: SessionUser }) {
                 </p>
               </div>
             )}
+            {/* Three things to say, while there is nothing to read.
+
+                A new builder met his welcome message, an empty pane and "Talk
+                it through…", which is a poor invitation to the habit the rest
+                of the product leans on: the draft that makes the evening one
+                tap is assembled out of this conversation, so a builder who
+                never talks here writes every proof from a blank box. The cold
+                start was costing them the warm one.
+
+                Off the moment the log has anything of the builder's in it —
+                these answer "what do I even say to him", and that question is
+                gone the second they have said something. Not a fallback for an
+                empty log either: the welcome message is always there, so the
+                test is whether anyone has REPLIED to it.
+
+                They fill the box rather than sending, like the goal examples
+                and the proof draft. A tap that spends a turn is a tap nobody
+                can take back, and the words should be theirs by the time they
+                reach him. */}
+            {messages.length <= 1 &&
+              !pendingUserMsg &&
+              streamingText === null &&
+              (guidance?.openers.length ?? 0) > 0 && (
+                <div className={styles.openers}>
+                  <p id="openers-label" className={styles.openersLabel}>
+                    Not sure where to start? Ask him:
+                  </p>
+                  <ul
+                    className={styles.openerList}
+                    aria-labelledby="openers-label"
+                  >
+                    {guidance?.openers.map((opener) => (
+                      <li key={opener}>
+                        <button
+                          type="button"
+                          className={styles.opener}
+                          onClick={() => {
+                            setDraft(opener);
+                            composerRef.current?.focus();
+                          }}
+                        >
+                          {opener}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
           </div>
           {/* Both boxes in this app take the same free text and do entirely
               different things with it: this one records a conversation, the
