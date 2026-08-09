@@ -85,7 +85,15 @@ The product's spine is a **server-enforced state machine**, not a prompt:
   refused tries on that one row and nothing further back. Now the same words
   twice is refused in server code with no model in the loop (arithmetic, not
   a judgement), and the goal's already-accepted proofs go into the evening
-  prompt so a conversation *retold* is caught too. Neither refuses a second
+  prompt so a conversation *retold* is caught too. Between those two sat a
+  third road, and it was the one the product had just made easiest: Masterji
+  writes tonight's proof out of the conversation, and a complete draft filed
+  unedited is accepted without a model call — so Tuesday's conversation
+  described again tonight came back as *his* words, which the exact-match
+  check cannot recognise, on a path no judge ever reads. The draft is where
+  that has to stop, because the draft is where it is decided, so the record
+  now travels with the instruction not to write one of them up a second time.
+  None of the three refuses a second
   real piece of work, a second conversation the same evening, or the next
   step on the same artifact — a gate that fails in that direction is worse
   than the hole it closed.
@@ -212,6 +220,16 @@ Browser ──► Next.js 16 (Vercel) ── /api/* rewrite ──► Django 5 +
   does **not** mean switching provider — the step to reach for is the non-mini
   sibling of whatever `LLM_MODEL` names (`openai/gpt-5.4` against today's
   default), so it is one env var and the key you already have.
+  There is a third road to an `ACCEPTED` row and it is worth naming rather than
+  leaving inside that word "two": a complete draft filed unedited is accepted in
+  server code with no model call at all, and the decision behind it was the
+  **chat** model's, made when `suggest_proof` wrote it. What the server checks
+  there is arithmetic — every part of the phase's bar present, and a list long
+  enough ([bar.py](backend/coach/bar.py)) — never the substance. That is the
+  deliberate price of the one-tap file: asking the judge to re-open a draft
+  Masterji offered himself can only produce a disagreement with himself, and the
+  builder is the one who would pay for it. An edited draft, and every other
+  proof, goes to the judge.
 - **Observability:** loguru for domain events; optional OpenTelemetry
   tracing (`coach.turn` span per interaction with phase/model/gate
   attributes) — a no-op unless `OTEL_EXPORTER_OTLP_ENDPOINT` is set.

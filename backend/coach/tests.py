@@ -1670,6 +1670,102 @@ class BarInThePromptTests(CoachTestCase):
                 self.assertIn(guidance.PROOF_HINT[phase], prompts.bar_for(phase))
 
 
+class TheJudgeSeesTheBarTests(CoachTestCase):
+    """The bar reached the conversation and the morning, and not the verdict.
+
+    PROOF_REACTION_SYSTEM got a phase NAME, the declared task and the trail —
+    and no statement anywhere of what the app had told this builder would count.
+    So the one call whose output gates.py counts graded against whatever the
+    model already believed the word "VALIDATION" meant, while SUBSTANCE_RULE sat
+    inside the same prompt telling it to judge by a bar that was not in it.
+
+    Both directions of that are bugs, and only one of them is visible: the
+    evening asks for something the afternoon said would clear it (the goalposts
+    moving between two rooms of one product), or the evening banks a proof the
+    written bar would not have.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.goal = self.make_goal(phase=Phase.VALIDATION)
+
+    def judge_prompt(self, text: str = "Spoke to Ramesh for 20 minutes."):
+        self.client.post("/api/coach/checkins/declare/", {"text": "talk to Ramesh"})
+        with mock.patch(
+            "coach.views.llm.complete",
+            return_value='{"verdict": "accept", "reaction": "counts"}',
+        ) as called:
+            self.client.post("/api/coach/checkins/prove/", {"text": text})
+        return called.call_args.args[0]
+
+    def test_the_evening_verdict_is_shown_what_clears_the_bar(self):
+        system = self.judge_prompt()
+        self.assertIn(guidance.PROOF_HINT[Phase.VALIDATION], system)
+        for example in guidance.PROOF_EXAMPLES[Phase.VALIDATION]:
+            self.assertIn(example, system)
+
+    def test_the_bar_is_the_one_for_the_phase_they_are_in(self):
+        system = self.judge_prompt()
+        self.assertNotIn(guidance.PROOF_HINT[Phase.IDEA], system)
+
+    def test_the_coach_and_the_judge_are_shown_one_bar(self):
+        """Read out of one module by both, for the reason guidance.py's own
+        docstring gives: two copies drift, and only one of them is the one
+        gates.py enforces."""
+        coach = prompts.build_system_prompt(
+            self.goal, gates.gate_status(self.goal), 0, "state", "ENGLISH"
+        )
+        judge = self.judge_prompt()
+        hint = guidance.PROOF_HINT[Phase.VALIDATION]
+        self.assertIn(hint, coach)
+        self.assertIn(hint, judge)
+
+    def test_every_phase_can_state_its_judging_bar(self):
+        """Same failure mode as bar_for: a phase missing from either dict is a
+        KeyError on the first proof filed after that phase unlocks."""
+        for phase in Phase:
+            with self.subTest(phase=phase):
+                block = prompts.judge_bar_for(phase)
+                self.assertIn(guidance.PROOF_HINT[phase], block)
+                for example in guidance.PROOF_EXAMPLES[phase]:
+                    self.assertIn(example, block)
+
+    def test_tonights_ask_outranks_the_phases_general_bar(self):
+        """The tailored ask is about the task they actually declared. A bar
+        arriving in this room must not raise it over what they were asked
+        for — that is the goalposts moving, wearing a rule."""
+        for phase in Phase:
+            with self.subTest(phase=phase):
+                self.assertIn(
+                    "Two things outrank this bar", prompts.judge_bar_for(phase)
+                )
+
+    def test_an_off_phase_day_is_still_judged_on_its_own_task(self):
+        """Declaring is never refused and an off-phase task still earns its
+        proof (DeclarationTests). Handing the evening a phase bar is exactly
+        how that could have been quietly taken back."""
+        for phase in Phase:
+            with self.subTest(phase=phase):
+                self.assertIn(
+                    "an off-phase day still earns its proof",
+                    prompts.judge_bar_for(phase),
+                )
+
+    def test_the_bar_is_a_floor_and_not_a_checklist(self):
+        """False refusals are the failure this file spent its history removing.
+        A bar that reads as a form to fill in adds them back."""
+        block = prompts.judge_bar_for(Phase.VALIDATION)
+        self.assertIn("floor and not the ceiling", block)
+        self.assertIn("not a checklist", block)
+
+    def test_the_substance_rule_no_longer_points_at_a_prompt_it_is_not_in(self):
+        """It said "the playbooks say what evidence has to CONTAIN" — inside
+        the one prompt that carries no playbook. Now the bar it names is
+        directly above it."""
+        self.assertIn("The bar above says", prompts.SUBSTANCE_RULE)
+        self.assertNotIn("The playbooks say", prompts.SUBSTANCE_RULE)
+
+
 class DeclineOnlyWhatWasAskedTests(CoachTestCase):
     """A builder tapped the first opener this product offers them — "Who
     exactly has this problem?" — and was told they were asking about the wrong
@@ -2810,6 +2906,39 @@ class BankedRecordTests(CoachTestCase):
     def test_the_row_being_judged_is_not_in_its_own_record(self):
         checkin = self.bank("the one under judgement")
         self.assertEqual(views._banked(self.goal, exclude=checkin), [])
+
+    def test_a_banked_day_is_never_written_up_a_second_time(self):
+        """The hole the exact-match check could not reach.
+
+        "A proof cannot be banked twice" rests on two things: _already_banked,
+        which is exact after flattening and deliberately no looser, and
+        RECORD_FOR_JUDGE, which lives only in the EVENING's prompt. A complete
+        draft filed unedited never reaches that prompt — views._react_to_proof
+        accepts it with no model call at all. So Tuesday's conversation,
+        described again tonight and written up by him in his own words, made new
+        text that no exact match catches and no judge ever read, and it banked
+        toward the phase whose whole job is preventing that.
+
+        The draft is where it has to be stopped, because the draft is where it
+        is decided.
+        """
+        self.bank("Ramesh says 40-50 plates go to waste", task="talk to Ramesh")
+        system = self.system()
+        self.assertIn("cannot also be tonight's proof", system)
+        self.assertIn("do not call suggest_proof on it", system)
+
+    def test_the_next_step_on_banked_work_is_still_drafted(self):
+        """The guard that keeps this from becoming the other bug. A gate that
+        refuses genuine second work by similarity is worse than the hole it
+        closed — the same clause RECORD_FOR_JUDGE carries, so the two readers
+        of one list also agree about what a repeat is not."""
+        self.bank("Ramesh says 40-50 plates go to waste", task="talk to Ramesh")
+        self.assertIn("NOT repeats", self.system())
+
+    def test_the_rule_travels_with_the_record_and_not_without_it(self):
+        """Nothing is banked, so nothing can be re-drafted, and a warning about
+        repeating a list that isn't there is prompt nobody needs."""
+        self.assertNotIn("do not call suggest_proof on it", self.system())
 
     def test_the_two_readers_are_shown_one_list(self):
         """One formatter, two wordings. If they ever read different lists they
