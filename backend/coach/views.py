@@ -74,10 +74,32 @@ WELCOME = (
 # written up or thrown away. The draft is theirs, so it goes back to them —
 # in the transcript, where declaring first costs them the declaration and not
 # the writing-up as well.
+#
+# Said ONLY when nothing was declared today. There is a second evening with
+# nothing to pin a draft to and it is the opposite situation — see
+# OFFER_DAY_CLOSED.
 OFFER_NO_DECLARATION = (
     "That reads like tonight's proof — but there's no task declared this "
     "morning, so I have nothing to pin it to. Declare one under "
     f"{WHERE_TO_FILE} and file this:\n\n{{offer}}"
+)
+
+# The same handed-back draft on an evening that is already finished: today's
+# task was declared, proved and closed, so there is no open cycle — and the
+# line above would be a flat contradiction of the card the builder is looking
+# at, which reads "Declared: <task>" with a green "✓ accepted" under it. It
+# said that in real use: a builder closed out a VALIDATION conversation, kept
+# talking, described more work, and was told nothing had been declared this
+# morning.
+#
+# So this one names what actually happened and offers the way on. More than
+# one cycle a day is a supported thing, not a loophole (see CheckIn's
+# docstring) — "Declare another task" is the button waiting on that card.
+OFFER_DAY_CLOSED = (
+    "That reads like another proof — but today's cycle is already declared, "
+    "filed and closed, so I have nothing open to pin it to. If this is a "
+    "second piece of real work, declare another task under "
+    f"{WHERE_TO_FILE} and file this against it:\n\n{{offer}}"
 )
 
 # Said when Masterji spends a whole turn writing tonight's proof and adding
@@ -135,6 +157,28 @@ def _offer_target(goal: Goal, day: date) -> CheckIn | None:
     """
     checkin = _open_checkin(goal, day)
     return checkin if checkin and checkin.am_declaration else None
+
+
+def _day_closed(goal: Goal, day: date) -> bool:
+    """Whether `day` has no cycle open because it already FINISHED one.
+
+    _offer_target answers None for two opposite evenings — nothing declared
+    yet, and everything declared already proved — and they need opposite
+    things said to them. Told apart here so the copy can be honest about
+    which one the builder is in.
+
+    "Closed" means declared and proved and not pushed back: a push-back
+    reopens the cycle, so _open_checkin would have found it and this never
+    runs. The declaration test only matters for a row that somehow has a
+    proof but no task — that is nobody's second cycle, so it reads as the
+    empty day it looks like.
+    """
+    return (
+        _open_checkin(goal, day) is None
+        and CheckIn.objects.filter(goal=goal, date=day)
+        .exclude(am_declaration="")
+        .exists()
+    )
 
 
 def _parse_date(value) -> date:
@@ -830,8 +874,17 @@ class ChatView(APIView):
             for m in list(goal.messages.order_by("-created_at")[:HISTORY_LIMIT])[::-1]
         ]
 
+        target = _offer_target(goal, today)
+        # Both read off the same `today`, so the draft and the sentence
+        # explaining where it can't go can never disagree about the day.
         response = StreamingHttpResponse(
-            self._events(goal, system, history, _offer_target(goal, today)),
+            self._events(
+                goal,
+                system,
+                history,
+                target,
+                day_closed=target is None and _day_closed(goal, today),
+            ),
             content_type="application/x-ndjson",
         )
         # Ask every proxy on the way (Vercel, Render) not to buffer the stream.
@@ -845,6 +898,7 @@ class ChatView(APIView):
         system: str,
         history: list[dict],
         offer_target: CheckIn | None = None,
+        day_closed: bool = False,
     ):
         line = lambda obj: json.dumps(obj) + "\n"  # noqa: E731
         parts: list[str] = []
@@ -885,13 +939,19 @@ class ChatView(APIView):
             # file it tomorrow morning if they close the tab tonight.
             if offered:
                 if offer_target is None:
-                    # No check-in to hang it on. That is a reason to hand the
-                    # draft back, not to bin it silently: the work behind it
+                    # No OPEN check-in to hang it on. That is a reason to hand
+                    # the draft back, not to bin it silently: the work behind it
                     # happened, and the builder is the only person who can turn
-                    # it into a declaration and a filing.
+                    # it into a declaration and a filing. Which declaration
+                    # depends on why there's no target — a day nobody has
+                    # declared on, or one already proved and closed — and
+                    # telling them the wrong one contradicts their own card.
                     span.set_attribute("proof.offered", False)
-                    logger.info(f"Proof offered with nothing owed on goal {goal.id}")
-                    note = OFFER_NO_DECLARATION.format(offer=offered)
+                    span.set_attribute("proof.day_closed", day_closed)
+                    why = "the day already closed" if day_closed else "nothing declared"
+                    logger.info(f"Proof offered with {why} on goal {goal.id}")
+                    template = OFFER_DAY_CLOSED if day_closed else OFFER_NO_DECLARATION
+                    note = template.format(offer=offered)
                     # Streamed as well as saved, the way a gate refusal is: it
                     # belongs to the turn the builder is watching, not to the
                     # refetch a second later.
@@ -909,11 +969,11 @@ class ChatView(APIView):
             # other half. A turn that got some way in before it fell over
             # needs neither: that answer was already saved as far as it got.
             #
-            # `content` is already built above, and the no-declaration branch
-            # may have appended the handed-back draft to it — which is exactly
-            # why that case must not also count as wordless. It doesn't: that
-            # branch is the `offer_target is None` one, and the second test
-            # here requires a target.
+            # `content` is already built above, and handing a draft back may
+            # have appended it to it — which is exactly why that case must not
+            # also count as wordless. It doesn't: handing back is the
+            # `offer_target is None` branch, either wording of it, and the
+            # second test here requires a target.
             if broke and not content:
                 content = STREAM_BROKE
             elif offered and offer_target is not None and not content:
