@@ -151,8 +151,10 @@ Deployment (Vercel + Render + Neon + Namecheap DNS): see
 ## What exists vs. what's next
 
 **Today:** the full coaching loop — goal, phases, gates, daily check-ins,
-streaks, grounded chat, Hinglish, thinking-partner mode, and an eight-step
-guided tour of the real screens that needs no sign-in. What has moved since
+streaks, grounded chat, Hinglish, thinking-partner mode, and a nine-step
+guided tour of the real screens that needs no sign-in — starting where a
+builder actually starts, on the goal-commit screen and the first morning in
+IDEA. What has moved since
 the first build is in the product itself — **What's new** in the header opens
 the changelog, served from the `ChangelogEntry` table (public endpoint, so the
 tour reads it too) and written from the admin rather than from a deploy.

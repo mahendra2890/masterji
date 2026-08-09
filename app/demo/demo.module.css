@@ -349,6 +349,17 @@
   align-items: center;
 }
 
+/* When the "after" half is two screens rather than one, centring drops the
+   "before" panel into the middle of a column twice its height. Top-align the
+   panels and let the arrow keep the middle to itself. */
+.pairTop {
+  align-items: start;
+}
+
+.pairTop .bigArrow {
+  align-self: center;
+}
+
 .bigArrow {
   display: flex;
   flex-direction: column;
@@ -387,6 +398,30 @@
   border-radius: var(--radius);
   display: flex;
   flex-direction: column;
+  min-width: 0;
+}
+
+/* The screen a builder meets before there is any product to show — the goal
+   they commit on their first morning. Not app.onboarding: that one centres
+   itself in 100dvh, and a slide is not a viewport. */
+.onboardPanel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 26px 18px;
+  text-align: center;
+  min-width: 0;
+}
+
+/* When the "after" half of a pair is two screens rather than one. */
+.pairStack {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
   min-width: 0;
 }
 
