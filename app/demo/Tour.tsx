@@ -207,9 +207,10 @@ const SLIDES: Slide[] = [
                   route to these people: one place they already are, why you
                   think they&apos;re there, and how you&apos;d get one
                   conversation this week. No names needed, and you won&apos;t
-                  message anyone until VALIDATION. Talking to me records nothing
-                  on its own — declare today&apos;s task under Today, and file
-                  your proof there tonight.
+                  message anyone until VALIDATION. Declare today&apos;s task
+                  under Today and I&apos;ll write tonight&apos;s proof out of
+                  what you tell me here — but nothing counts until you file it
+                  there.
                 </Line>
               </Mark>
             </div>
@@ -255,7 +256,8 @@ const SLIDES: Slide[] = [
     kicker:
       "Declare the day's one task under Today: ten seconds, and it's what " +
       "tonight gets judged against. Then talk to him as much as you like — " +
-      "the chat is where you think, and it records nothing.",
+      "he writes tonight's proof out of that chat, and it lands when you " +
+      "file it under Today.",
     stage: "stack",
     mock: (
       <div className={styles.twoUp}>
@@ -342,7 +344,8 @@ const SLIDES: Slide[] = [
             </div>
             <Mark n={5}>
               <p className={app.composerNote}>
-                Nothing here counts until you file it under Today.
+                Masterji writes tonight&apos;s proof from this conversation.
+                Nothing counts until you file it under Today.
               </p>
             </Mark>
           </div>
@@ -380,9 +383,9 @@ const SLIDES: Slide[] = [
         it, on every device, and it moves the gate by nothing.
       </>,
       <>
-        The rule, where you can&apos;t miss it. Everything above this line is a
-        conversation; the day is recorded under <strong>Today</strong>, and that
-        is the only box the gate has ever counted.
+        The rule, where you can&apos;t miss it. He writes tonight&apos;s proof
+        from what you say up there — and the day is still recorded under{" "}
+        <strong>Today</strong>, which is the only box the gate has ever counted.
       </>,
     ],
     samples: [
