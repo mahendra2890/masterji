@@ -45,13 +45,13 @@ cheapest place for a feature to die.
 
 **4. Fan out — one priority per session.** P0 in one session, P1 in another,
 each in its own git worktree and branch, merged back through a pull request.
-Forty-six of them; nothing reached `main` unreviewed.
+Nothing reached `main` unreviewed.
 
 ## Parallel sessions, and the failure they cause
 
 Running several sessions at once is what made six days feel like three weeks.
-It is also what broke the deploy, twice, and the mechanism is worth writing
-down because nothing about it is specific to this project.
+It is also what broke the deploy three times, and the mechanism is worth
+writing down because nothing about it is specific to this project.
 
 Sessions share a working tree by default. Session A stages a file, session B
 commits it, and now a pull request contains work nobody reviewed. The fix is
@@ -61,13 +61,22 @@ nothing else before it pushes.
 The subtler one was the migration graph. Two sessions each added a Django
 migration and both numbered it `0012`. Each was independently correct. Together
 they were two leaf nodes, and `migrate` refuses to guess — so `main` stopped
-deploying. See `dbb3eba Rejoin the two 0012s so the deploy can migrate again`,
-and then `fa3e488 Renumber both migrations onto main's leaf`, which is the same
-failure happening a second time.
+deploying.
+
+It happened three times before the process changed, and it got worse before it
+got better. The scar tissue is still in the tree, and you can count it:
+`0012` twice, `0015` **three** times, `0018` twice, each rejoined by a
+merge migration — `0014_merge_changelog_seeds`,
+`0017_merge_four_session_changelogs`, `0019_merge_two_session_changelogs`.
+A fourth commit belongs to the same family: `fa3e488 Renumber both
+migrations onto main's leaf`, the cheaper version of the problem — one
+session noticing that `main`'s leaf had moved under it and renumbering its
+own two migrations rather than leaving a second leaf behind.
 
 This is the characteristic bug of parallel agents: neither one is wrong, and
 neither can see the other. Patching the migration doesn't help, because the
-next pair of sessions does it again. What helped was writing the rule into
+next set of sessions does it again — and as the `0015` case shows, the next
+set can be bigger. What helped was writing the rule into
 persistent memory — verify a single leaf before pushing and again before
 merging — so every later session loads it before it touches anything. Most of
 the durable rules in this project came from a failure exactly like that one,
