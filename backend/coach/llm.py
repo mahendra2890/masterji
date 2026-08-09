@@ -80,7 +80,9 @@ def complete_with_image(
     The image is inlined as a data URL rather than passed as a link: the
     bucket is private, and handing a model a presigned URL would mean minting
     a publicly-fetchable link to a builder's private work record every time a
-    proof is graded. Uses LLM_VISION_MODEL, which defaults to LLM_MODEL.
+    proof is graded. Uses LLM_VISION_MODEL, which defaults to LLM_JUDGE_MODEL —
+    the only caller is the evening's verdict, so this is a judging path that
+    additionally has to see.
     """
     b64 = base64.b64encode(image).decode()
     response = cast(
@@ -109,11 +111,15 @@ def complete_with_image(
     return content.strip()
 
 
-def complete(system: str, user_text: str) -> str:
+def complete(system: str, user_text: str, model: str | None = None) -> str:
+    """One turn, no stream. `model` overrides LLM_MODEL for callers whose call
+    is not a conversation — settings.LLM_JUDGE_MODEL for the two that reach a
+    verdict. Still a string chosen from settings, so nothing provider-specific
+    crosses this seam."""
     response = cast(
         ModelResponse,
         litellm.completion(
-            model=settings.LLM_MODEL,
+            model=model or settings.LLM_MODEL,
             messages=[
                 {"role": "system", "content": system},
                 {"role": "user", "content": user_text},

@@ -666,6 +666,10 @@ def _react_to_retirement(retirement, verdict: str, tone: str) -> str:
             days=retirement.days_active,
             best_streak=retirement.best_streak,
         )
+        # Not the judge model, and that is a decision rather than an oversight:
+        # the verdict here was already computed by gates.reads_as before this
+        # call, out of proofs the builder had to earn. All the model contributes
+        # is the sentence, so it belongs with the conversation, not the verdicts.
         return llm.complete(system, retirement.reason)
     except Exception as e:
         logger.error(f"Retirement reaction failed: {e}")
@@ -704,7 +708,14 @@ def _react_to_declaration(goal: Goal, text: str, tone: str) -> tuple[str, str, s
             phase_rules=prompts.PHASE_RULES[Phase(goal.phase)],
             proof_hint=guidance.PROOF_HINT[Phase(goal.phase)],
         )
-        raw = llm.complete(system, prompts.fence_submission(text))
+        # The judge model: this call decides declaration_fit and writes the
+        # proof_ask the evening is then graded against, so it is a verdict with
+        # a second verdict downstream of it, not a turn of conversation.
+        raw = llm.complete(
+            system,
+            prompts.fence_submission(text),
+            model=settings.LLM_JUDGE_MODEL,
+        )
         payload = json.loads(raw[raw.index("{") : raw.rindex("}") + 1])
         fit = (
             CheckIn.DeclarationFit.OFF_PHASE
@@ -1013,9 +1024,12 @@ def _react_to_proof(
             checkin.pm_proof_text, checkin.proof_url
         )
         raw = (
+            # complete_with_image already reads LLM_VISION_MODEL, which chains
+            # off the judge model — so both halves of this verdict move together
+            # when the judge is upgraded.
             llm.complete_with_image(system, user_text, image, content_type)
             if image
-            else llm.complete(system, user_text)
+            else llm.complete(system, user_text, model=settings.LLM_JUDGE_MODEL)
         )
         payload = json.loads(raw[raw.index("{") : raw.rindex("}") + 1])
         verdict = payload.get("verdict", "")

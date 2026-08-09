@@ -181,10 +181,38 @@ FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:3000")
 
 LLM_MODEL = os.environ.get("LLM_MODEL", "openai/gpt-5.4-mini")
 
+# The model that reaches VERDICTS, as opposed to the one that talks.
+#
+# Not the same job, and the difference is what it costs to be wrong. A weak turn
+# of conversation is a weak turn of conversation; a wrong verdict either banks a
+# proof that isn't there or sends a builder who did the work away to rewrite it,
+# and the second one is how this product loses people. Two calls decide
+# something recorded on the row — the evening's accept / push_back, and the
+# morning's on_phase / off_phase plus the tailored proof_ask that the evening is
+# then judged against.
+#
+# It is also where instruction-following is under the most load. Those prompts
+# carry the bar, the substance rule, the respect rule, the prior tries, the
+# stalemate diagnosis, the banked record and the evidence fence — every failure
+# in this product's own bug history (three quotes counted as one, a topic
+# refused that nobody raised, a fact asked for twice) is a rule that was in the
+# prompt and didn't land.
+#
+# Defaults to LLM_MODEL, so unset changes nothing and today's deploy behaves
+# exactly as it did.
+LLM_JUDGE_MODEL = os.environ.get("LLM_JUDGE_MODEL", LLM_MODEL)
+
 # Reading a screenshot needs a vision-capable model, which is not necessarily
 # the cheap one that handles chat. Its own setting so the two can diverge
 # without a code change — same seam philosophy as LLM_MODEL.
-LLM_VISION_MODEL = os.environ.get("LLM_VISION_MODEL", LLM_MODEL)
+#
+# Defaults to the JUDGE model, not the chat one, because the only thing that
+# ever sends an image is the evening's verdict on a proof — vision here is a
+# judging path that additionally has to see. Chaining it this way means setting
+# LLM_JUDGE_MODEL alone upgrades both halves of the verdict; a screenshot
+# silently kept being graded by the cheap model would be the exact trap this
+# setting exists to remove. Set it explicitly to override.
+LLM_VISION_MODEL = os.environ.get("LLM_VISION_MODEL", LLM_JUDGE_MODEL)
 
 # Ceiling on any single model call, in seconds. Without one, a hung provider
 # call holds a gunicorn thread indefinitely — on the free instance that is how

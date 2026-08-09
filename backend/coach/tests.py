@@ -110,6 +110,136 @@ class LlmSeamTests(SimpleTestCase):
             list(llm.stream_chat("system", []))
         self.assertEqual(call.call_args.kwargs["timeout"], s.LLM_TIMEOUT_S)
 
+    def test_complete_talks_with_the_chat_model_by_default(self):
+        from django.conf import settings as s
+
+        from . import llm
+
+        with mock.patch(
+            "coach.llm.litellm.completion", return_value=self.fake_response()
+        ) as call:
+            llm.complete("system", "user")
+        self.assertEqual(call.call_args.kwargs["model"], s.LLM_MODEL)
+
+    def test_complete_takes_a_model_for_callers_that_are_not_conversation(self):
+        from . import llm
+
+        with mock.patch(
+            "coach.llm.litellm.completion", return_value=self.fake_response()
+        ) as call:
+            llm.complete("system", "user", model="anthropic/claude-sonnet-5")
+        self.assertEqual(
+            call.call_args.kwargs["model"], "anthropic/claude-sonnet-5"
+        )
+
+
+class ModelTierTests(SimpleTestCase):
+    """Which model each call gets, and why they are not all one.
+
+    A weak turn of conversation is a weak turn of conversation. A wrong verdict
+    either banks a proof that isn't there or sends a builder who did the work
+    away to rewrite it, and the second one is how this product loses people. So
+    the two calls that decide something recorded on the row are their own
+    setting, and the ladder is arranged so upgrading the judge cannot leave half
+    a verdict behind on the cheap model.
+    """
+
+    def test_unset_changes_nothing(self):
+        """The whole ladder collapses to one model when nobody configures it,
+        so shipping this seam is not shipping a behaviour change."""
+        from django.conf import settings as s
+
+        self.assertEqual(s.LLM_JUDGE_MODEL, s.LLM_MODEL)
+        self.assertEqual(s.LLM_VISION_MODEL, s.LLM_MODEL)
+
+    @override_settings(LLM_JUDGE_MODEL="anthropic/claude-sonnet-5")
+    def test_the_judge_model_is_its_own_setting(self):
+        from django.conf import settings as s
+
+        self.assertNotEqual(s.LLM_JUDGE_MODEL, s.LLM_MODEL)
+
+    def test_vision_chains_off_the_judge_and_not_the_chat(self):
+        """The trap this removes: a screenshot silently graded by the cheap model
+        after the judge was upgraded.
+
+        Read off the module source, not the resolved setting, because the
+        DEFAULTING is what is under test and it resolves once at import —
+        override_settings moves LLM_JUDGE_MODEL without re-running the fallback,
+        so a runtime assertion here would pass whatever the chain said.
+
+        Matched on the assignment line mentioning LLM_JUDGE_MODEL rather than on
+        a whole expression: the fallback's target is the claim, and reformatting
+        the file is not a regression.
+        """
+        import inspect
+
+        from config import settings as module
+
+        line = next(
+            ln
+            for ln in inspect.getsource(module).splitlines()
+            if ln.startswith("LLM_VISION_MODEL")
+        )
+        self.assertIn("LLM_JUDGE_MODEL", line)
+
+
+class VerdictsGetTheJudgeModelTests(CoachTestCase):
+    """The two call sites, end to end through the API."""
+
+    def test_the_evening_verdict_uses_the_judge_model(self):
+        self.make_goal(phase=Phase.VALIDATION)
+        self.client.post("/api/coach/checkins/declare/", {"text": "talk to Ramesh"})
+        with override_settings(LLM_JUDGE_MODEL="anthropic/claude-sonnet-5"):
+            with mock.patch(
+                "coach.views.llm.complete",
+                return_value='{"verdict": "accept", "reaction": "ok"}',
+            ) as called:
+                self.client.post(
+                    "/api/coach/checkins/prove/", {"text": "Spoke to Ramesh."}
+                )
+        self.assertEqual(
+            called.call_args.kwargs["model"], "anthropic/claude-sonnet-5"
+        )
+
+    def test_the_morning_verdict_uses_the_judge_model(self):
+        goal = self.make_goal()
+        self.client.post("/api/coach/checkins/declare/", {"text": "write the problem"})
+        checkin = CheckIn.objects.get(goal=goal)
+        with override_settings(LLM_JUDGE_MODEL="anthropic/claude-sonnet-5"):
+            with mock.patch(
+                "coach.views.llm.complete",
+                return_value='{"fit": "on_phase", "reaction": "", "proof_ask": "x"}',
+            ) as called:
+                self.client.post(f"/api/coach/checkins/{checkin.pk}/judge/")
+        self.assertEqual(
+            called.call_args.kwargs["model"], "anthropic/claude-sonnet-5"
+        )
+
+    def test_the_retirement_sentence_does_not(self):
+        """gates.reads_as already decided the verdict here, out of proofs the
+        builder had to earn. All the model contributes is the sentence, so it
+        belongs with the conversation — stated as a decision, not left as an
+        omission."""
+        goal = self.make_goal()
+        with override_settings(LLM_JUDGE_MODEL="anthropic/claude-sonnet-5"):
+            with mock.patch(
+                "coach.views.llm.complete", return_value="Closed."
+            ) as called:
+                self.client.post(
+                    f"/api/coach/goals/{goal.id}/retire/", {"reason": "it died"}
+                )
+        self.assertNotIn("model", called.call_args.kwargs)
+
+    def test_the_chat_does_not(self):
+        self.make_goal()
+        with override_settings(LLM_JUDGE_MODEL="anthropic/claude-sonnet-5"):
+            with mock.patch(
+                "coach.views.llm.stream_chat", return_value=iter([("delta", "ok")])
+            ) as called:
+                response = self.client.post("/api/coach/chat/", {"content": "hi"})
+                b"".join(response.streaming_content)
+        self.assertNotIn("model", called.call_args.kwargs)
+
     def stream_of(self, *fragments):
         """A streamed tool call as providers actually send one: the name in
         the first fragment, the arguments dribbled out as JSON text."""

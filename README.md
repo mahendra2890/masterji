@@ -194,6 +194,21 @@ Browser ──► Next.js 16 (Vercel) ── /api/* rewrite ──► Django 5 +
   over [litellm](https://github.com/BerriAI/litellm). Provider optionality
   is the `LLM_MODEL` env var (`openai/gpt-5.4-mini` today,
   `anthropic/claude-sonnet-5` tomorrow). Keys live server-side only.
+- **Talking and judging are not the same call.** `LLM_JUDGE_MODEL` serves the
+  two that decide something recorded on the row — the evening's
+  accept / push-back, and the morning's on-phase reading plus the tailored
+  `proof_ask` the evening is then graded against. A weak turn of conversation
+  is a weak turn of conversation; a wrong verdict either banks a proof that
+  isn't there or sends a builder who did the work away to rewrite it, and the
+  second one is how this product loses people. It is also where instruction-
+  following is under the most load: those prompts carry the bar, the substance
+  rule, the prior tries, the stalemate diagnosis, the banked record and the
+  evidence fence, and every failure in this product's own bug history is a rule
+  that was in the prompt and didn't land. `LLM_VISION_MODEL` chains off the
+  judge rather than the chat model, because the only call that ever sends an
+  image is that same evening verdict — so upgrading the judge cannot leave half
+  a verdict behind on the cheap model. Both default to `LLM_MODEL`: unset, the
+  ladder collapses to one model and behaviour is identical.
 - **Observability:** loguru for domain events; optional OpenTelemetry
   tracing (`coach.turn` span per interaction with phase/model/gate
   attributes) — a no-op unless `OTEL_EXPORTER_OTLP_ENDPOINT` is set.
