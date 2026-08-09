@@ -154,15 +154,38 @@
   gap: 14px;
 }
 
+/* One slot, whatever number is in it.
+
+   What this badge can say — "1 day 🔥" (82px) through "365 days 🔥" (106px), or
+   "0 · best 128" (94px) once a run has broken — and the header wraps on a
+   phone, so WHICH LINE "What's new" landed on was a function of how long the
+   builder's run is. The control moved because the streak grew: somebody who
+   learned where a thing was found it somewhere else the morning after a good
+   week.
+
+   108px covers every one of them with a little over, so the slot never changes
+   size and nothing after it ever moves. Both classes carry the same number —
+   a run breaking swaps one for the other, and that must not shift the row
+   either. The same bargain .signOut makes with its two labels. tabular-nums so
+   the digits don't shuffle inside the slot as the count rolls over.
+
+   This is about the controls holding still, not about the header shrinking.
+   The one time the header DOES change height is the badge arriving on the day
+   there is finally a run to report, which is deliberate and is
+   0040_changelog_the_zero_badge_goes_quiet's whole point — a once-ever change
+   on a good morning, not a thing that moves under the thumb. */
 .streak {
   font-family: var(--font-mono), monospace;
   font-size: 13px;
+  font-variant-numeric: tabular-nums;
   color: var(--text);
   background: var(--surface-2);
   border: 1px solid var(--border);
   padding: 4px 10px;
   border-radius: 999px;
   white-space: nowrap;
+  min-width: 108px;
+  text-align: center;
 }
 
 .who {
@@ -176,8 +199,13 @@
 .streakCold {
   font-family: var(--font-mono), monospace;
   font-size: 13px;
+  font-variant-numeric: tabular-nums;
   color: var(--muted);
   white-space: nowrap;
+  /* The same 108px slot the pill occupies — see .streak. This one has no
+     padding of its own, so the width is the whole of it. */
+  min-width: 108px;
+  text-align: center;
 }
 
 /* EN ⇄ हिं, as a segmented control — both options on screen with the live one
@@ -193,12 +221,17 @@
   border-radius: 999px;
 }
 
+/* 3px of padding on a 12.5px word came to a 23.5px option — a rounding error
+   away from WCAG 2.2's 24px floor, on the pair of buttons a builder uses to
+   find out that Hinglish exists. 6px puts both comfortably past it (29px tall,
+   34 and 28 wide) and brings them into line with the 29px targets the rest of
+   the account chrome now uses. */
 .toneOpt,
 .toneOptOn {
   background: none;
   border: none;
   border-radius: 999px;
-  padding: 3px 9px;
+  padding: 6px 10px;
   font: inherit;
   font-size: 12.5px;
   line-height: 1.4;
@@ -745,6 +778,29 @@
    tries and Masterji's reaction, and the summary line is the only way in.
    Styled to read as a line of a record rather than as a control — the
    affordance is the hover/press, not a border. */
+/* The rest of the record, on request. Aligned to the rows above it by the same
+   -8px the rows use, and a 29px target rather than a 15px one — this is the
+   only way to the days behind the last week, so it cannot be the hardest thing
+   on the card to press. Quiet: it is a disclosure, not an errand. */
+.moreDays {
+  display: block;
+  width: fit-content;
+  margin: 8px -8px 0;
+  padding: 8px;
+  background: none;
+  border: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12.5px;
+  line-height: 1;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.moreDays:hover {
+  color: var(--text);
+}
+
 .historyRow {
   width: 100%;
   display: flex;
@@ -849,6 +905,59 @@
   display: flex;
   gap: 10px;
   max-width: 85%;
+}
+
+/* A turn that never landed. Centred and full width, which is the one shape in
+   this log that belongs to neither side of the conversation — his bubbles come
+   off the left behind an avatar, the builder's sit right, and a notice that
+   picked either side would be claiming to be somebody's words. Muted, dashed
+   and smaller than a message for the same reason: it is about the conversation,
+   not part of it, and it must not read as coaching when it is re-read weeks
+   later. */
+.systemMsg {
+  align-self: center;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px 10px;
+  max-width: 85%;
+  padding: 8px 14px;
+  border: 1px dashed var(--border);
+  border-radius: 999px;
+}
+
+.systemText {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13.5px;
+}
+
+/* The turn they already typed, one press away. Underlined rather than a filled
+   button: the loudest thing in this log should be what Masterji said, not the
+   apology for the time he didn't. */
+.retryBtn {
+  background: none;
+  border: none;
+  /* 29px like every other target here. The vertical padding is real — it opens
+     the pill by a few pixels rather than being pulled back, because a negative
+     margin big enough to cancel it would push the button out over the dashed
+     border it sits inside. Only the horizontal half is given back. */
+  padding: 8px 6px;
+  margin: 0 -6px;
+  color: var(--accent);
+  font: inherit;
+  font-size: 13.5px;
+  line-height: 1;
+  text-decoration: underline;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.retryBtn:disabled {
+  color: var(--muted);
+  cursor: default;
+  text-decoration: none;
 }
 
 .avatar {
@@ -1156,14 +1265,23 @@
 
 /* --- retiring a goal -------------------------------------------------------------------------- */
 
+/* The way out of a goal, and it was a 15px-tall target — the smallest thing on
+   the card and the only one that ends the thing the card is about. Padded to
+   29px and pulled back by the same amount, so the underline still starts at the
+   card's left edge and the gap above it is the 14px it always was. `fit-content`
+   because a block-level button with negative side margins would otherwise take
+   the full row, and a quiet link that lights up across the whole card on hover
+   reads as something much louder than it is. */
 .retireLink {
   display: block;
-  margin: 14px 0 0;
-  padding: 0;
+  width: fit-content;
+  margin: 6px -10px 0;
+  padding: 8px 10px;
   background: none;
   border: none;
   color: var(--muted);
   font-size: 12.5px;
+  line-height: 1;
   text-decoration: underline;
   cursor: pointer;
 }
@@ -1190,11 +1308,17 @@
   flex-wrap: wrap;
 }
 
+/* Same fixed slot as the streak beside it, at its own worst case: four digits
+   and the word. See .streak for why the width is pinned rather than left to
+   the number. */
 .lifetime {
   font-family: var(--font-mono), monospace;
   font-size: 12px;
+  font-variant-numeric: tabular-nums;
   color: var(--muted);
   white-space: nowrap;
+  min-width: 72px;
+  text-align: center;
 }
 
 /* --- the record behind you (retired goals) ---------------------------------------------------- */

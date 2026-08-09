@@ -190,6 +190,14 @@ class Message(SoftDeleteModel):
     class Role(models.TextChoices):
         USER = "USER", "User"
         COACH = "COACH", "Coach"
+        # Not a turn: the app telling the builder something about the
+        # conversation itself, which today is only "that one didn't go
+        # through". It has to be a row rather than a client-side flourish
+        # because the refetch that ends every turn would otherwise wipe the
+        # bubble the builder is looking at — but stored as COACH it became a
+        # thing Masterji said, indistinguishable from coaching a week later
+        # and fed back to the model as its own words on the next turn.
+        SYSTEM = "SYSTEM", "System"
 
     goal = models.ForeignKey(Goal, on_delete=models.CASCADE, related_name="messages")
     role = models.CharField(max_length=8, choices=Role.choices)

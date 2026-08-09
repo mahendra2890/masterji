@@ -664,7 +664,11 @@ export default function Tour() {
         <div className={styles.banner}>
           A guided tour of the real product — the screens are the app&apos;s
           own, and the refusals in them are the ones the server actually gives.{" "}
-          <SignInButton>Sign in</SignInButton> to get your own Masterji.
+          {/* The {" "} is load-bearing and must not be reformatted into the
+              line below: a text node that starts on its own source line loses
+              its leading space in the build. */}
+          <SignInButton className={styles.bannerLink}>Sign in</SignInButton>{" "}
+          to get your own Masterji.
         </div>
 
         <header className={styles.header}>
@@ -776,6 +780,15 @@ export default function Tour() {
             </button>
           )}
           <span className={styles.navSpacer} />
+          {/* Where the reader is. One of these two copies is on at each width
+              and never both: here when the bar is pinned to the bottom of a
+              phone and the rail has scrolled away above, and in the rail on the
+              desktop layout, where the rail is always in view and this bar is
+              at the foot of the page. The arrow-key hint beside it is the same
+              trade the other way round — a phone has no arrow keys. */}
+          <span className={styles.navCount}>
+            {i + 1} / {SLIDES.length}
+          </span>
           <span className={styles.navHint}>← → arrow keys work too</span>
         </div>
       </main>

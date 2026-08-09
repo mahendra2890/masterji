@@ -24,6 +24,7 @@ import {
   prove,
   retireGoal,
   streamChat,
+  type ChatMessage,
   type CheckIn,
   type CoachState,
   type Phase,
@@ -65,6 +66,12 @@ const GOAL_EXAMPLES = [
   "A notice board for my hostel floor",
   "Weekend baking orders from my building",
 ];
+
+/** How much of the record the card shows before it is asked for the rest —
+ * see the comment where it is used. Rows, not days: a builder who declares a
+ * second task after proving the first gets two rows for one date, and the card
+ * would rather show seven rows than promise seven days and count them wrong. */
+const RECORD_PREVIEW = 7;
 
 const formatDate = (iso: string) =>
   new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short" });
@@ -200,6 +207,23 @@ function TourLink() {
   );
 }
 
+/** The words a SYSTEM notice is about: the last thing the builder said before
+ * it, which is the turn that never landed.
+ *
+ * Searched backwards rather than read off `i - 1`. What this feeds is a button
+ * that SENDS, so the one thing it must never do is put somebody else's sentence
+ * in the builder's mouth — and "the row above" is an assumption about how the
+ * server writes rows, while "the last thing they said" is the actual question.
+ * Empty means no retry button, which is right for a notice with nothing behind
+ * it rather than a button that would send "".
+ */
+const saidBefore = (messages: ChatMessage[], i: number) => {
+  for (let n = i - 1; n >= 0; n--) {
+    if (messages[n].role === "USER") return messages[n].content;
+  }
+  return "";
+};
+
 /** A day's verdict in one glyph, for the compact rows. Same shape as
  * CLOSED_CHIP above — a property access, not a string lookup, so a renamed
  * class is a type error rather than an undefined className at runtime. */
@@ -331,6 +355,11 @@ export default function Masterji({ user }: { user: SessionUser }) {
   const [viewDay, setViewDay] = useState<CheckIn | null>(null);
   // Opening a second cycle after today's proof already landed.
   const [declaringAgain, setDeclaringAgain] = useState(false);
+  // Whether the record is showing everything or just the last week of it.
+  // Deliberately not remembered between visits: the reason to open it is a
+  // question you have today, and a builder who answered one last Tuesday
+  // shouldn't be met by a wall of rows every morning after.
+  const [showAllDays, setShowAllDays] = useState(false);
   // A builder who reached for tonight's box before tonight — finished early,
   // or filing at four because they're out at seven. Only ever forces the
   // evening half OPEN; everything that opens it on its own is in eveningOpen.
@@ -573,10 +602,15 @@ export default function Masterji({ user }: { user: SessionUser }) {
       setState((s) => (s ? { ...s, mode: next } : s));
     });
 
-  const onSend = async () => {
-    const content = draft.trim();
+  /** Say something to Masterji. `retryOf` is the words of a turn the model
+   * dropped, sent again from the notice that reported it — so the composer is
+   * not the only way a message can be sent, and a builder whose turn died gets
+   * to answer that where it happened rather than retyping a paragraph they
+   * already wrote. Only the composer's own send clears the composer. */
+  const send = async (retryOf?: string) => {
+    const content = (retryOf ?? draft).trim();
     if (!content || streamingText !== null) return;
-    setDraft("");
+    if (retryOf === undefined) setDraft("");
     setError("");
     setPendingUserMsg(content);
     setStreamingText("");
@@ -1408,14 +1442,41 @@ export default function Masterji({ user }: { user: SessionUser }) {
             )}
           </section>
 
+          {/* The record, most recent first, cut to a week until asked.
+
+              Every row this goal has ever had used to render here. That is a
+              card which grows for as long as the builder keeps their promise:
+              at forty days it was a 2,500px wall under Today, and the server
+              will hand over ninety. The thing being punished by that was
+              turning up — and on a phone, where the dashboard is a single
+              scrolling column, it pushed "Behind you" off the end of a page
+              nobody scrolls to the bottom of.
+
+              A week is the cut because it is the span the card is actually
+              read for: what happened yesterday, and whether the last few days
+              hold. Everything older is a question you go looking for, and the
+              button is how you ask — nothing is hidden, and the count says
+              exactly how much is behind it. */}
           {checkins.length > 0 && (
             <section className={styles.card}>
               <p className={styles.cardLabel}>The record</p>
               <ul className={styles.history}>
-                {checkins.map((c) => (
-                  <HistoryRow key={c.id} checkin={c} onOpen={() => setViewDay(c)} />
-                ))}
+                {(showAllDays ? checkins : checkins.slice(0, RECORD_PREVIEW)).map(
+                  (c) => (
+                    <HistoryRow key={c.id} checkin={c} onOpen={() => setViewDay(c)} />
+                  )
+                )}
               </ul>
+              {checkins.length > RECORD_PREVIEW && (
+                <button
+                  className={styles.moreDays}
+                  onClick={() => setShowAllDays((v) => !v)}
+                >
+                  {showAllDays
+                    ? `Show the last ${RECORD_PREVIEW}`
+                    : `Show all ${checkins.length}`}
+                </button>
+              )}
             </section>
           )}
 
@@ -1448,15 +1509,46 @@ export default function Masterji({ user }: { user: SessionUser }) {
         {/* ------------------------------------------------ chat */}
         <section className={styles.chat}>
           <div className={styles.messages} ref={messagesRef}>
-            {messages.map((m) => (
-              <div
-                key={m.id}
-                className={m.role === "COACH" ? styles.coachMsg : styles.userMsg}
-              >
-                {m.role === "COACH" && <span className={styles.avatar}>म</span>}
-                <p className={styles.msgBody}>{m.content}</p>
-              </div>
-            ))}
+            {messages.map((m, i) => {
+              // A turn the model dropped before its first word. It is in the
+              // log because the refetch that ends every turn would otherwise
+              // erase the bubble the builder was watching — but it is the app
+              // reporting a failure, not Masterji saying something, and drawn
+              // as a bubble with his avatar that is exactly what it became: a
+              // sentence attributable to him, sitting in the record a week
+              // later next to real coaching. So: no avatar, no bubble, and the
+              // way out of it right there, because the thing a builder wants
+              // at that moment is the turn they already typed, not the job of
+              // typing it again.
+              if (m.role === "SYSTEM") {
+                const said = saidBefore(messages, i);
+                return (
+                  <div key={m.id} className={styles.systemMsg}>
+                    <p className={styles.systemText}>{m.content}</p>
+                    {said && (
+                      <button
+                        className={styles.retryBtn}
+                        // Same guard the composer's Send has: one turn in
+                        // flight at a time, whichever button started it.
+                        disabled={streamingText !== null}
+                        onClick={() => send(said)}
+                      >
+                        Send it again
+                      </button>
+                    )}
+                  </div>
+                );
+              }
+              return (
+                <div
+                  key={m.id}
+                  className={m.role === "COACH" ? styles.coachMsg : styles.userMsg}
+                >
+                  {m.role === "COACH" && <span className={styles.avatar}>म</span>}
+                  <p className={styles.msgBody}>{m.content}</p>
+                </div>
+              );
+            })}
             {pendingUserMsg && (
               <div className={styles.userMsg}>
                 <p className={styles.msgBody}>{pendingUserMsg}</p>
@@ -1610,14 +1702,14 @@ export default function Masterji({ user }: { user: SessionUser }) {
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && !e.shiftKey && enterSends()) {
                     e.preventDefault();
-                    onSend();
+                    send();
                   }
                 }}
               />
               <button
                 className={styles.primaryBtn}
                 disabled={streamingText !== null || !draft.trim()}
-                onClick={onSend}
+                onClick={() => send()}
               >
                 Send
               </button>

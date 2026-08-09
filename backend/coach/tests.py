@@ -1333,10 +1333,49 @@ class ChatTests(CoachTestCase):
             response = self.client.post("/api/coach/chat/", {"content": "you there?"})
             body = b"".join(response.streaming_content).decode()
         self.assertIn('"t": "error"', body)
+        # SYSTEM, not COACH: it is a row so it survives the refetch, but it is
+        # the app reporting a failure and Masterji never said it.
         self.assertEqual(
-            list(goal.messages.values_list("role", flat=True))[-2:], ["USER", "COACH"]
+            list(goal.messages.values_list("role", flat=True))[-2:], ["USER", "SYSTEM"]
         )
         self.assertEqual(goal.messages.latest("id").content, views.STREAM_BROKE)
+
+    def test_a_failure_notice_is_never_shown_to_the_model_as_its_own_words(self):
+        """The history sent up maps every non-USER row to "assistant". A notice
+        left in there is the model reading its own outage back as something it
+        said — on every turn after it, for as long as it stays in the window —
+        and the likeliest thing to do with that is say it again."""
+        goal = self.make_goal()
+
+        def boom(*args, **kwargs):
+            raise RuntimeError("provider hung up")
+            yield  # pragma: no cover — a generator that never gets that far
+
+        with mock.patch("coach.views.llm.stream_chat", side_effect=boom):
+            b"".join(
+                self.client.post(
+                    "/api/coach/chat/", {"content": "you there?"}
+                ).streaming_content
+            )
+        self.assertEqual(goal.messages.filter(role=Message.Role.SYSTEM).count(), 1)
+
+        seen = {}
+
+        def capture(system, messages, **kwargs):
+            seen["history"] = messages
+            yield "delta", "Kaam dikhao."
+
+        with mock.patch("coach.views.llm.stream_chat", side_effect=capture):
+            b"".join(
+                self.client.post(
+                    "/api/coach/chat/", {"content": "still there?"}
+                ).streaming_content
+            )
+        self.assertNotIn(
+            views.STREAM_BROKE, [m["content"] for m in seen["history"]]
+        )
+        # The builder's own words are untouched — only the notice is dropped.
+        self.assertIn("you there?", [m["content"] for m in seen["history"]])
 
     def test_an_answer_that_broke_off_partway_is_kept_as_far_as_it_got(self):
         """Half an answer is still his answer. Overwriting it with the failure

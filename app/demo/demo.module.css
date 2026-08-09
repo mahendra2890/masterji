@@ -23,6 +23,19 @@
   margin-bottom: 14px;
 }
 
+/* The one word in that sentence that signs somebody up, and it was 17px tall.
+   WCAG lets a link inside a sentence off the 24px hook — its height is set by
+   the text around it — but "technically exempt" is a poor answer for a target
+   this one is, on a phone, in a banner whose whole purpose is that word. The
+   padding buys the height and the negative margin gives it straight back, so
+   the MARGIN box is the size it always was and the line it sits in does not
+   open up around it. */
+.bannerLink {
+  display: inline-block;
+  padding: 6px 4px;
+  margin: -6px -4px;
+}
+
 .header {
   display: flex;
   align-items: center;
@@ -577,6 +590,17 @@
   white-space: nowrap;
 }
 
+/* Only for the width where the nav is pinned to the bottom of the screen — see
+   the mobile block, which turns this on. Off here because the rail is still on
+   screen at this width and already carries the count. */
+.navCount {
+  display: none;
+  font-family: var(--font-mono), monospace;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
 /* --- responsive ----------------------------------------------------------- */
 
 @media (max-width: 900px) {
@@ -634,5 +658,49 @@
 
   .navHint {
     display: none;
+  }
+
+  /* The way forward, pinned to the bottom of the screen.
+
+     A slide here runs two and a half to four screens — the mocks are the app's
+     own cards at phone width, so they stack rather than shrink — and "Next →"
+     was the last element on the page. Advancing meant scrolling past everything
+     you had just read to reach the one control that gets you off it, on a deck
+     whose whole job is to be a short bridge to the sign-in button. The reader
+     who has seen enough of a slide is exactly the reader who should not have to
+     scroll to say so.
+
+     Sticky rather than fixed: it is still the last child of .page, so it sits
+     in the flow at the end of the deck and only lifts off while there is more
+     slide below it. That also means it cannot cover the last line of anything —
+     at the foot of the page it lands back in its own space. .page gives up its
+     bottom padding for the same reason; the bar's own padding is that gap now,
+     and left there it would unstick 40px early. */
+  .page {
+    padding-bottom: 0;
+  }
+
+  .nav {
+    position: sticky;
+    bottom: 0;
+    z-index: 5;
+    margin-top: 24px;
+    padding-top: 12px;
+    /* Clears the home indicator on a phone; plain 14px everywhere else. */
+    padding-bottom: max(14px, env(safe-area-inset-bottom));
+    background: var(--bg);
+  }
+
+  /* One owner for the count at each width. The pinned bar takes it here,
+     because that is the thing on screen at every scroll position; leaving the
+     rail's copy on would put "1 / 4" twice on the first screen of every slide
+     and then drop to one the moment the reader scrolled. The dots stay — they
+     are how you jump, and they say the same thing in a different language. */
+  .count {
+    display: none;
+  }
+
+  .navCount {
+    display: inline;
   }
 }

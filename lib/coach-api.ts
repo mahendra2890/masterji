@@ -86,7 +86,12 @@ export type CheckIn = {
 
 export type ChatMessage = {
   id: number;
-  role: "USER" | "COACH";
+  /** SYSTEM is the app talking about the conversation rather than a turn in
+   * it — today only "that one didn't go through". It is stored server-side so
+   * it survives the refetch that ends every turn, and it is kept out of what
+   * the model is shown. The log has to draw it as something other than the
+   * coach speaking. */
+  role: "USER" | "COACH" | "SYSTEM";
   content: string;
   createdAt: string;
 };
@@ -213,7 +218,7 @@ type ServerCheckIn = {
 };
 type ServerMessage = {
   id: number;
-  role: "USER" | "COACH";
+  role: "USER" | "COACH" | "SYSTEM";
   content: string;
   created_at: string;
 };
