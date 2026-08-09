@@ -48,5 +48,5 @@ def unseed(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-    dependencies = [("coach", "0019_checkin_proof_missing")]
+    dependencies = [("coach", "0023_checkin_proof_missing")]
     operations = [migrations.RunPython(seed, unseed)]
