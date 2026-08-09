@@ -24,7 +24,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from . import gates, guidance, llm, prompts, storage, streaks
+from . import bar, gates, guidance, llm, prompts, storage, streaks
 from .models import (
     ChangelogEntry,
     CheckIn,
@@ -112,6 +112,15 @@ OFFER_DAY_CLOSED = (
 OFFER_LANDED = (
     "Wrote tonight's proof up from what you just told me — it's under "
     f"{WHERE_TO_FILE}, yours to edit before you file it."
+)
+
+# The same receipt for a turn that banked a PART of tonight's proof and said
+# nothing around it. It has to carry the gap: notes that don't say what is still
+# owed read as a finished proof the builder can go and file, and they'd be
+# pushed back for a piece nobody told them was missing.
+NOTES_LANDED = (
+    "Noted what you've given me so far — it's under "
+    f"{WHERE_TO_FILE}. Still need: {{missing}}"
 )
 
 # On the wire when the model drops the turn, and in the transcript too when it
@@ -615,6 +624,7 @@ class DeclareView(APIView):
         checkin.declaration_reaction = ""
         checkin.proof_ask = ""
         checkin.proof_offer = ""
+        checkin.proof_missing = ""
         checkin.save(
             update_fields=[
                 "am_declaration",
@@ -622,6 +632,7 @@ class DeclareView(APIView):
                 "declaration_reaction",
                 "proof_ask",
                 "proof_offer",
+                "proof_missing",
                 "updated_at",
             ]
         )
@@ -782,18 +793,26 @@ def _react_to_proof(
     call — one judgement over the text and the image together, because they
     are one claim about one day's work.
 
-    Two things keep the judgement from moving under the builder. A
+    Three things keep the judgement from moving under the builder. A
     resubmission is judged against every try already refused tonight and the
-    words that refused each one; and a proof Masterji drafted himself, filed
-    unedited, is accepted without a model call at all. The verdict is otherwise
-    entirely the model's — nothing here passes work because the builder tried
-    often enough.
+    words that refused each one; a COMPLETE proof Masterji drafted himself,
+    filed unedited, is accepted without a model call at all; and his running
+    notes go into the prompt so the evening cannot demand a fact the afternoon
+    already took as given. The verdict is otherwise entirely the model's —
+    nothing here passes work because the builder tried often enough.
     """
     offer = checkin.proof_offer.strip()
-    if offer and checkin.pm_proof_text.strip() == offer:
+    missing = checkin.proof_missing.strip()
+    if offer and not missing and checkin.pm_proof_text.strip() == offer:
         # He read the conversation, decided it cleared the bar, and wrote this
         # out himself. Asking him again could only produce a disagreement with
         # himself, and the builder would be the one who paid for it.
+        #
+        # `missing` is what makes that true, and why it is checked here. A
+        # running draft is written down long before it clears anything, and it
+        # is the same field — without this test, notes Masterji himself called
+        # incomplete would file straight through untouched. That is not
+        # leniency, it is the gate deciding nothing.
         logger.info(f"Proof filed from Masterji's own draft on checkin {checkin.id}")
         return "accept", prompts.STOCK_OFFER_ACCEPT.get(
             tone, prompts.STOCK_OFFER_ACCEPT["ENGLISH"]
@@ -814,7 +833,7 @@ def _react_to_proof(
             if checkin.proof_ask
             else "",
             prior_try=prompts.prior_tries(tries),
-            from_offer=prompts.PROOF_FROM_OFFER.format(offer=offer) if offer else "",
+            from_offer=prompts.from_draft(offer, missing),
         )
         if image:
             system += prompts.PROOF_IMAGE_RULE
@@ -856,6 +875,10 @@ class ChatView(APIView):
 
         today = _client_day(request)
         checkin = _latest_checkin(goal, today)
+        # The row the running draft lives on, not the day's latest cycle: once
+        # a cycle is proved and closed its notes are spent, and reading them
+        # back would have him chasing pieces of a proof already on the record.
+        target = _offer_target(goal, today)
         system = prompts.build_system_prompt(
             goal,
             gates.gate_status(goal),
@@ -865,6 +888,8 @@ class ChatView(APIView):
             archive=_archive(request.user),
             lifetime=streaks.lifetime_days(request.user),
             mode=request.user.mode,
+            offer=target.proof_offer if target else "",
+            missing=target.proof_missing if target else "",
         )
         history = [
             {
@@ -903,7 +928,7 @@ class ChatView(APIView):
         line = lambda obj: json.dumps(obj) + "\n"  # noqa: E731
         parts: list[str] = []
         advance_proposed = False
-        offered = ""
+        offered = missing = ""
         broke = False
         with tracer.start_as_current_span("coach.turn") as span:
             span.set_attribute("goal.phase", goal.phase)
@@ -912,7 +937,12 @@ class ChatView(APIView):
                 for kind, payload in llm.stream_chat(
                     system,
                     history,
-                    tools=[prompts.PROPOSE_ADVANCE_TOOL, prompts.SUGGEST_PROOF_TOOL],
+                    tools=[
+                        prompts.PROPOSE_ADVANCE_TOOL,
+                        # Shaped by the phase, because the arguments ARE the
+                        # phase's bar — a list per part that has a count on it.
+                        prompts.suggest_proof_tool(Phase(goal.phase)),
+                    ],
                 ):
                     if kind == "delta":
                         parts.append(payload)
@@ -922,9 +952,16 @@ class ChatView(APIView):
                         if name == "propose_phase_advance":
                             advance_proposed = True
                         elif name == "suggest_proof":
-                            offered = str(
-                                payload.get("arguments", {}).get("text") or ""
-                            ).strip()
+                            # The model sends the parts; bar.read does the
+                            # counting, and what is still owed is arithmetic
+                            # over them rather than the model's opinion of its
+                            # own paragraph. Assigned as a pair, always both: a
+                            # later call in the same turn replaces the draft,
+                            # and a gap left over from the earlier one would
+                            # describe text that is no longer there.
+                            offered, missing = bar.read(
+                                goal.phase, payload.get("arguments", {})
+                            )
             except Exception as e:
                 logger.error(f"Chat stream failed: {e}")
                 broke = True
@@ -938,13 +975,21 @@ class ChatView(APIView):
             # that outlives the turn it was made in — the builder can go and
             # file it tomorrow morning if they close the tab tonight.
             if offered:
-                if offer_target is None:
-                    # No OPEN check-in to hang it on. That is a reason to hand
-                    # the draft back, not to bin it silently: the work behind it
-                    # happened, and the builder is the only person who can turn
-                    # it into a declaration and a filing. Which declaration
-                    # depends on why there's no target — a day nobody has
-                    # declared on, or one already proved and closed — and
+                if offer_target is not None:
+                    offer_target.proof_offer = offered
+                    offer_target.proof_missing = missing
+                    offer_target.save(
+                        update_fields=["proof_offer", "proof_missing", "updated_at"]
+                    )
+                    span.set_attribute("proof.offered", True)
+                    logger.info(f"Proof drafted for checkin {offer_target.id}")
+                elif not missing:
+                    # No OPEN check-in to hang a FINISHED draft on. That is a
+                    # reason to hand it back, not to bin it silently: the work
+                    # behind it happened, and the builder is the only person who
+                    # can turn it into a declaration and a filing. Which
+                    # declaration depends on why there's no target — a day nobody
+                    # has declared on, or one already proved and closed — and
                     # telling them the wrong one contradicts their own card.
                     span.set_attribute("proof.offered", False)
                     span.set_attribute("proof.day_closed", day_closed)
@@ -958,10 +1003,14 @@ class ChatView(APIView):
                     yield line({"t": "delta", "text": f"\n\n{note}" if content else note})
                     content = f"{content}\n\n{note}".strip()
                 else:
-                    offer_target.proof_offer = offered
-                    offer_target.save(update_fields=["proof_offer", "updated_at"])
-                    span.set_attribute("proof.offered", True)
-                    logger.info(f"Proof drafted for checkin {offer_target.id}")
+                    # Running notes with nothing to pin them to, which is not
+                    # worth saying out loud. A finished draft handed back is one
+                    # move from being filed — declare, paste, done; a partial one
+                    # is a paraphrase of the conversation they are already having,
+                    # repeated every turn until they declare. His own words in
+                    # this turn carry it, and the transcript keeps them.
+                    span.set_attribute("proof.offered", False)
+                    logger.info(f"Partial draft with nothing owed on goal {goal.id}")
 
             # Both of these turns produced no words and used to save no row,
             # which is not the same as Masterji having nothing to say — it is
@@ -971,14 +1020,19 @@ class ChatView(APIView):
             #
             # `content` is already built above, and handing a draft back may
             # have appended it to it — which is exactly why that case must not
-            # also count as wordless. It doesn't: handing back is the
-            # `offer_target is None` branch, either wording of it, and the
-            # second test here requires a target.
+            # also count as wordless. It doesn't: handing back only happens with
+            # no target, either wording of it, and the second test here requires
+            # a target. Nor does the one below it, partial notes with nothing to
+            # pin them to: a turn that banked nothing, said nothing and proposed
+            # nothing is a turn with nothing to record.
             if broke and not content:
                 content = STREAM_BROKE
             elif offered and offer_target is not None and not content:
-                yield line({"t": "delta", "text": OFFER_LANDED})
-                content = OFFER_LANDED
+                receipt = (
+                    NOTES_LANDED.format(missing=missing) if missing else OFFER_LANDED
+                )
+                yield line({"t": "delta", "text": receipt})
+                content = receipt
             if advance_proposed:
                 advanced, detail = gates.try_advance(goal)
                 span.set_attribute("gate.advanced", advanced)

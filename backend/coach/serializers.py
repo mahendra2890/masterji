@@ -52,6 +52,7 @@ class CheckInSerializer(serializers.ModelSerializer):
             "declaration_reaction",
             "proof_ask",
             "proof_offer",
+            "proof_missing",
             "pm_proof_text",
             "proof_url",
             "proof_image_url",

@@ -96,13 +96,24 @@ class CheckIn(SoftDeleteModel):
     # What tonight's proof must show FOR THIS TASK. Falls back to the phase's
     # static ask (guidance.PROOF_HINT) when empty, so the form is never blank.
     proof_ask = models.TextField(blank=True)
-    # Tonight's proof as Masterji drafted it, from work the builder had already
-    # described in conversation (the suggest_proof tool). An OFFER, never a
-    # record: it puts a filled-in box in front of the builder and they still
-    # have to file it. Kept on the row because the evening's judgement reads it
-    # back — a proof filed from this draft unedited needs no second opinion,
-    # and an edited one must not be re-litigated from scratch.
+    # Tonight's proof as Masterji has it so far, written from work the builder
+    # described in conversation (the suggest_proof tool). A RUNNING draft: he
+    # rewrites it every time another piece arrives, so it always holds the whole
+    # of what the evening has produced. An OFFER, never a record — it puts a
+    # filled-in box in front of the builder and they still have to file it.
+    # Kept on the row because both later readers need it: the next chat turn
+    # reads it as already-given (so nothing in it is ever asked for twice), and
+    # the evening's judgement reads it back — a complete draft filed unedited
+    # needs no second opinion, and an edited one must not be re-litigated.
     proof_offer = models.TextField(blank=True)
+    # What that draft still lacks, one short phrase per piece, semicolon-
+    # separated. It is the whole of what Masterji may still ask for tonight,
+    # and it is the difference between notes and an offer: empty means the
+    # draft clears the phase's bar, and ONLY then may filing it unedited skip
+    # the evening's judgement (views._react_to_proof). Notes are a record of
+    # what the builder said, never a verdict — a partial draft that gets filed
+    # is judged like any other proof.
+    proof_missing = models.TextField(blank=True)
     pm_proof_text = models.TextField(blank=True)
     proof_url = models.URLField(blank=True)
     # Opaque object-storage key for a screenshot backing tonight's proof.

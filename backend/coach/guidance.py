@@ -25,6 +25,12 @@ PHASE_HINT = {
 # What tonight's proof has to contain. Mirrors each phase playbook's
 # "What counts as PROOF for Masterji" section — kept in one place so the
 # check-in form cannot promise something the playbook doesn't teach.
+#
+# The same bar is also in bar.BAR, broken into parts the server can count. This
+# one is prose because it is what a builder READS; that one is data because it
+# is what suggest_proof is shaped from and what decides how many entries a list
+# is short. They are two faces of one bar and they have to be changed together
+# — bar.py's docstring says the same thing from the other side.
 PROOF_HINT = {
     Phase.IDEA: (
         "What to submit: your one-paragraph problem statement, plus the route "
