@@ -42,6 +42,29 @@ const CLOSED_CHIP: Record<
   UNTESTED: { label: "untested", className: (s) => s.chipNone },
 };
 
+/** Three goals of the right size, for the blank box on somebody's first day.
+ *
+ * The freeze there is not "I have no ideas" — it is not knowing how big the
+ * box wants the answer to be, and a lone placeholder answers that with one
+ * data point. Three answer it with a range: two of these are somebody else's
+ * world entirely, which is the part that says "yours counts too" better than
+ * any sentence could. Deliberately not the placeholder's tiffin app — a
+ * fourth phrasing of the example already on screen teaches nothing, and that
+ * one goes on to carry the whole guided tour.
+ *
+ * Kept in the worlds the playbooks and guidance.PROOF_EXAMPLES already talk
+ * about — hostel floors, Instagram resellers, a building's own neighbours —
+ * so a builder who taps one and reads the coaching afterwards lands somewhere
+ * the product has already thought about. The last one earns its place by not
+ * being software: nothing else on this screen says a first build is allowed
+ * to be a spreadsheet and a WhatsApp group.
+ */
+const GOAL_EXAMPLES = [
+  "Payment tracking for Instagram resellers",
+  "A notice board for my hostel floor",
+  "Weekend baking orders from my building",
+];
+
 const formatDate = (iso: string) =>
   new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short" });
 
@@ -196,6 +219,8 @@ export default function Masterji({ user }: { user: SessionUser }) {
 
   // forms
   const [goalTitle, setGoalTitle] = useState("");
+  // The goal box, so the examples under it can put the caret in it.
+  const goalBoxRef = useRef<HTMLInputElement>(null);
   const [amText, setAmText] = useState("");
   const [pmText, setPmText] = useState("");
   const [pmUrl, setPmUrl] = useState("");
@@ -489,6 +514,9 @@ export default function Masterji({ user }: { user: SessionUser }) {
   if (!state.goal) {
     const closing = justRetired ?? state.archive[0];
     const shipped = closing?.outcome === "COMPLETED";
+    // The box holds words that are theirs, not one of ours — see the buttons.
+    const examplesSpent =
+      goalTitle.trim() !== "" && !GOAL_EXAMPLES.includes(goalTitle);
     return (
       <main className={styles.onboarding}>
         <p className={styles.wordmark}>मास्टरजी</p>
@@ -524,15 +552,26 @@ export default function Masterji({ user }: { user: SessionUser }) {
         ) : (
           <>
             <h1 className={styles.onboardTitle}>One goal.</h1>
+            {/* What this screen used to say last was "you can retire it later,
+                but he'll remember" — reversibility and a warning in one breath,
+                on the one screen where nobody has done anything yet to be
+                warned about. The reversibility is worth saying and stays; the
+                threat is spent here and lands properly in the retire flow,
+                where there is a record to keep. What the sentence owes instead
+                is the shape of what they're agreeing to: a commitment nobody
+                has priced reads as unlimited. */}
             <p className={styles.onboardSub}>
-              Masterji coaches one thing at a time — pick the goal that matters
-              and commit. You can retire it later, but he&apos;ll remember.
+              Masterji coaches one thing at a time. Pick the one that matters and
+              commit — then it&apos;s one task each morning and proof of it each
+              evening, about two minutes a day. You can close it whenever you
+              like.
             </p>
           </>
         )}
 
         <div className={styles.onboardForm}>
           <input
+            ref={goalBoxRef}
             className={styles.input}
             placeholder={
               closing ? "So — what's next?" : "e.g. Tiffin-delivery app for my college"
@@ -546,6 +585,62 @@ export default function Masterji({ user }: { user: SessionUser }) {
             Commit
           </button>
         </div>
+
+        {/* First run only — `closing` is set by an archive entry as well as by
+            a just-retired goal, so this is off for everyone who has done this
+            before. They know the shape; the examples would be clutter, and the
+            screen they're on is a victory lap.
+
+            These fill the box rather than committing: the goal has to be
+            theirs, and one tap from "example" to "locked in a database
+            constraint" is how you get a user coached on somebody else's idea.
+            Filling it leaves the edit — and the decision — with them. */}
+        {!closing && (
+          <div className={styles.examples}>
+            <p id="goal-examples-label" className={styles.examplesLabel}>
+              Roughly this specific:
+            </p>
+            {/* Named by the line above rather than by three aria-labels: the
+                buttons say a goal each, and what a goal is doing in a button
+                is the one thing their own text can't carry. */}
+            <ul className={styles.exampleList} aria-labelledby="goal-examples-label">
+              {GOAL_EXAMPLES.map((example) => (
+                <li key={example}>
+                  <button
+                    type="button"
+                    className={styles.example}
+                    /* Spent once the goal is theirs. Filling the box would
+                       throw away a sentence they typed, and it does not come
+                       back: setting a controlled input's value through React
+                       takes the browser's own undo stack with it, so Ctrl+Z
+                       returns the example, not their words. Verified, not
+                       assumed.
+
+                       Dimmed rather than unmounted, because this column is
+                       centred: dropping the block the moment they start typing
+                       re-centres everything and slides the box out from under
+                       the cursor they are typing into. Switching between
+                       examples stays live — swapping one example for another
+                       costs nothing. */
+                    disabled={examplesSpent}
+                    onClick={() => {
+                      setGoalTitle(example);
+                      // And put them in the box it filled — the same move the
+                      // evening's draft button makes, for the same reason. The
+                      // whole promise of an example is "now make it yours",
+                      // and that is a lie if editing starts with a hunt for
+                      // the caret.
+                      goalBoxRef.current?.focus();
+                    }}
+                  >
+                    {example}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         {error && <p className={styles.error}>{error}</p>}
 
         {state.archive.length > 0 && (

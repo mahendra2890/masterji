@@ -56,6 +56,57 @@
   flex: 1;
 }
 
+/* Worked examples under the first-run box. Same width as the form they fill,
+   so they read as belonging to it rather than as a menu of their own. */
+.examples {
+  width: min(520px, 100%);
+}
+
+.examplesLabel {
+  margin: 0 0 7px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.exampleList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 7px;
+}
+
+/* Outlined rather than filled: these fill the box, they don't commit it, and
+   the one filled control on this screen has to stay the one that does.
+   Left-aligned for the narrowest phones, where the longest of them wraps. */
+.example {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 6px 13px;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.35;
+  text-align: left;
+  cursor: pointer;
+}
+
+.example:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+/* Spent, once the box holds the builder's own words. Same treatment the other
+   disabled controls get — the block keeps its space, so nothing moves under
+   the cursor of somebody mid-sentence. */
+.example:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 /* The quiet row under the onboarding form: sign out, and what's changed. */
 .onboardFooter {
   display: flex;

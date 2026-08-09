@@ -126,8 +126,10 @@ const SLIDES: Slide[] = [
           <p className={app.wordmark}>मास्टरजी</p>
           <h2 className={app.onboardTitle}>One goal.</h2>
           <p className={app.onboardSub}>
-            Masterji coaches one thing at a time — pick the goal that matters
-            and commit. You can retire it later, but he&apos;ll remember.
+            Masterji coaches one thing at a time. Pick the one that matters and
+            commit — then it&apos;s one task each morning and proof of it each
+            evening, about two minutes a day. You can close it whenever you
+            like.
           </p>
           <Mark n={1}>
             <div className={app.onboardForm}>
@@ -137,6 +139,29 @@ const SLIDES: Slide[] = [
               <span className={app.primaryBtn}>Commit</span>
             </div>
           </Mark>
+          {/* Outside the ring, and with no note of its own. The screen carries
+              these now, so a mock without them is a picture of a screen that
+              no longer exists — but what they DO is answered by tapping one,
+              after signing up, on a screen that shows it plainly. A slide that
+              explains that here is a manual, not a bridge. */}
+          <div className={app.examples}>
+            <p className={app.examplesLabel}>Roughly this specific:</p>
+            <ul className={app.exampleList}>
+              <li>
+                <span className={app.example}>
+                  Payment tracking for Instagram resellers
+                </span>
+              </li>
+              <li>
+                <span className={app.example}>A notice board for my hostel floor</span>
+              </li>
+              <li>
+                <span className={app.example}>
+                  Weekend baking orders from my building
+                </span>
+              </li>
+            </ul>
+          </div>
         </div>
 
         <p className={styles.bigArrow}>
