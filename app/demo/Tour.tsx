@@ -306,10 +306,6 @@ const SLIDES: Slide[] = [
                     <span className={app.modeOpt}>Think with me</span>
                   </div>
                   <p className={app.modeCaption}>Assignments and push-back.</p>
-                  {/* Decorative like the two options above it — in the real
-                      bar this is a button that opens the paragraph quoted in
-                      the note beside this ring. */}
-                  <span className={app.modeInfo}>What&apos;s the difference?</span>
                 </div>
               </Mark>
               <div className={app.composerRow}>
@@ -349,13 +345,10 @@ const SLIDES: Slide[] = [
       <>
         {/* The app's own caption is one clause now — "Assignments and
             push-back." — because saying more of it there spent the word the
-            note under the composer needed. This deck briefly was the only
-            place the toggle got explained at all; it isn't any more, so this
-            note no longer has to carry the product. "What's the difference?"
-            says all of this beside the switch itself, and what's left here is
-            a tour pointing at it. */}
-        <strong>What&apos;s the difference?</strong> answers itself in place, so
-        you never have to press a mode to find out what it does.{" "}
+            note under the composer needed. An in-app disclosure carried this
+            paragraph for one release and was removed as clutter, so this deck
+            is once again the only place the toggle is explained at all: if
+            this note goes, the product explains it nowhere. */}
         <strong>Think with me</strong> trades assignments for questions and puts
         options on the table instead — for the part of the work that comes
         before there&apos;s anything to declare. It stays set until you change
