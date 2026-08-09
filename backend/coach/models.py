@@ -71,6 +71,26 @@ class CheckIn(SoftDeleteModel):
         NONE = "NONE", "No proof yet"
         ACCEPTED = "ACCEPTED", "Accepted"
         PUSHED_BACK = "PUSHED_BACK", "Pushed back"
+        # Filed, and nobody has read it — the model was unreachable when it
+        # landed. The twin of DeclarationFit.UNJUDGED, and for the same reason:
+        # "the model didn't answer" is a real state and must not be spelled as
+        # a verdict in either direction.
+        #
+        # This used to be ACCEPTED. The daily loop is right to survive an
+        # outage — a builder's streak must not break because an API flaked —
+        # but one decision was doing two jobs, and the second one was the gate.
+        # With the model down, "think about the problem" proved by "I thought
+        # about it a lot and read some articles" was accepted, banked 1/1
+        # toward VALIDATION, and lit "Earned. VALIDATION is yours to open."
+        # The phase whose whole job is preventing that opened for exactly it.
+        #
+        # So the two jobs are split. The day still counts everywhere days are
+        # counted — streaks.py reads a declaration and a proof, never a verdict
+        # — and the record still shows it. What it does not do is bank a proof
+        # toward a phase: gates.py counts ACCEPTED and this is not that. The
+        # cycle stays open (views._open_checkin), so filing again once the
+        # model is back gets it judged for real.
+        UNJUDGED = "UNJUDGED", "Not judged"
 
     goal = models.ForeignKey(Goal, on_delete=models.CASCADE, related_name="checkins")
     date = models.DateField()

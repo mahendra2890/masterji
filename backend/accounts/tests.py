@@ -5,8 +5,9 @@ user this database doesn't have — is a dead session, never a 500 and never a
 lockout. It must still be possible to refresh, log out and log back in.
 """
 
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
+import jwt
 from django.conf import settings
 from django.urls import reverse
 from rest_framework.test import APITestCase
@@ -41,7 +42,54 @@ class CookieRefreshTests(APITestCase):
         user.delete()
         response = self.refresh_with_cookie(raw)
         self.assertEqual(response.status_code, 401)
-        self.assertEqual(response.json()["detail"], "Unknown session.")
+        self.assertEqual(response.json()["detail"], "Session expired — sign in again.")
+
+    def test_every_dead_cookie_is_a_401_in_json(self):
+        """The bug this class exists to prevent, in the three shapes that
+        actually reach production.
+
+        This view reimplements simplejwt's TokenViewBase.post and used to drop
+        its TokenError → InvalidToken conversion, so a malformed, expired, or
+        wrong-secret cookie raised past DRF and Django answered 500 in
+        text/html. lib/auth-client.ts reads any non-JSON reply as "the instance
+        is still booting", so the app showed "The server is waking up." and
+        retried every three seconds forever, on a screen with no way out — and
+        a SECRET_KEY rotation would have done that to every signed-in builder
+        at once. The content type is asserted for that reason: a 500 that
+        happened to be JSON would have been a bad code, while a 500 in HTML was
+        an unrecoverable app.
+        """
+        user = User.objects.create_user(username="ash", email="ash@example.com")
+        expired = RefreshToken.for_user(user)
+        expired.set_exp(
+            from_time=datetime.now(UTC) - timedelta(days=30),
+            lifetime=timedelta(seconds=1),
+        )
+        elsewhere = jwt.encode(
+            {"token_type": "refresh", "exp": 9999999999, "jti": "x", "user_id": user.id},
+            "a-key-this-deploy-does-not-use",
+            algorithm="HS256",
+        )
+        for label, raw in [
+            ("malformed", "not-a-jwt"),
+            ("expired", str(expired)),
+            ("signed with a rotated SECRET_KEY", elsewhere),
+        ]:
+            with self.subTest(cookie=label):
+                response = self.refresh_with_cookie(raw)
+                self.assertEqual(response.status_code, 401)
+                self.assertEqual(response["Content-Type"], "application/json")
+
+    def test_a_dead_cookie_is_cleared_on_the_way_out(self):
+        """Otherwise the 401 is the same 401 tomorrow: the cookie outlives the
+        session it names, so every visit re-runs the failure. Cleared, the next
+        request is the plain "No refresh cookie." case and the builder gets a
+        landing page with a sign-in button on it."""
+        response = self.refresh_with_cookie("not-a-jwt")
+        self.assertEqual(response.status_code, 401)
+        for name in (settings.AUTH_ACCESS_COOKIE, settings.AUTH_REFRESH_COOKIE):
+            with self.subTest(cookie=name):
+                self.assertEqual(response.cookies[name].value, "")
 
 
 class SessionLifecycleTests(APITestCase):

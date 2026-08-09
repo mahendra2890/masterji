@@ -79,7 +79,10 @@ export type CheckIn = {
    * per read and expires in minutes — never persist or share it. "" when
    * there's no image or storage isn't configured. */
   proofImageUrl: string;
-  proofStatus: "NONE" | "ACCEPTED" | "PUSHED_BACK";
+  /** UNJUDGED is filed-but-unread: the model was unreachable when it landed.
+   * The day counts — record and streak — but nothing is banked toward the
+   * phase, and the cycle stays open so filing again gets it a real reading. */
+  proofStatus: "NONE" | "ACCEPTED" | "PUSHED_BACK" | "UNJUDGED";
   coachReaction: string;
   attempts: ProofAttempt[];
 };
@@ -93,6 +96,9 @@ export type ChatMessage = {
    * coach speaking. */
   role: "USER" | "COACH" | "SYSTEM";
   content: string;
+  /** The phase the conversation was in when this was said, stamped server-side
+   * and never rewritten. "" only for rows written before the field existed. */
+  phase: Phase | "";
   createdAt: string;
 };
 
@@ -220,6 +226,7 @@ type ServerMessage = {
   id: number;
   role: "USER" | "COACH" | "SYSTEM";
   content: string;
+  phase?: Phase | "";
   created_at: string;
 };
 
@@ -285,6 +292,7 @@ const fromServerMessage = (m: ServerMessage): ChatMessage => ({
   id: m.id,
   role: m.role,
   content: m.content,
+  phase: m.phase ?? "",
   createdAt: m.created_at,
 });
 

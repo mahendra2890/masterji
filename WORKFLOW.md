@@ -130,10 +130,15 @@ Three other things carried weight:
 - **Checks ran against production, not localhost.** The deployed app, the OAuth
   redirect, and — the one worth running yourself — that the development
   sign-in backdoor returns `404` in production.
-- **The test suite is the ratchet.** 180 tests pin the gate, tenancy (another
+- **The test suite is the ratchet.** ~200 tests pin the gate, tenancy (another
   user's ids `404`, not `403`), the one-goal database constraint, and the
-  behaviour when the model is unreachable: the proof is accepted with a stock
-  reaction, because a builder's streak shouldn't break when an API flakes.
+  behaviour when the model is unreachable: the day is kept and the gate is not
+  opened. That last one was itself a review finding, and a good example of the
+  shape — the rule *a builder's streak shouldn't break when an API flakes* was
+  right, and had been implemented as "accept the proof", which also banked it
+  toward the next phase. One word was carrying two decisions, and with the
+  model down a declaration of "think about the problem" could unlock
+  VALIDATION. Splitting them is four lines; noticing was the work.
 - **A public changelog row for every builder-visible change**, written in the
   same pull request that ships it. The product asks builders for evidence
   someone else can read; the repo owes them the same.

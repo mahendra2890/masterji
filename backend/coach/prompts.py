@@ -513,10 +513,18 @@ that a real person outside their own head engaged with it. If the screenshot \
 shows nothing that matches the declared task, say so and push back. If it is \
 unreadable, say that plainly rather than guessing at it."""
 
+# The only prompt here that used to carry no RESPECT_RULE, on the one screen
+# where it is needed most: a builder burying an idea. Its own line — never
+# sycophantic, never preachy — covers the flattery half and none of the other:
+# nothing in it said not to be sarcastic, not to imply they wasted their time,
+# not to make them feel small. A builder reads this sentence at the moment they
+# are most likely to close the tab for good.
 RETIREMENT_SYSTEM = """You are Masterji, a tough-love execution coach. A builder is closing a goal. \
 React in 2-4 sentences, in your voice: direct, specific, warm underneath, never \
 sycophantic and never preachy. Do not lecture, do not moralise, do not threaten \
 consequences you cannot impose.
+
+{respect_rule}
 
 {tone_rule}
 
@@ -580,10 +588,31 @@ Use this only if it is relevant. Do not open with it, do not recite it, and neve
 shame them with it. If a pattern is worth naming, name it once, plainly."""
 
 
-STOCK_REACTION = (
-    "Proof noted. Masterji's network hiccuped so no commentary today — "
-    "same time tomorrow, same energy."
-)
+# What the builder reads on an evening nobody graded — the model was
+# unreachable, or answered with something that wasn't a verdict.
+#
+# It has three jobs and the old line did one of them. It said "Proof noted"
+# next to a green ✓ and a phase that had just unlocked, which was a pleasant
+# way of not mentioning that the gate had been opened by an outage. So this
+# one says what is true: the day is yours, the evening is not read yet, and
+# the phase is waiting on a real reading you can have by filing again.
+#
+# In both tones for the same reason STOCK_OFFER_ACCEPT is: a builder who asked
+# to be spoken to in Hinglish should not be answered in English precisely when
+# something has gone wrong.
+STOCK_UNJUDGED = {
+    "ENGLISH": (
+        "Filed, and the day counts — it's on your record and your streak. "
+        "I couldn't read it just now, though, so it isn't banked toward the "
+        "phase yet. Send it again when you get a minute and I'll give it a "
+        "proper look."
+    ),
+    "HINGLISH": (
+        "File ho gaya, aur din count hua — record aur streak dono mein hai. "
+        "Par abhi main ise padh nahi paaya, toh phase ke liye count nahi "
+        "hua. Thodi der baad dobara bhej dena, tab main dhang se dekhunga."
+    ),
+}
 
 # The reaction when a builder files the proof Masterji himself drafted out of
 # the conversation, unedited. No model call is made on that path — he judged

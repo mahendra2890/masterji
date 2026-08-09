@@ -644,6 +644,16 @@
   margin: 0 0 10px;
 }
 
+/* A proof nobody read yet. Deliberately not --bad: the evening was not
+   refused, and colouring an outage like a refusal teaches a builder that
+   bringing real work is risky. Muted rather than loud — the day already
+   counted, and the only thing outstanding is our side of it. */
+.unread {
+  color: var(--muted);
+  font-size: 14px;
+  margin: 0 0 10px;
+}
+
 /* Declared work that isn't what the phase is for. Warned, not barred — so
    it reads as the coach objecting, not the form refusing. */
 .offPhase {

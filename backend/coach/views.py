@@ -144,12 +144,33 @@ def _active_goal(user) -> Goal | None:
     return Goal.objects.filter(user=user, status=Goal.Status.ACTIVE).first()
 
 
+# A proof is on the record but the cycle is not finished with it. Both of
+# these keep tonight open, for opposite reasons: PUSHED_BACK because Masterji
+# read it and wants more, UNJUDGED because he never read it at all.
+UNSETTLED = (CheckIn.ProofStatus.PUSHED_BACK, CheckIn.ProofStatus.UNJUDGED)
+
+# What _react_to_proof's verdict means on the row. A verdict this doesn't know
+# falls back to PUSHED_BACK at the call site: the model has answered something
+# nobody planned for, and the safe reading of an unrecognised answer is the one
+# that banks nothing. "accept" is the only word that opens the gate, and it has
+# to arrive spelled exactly.
+VERDICT_STATUS = {
+    "accept": CheckIn.ProofStatus.ACCEPTED,
+    "push_back": CheckIn.ProofStatus.PUSHED_BACK,
+    "unjudged": CheckIn.ProofStatus.UNJUDGED,
+}
+
+
 def _open_checkin(goal: Goal, day: date) -> CheckIn | None:
     """The cycle still awaiting proof on `day`, if any. A pushed-back proof
-    reopens the cycle — the builder gets to answer it, not start over."""
+    reopens the cycle — the builder gets to answer it, not start over — and so
+    does one filed while the model was unreachable, which is the same offer
+    made for a failure that was ours: file it again and it gets a real reading.
+    Neither costs them the day, which streaks.py counts from the declaration
+    and the proof without ever looking at a verdict."""
     return (
         CheckIn.objects.filter(goal=goal, date=day)
-        .filter(Q(pm_proof_text="") | Q(proof_status=CheckIn.ProofStatus.PUSHED_BACK))
+        .filter(Q(pm_proof_text="") | Q(proof_status__in=UNSETTLED))
         .order_by("-created_at")
         .first()
     )
@@ -259,8 +280,20 @@ def _days_active(goal: Goal, today: date) -> int:
 
 
 def _today_state(checkin: CheckIn | None) -> str:
+    """Where the day has got to, as a fact.
+
+    This is the state block, and state reports — it does not give orders. It
+    used to end "demand one before anything else", which COACH_SYSTEM
+    contradicts three paragraphs later ("ask for it first — once, and then let
+    it go") and THINKING_MODE contradicts outright ("no demanding a declaration
+    mid-thought"). A builder who switched to the thinking partner and opened
+    with a half-formed idea was met by a prompt telling him both to leave the
+    declaration alone and to demand it before anything else. What to do about
+    the missing declaration is written in those two places, which know which
+    mode is on; this one says only what is so.
+    """
     if checkin is None or not checkin.am_declaration:
-        return "NO declaration yet today — demand one before anything else."
+        return "no task declared yet today."
     if not checkin.pm_proof_text:
         return f'declared "{checkin.am_declaration}" — proof still owed tonight.'
     return (
@@ -537,6 +570,7 @@ def _react_to_retirement(retirement, verdict: str, tone: str) -> str:
     model is down the goal still retires, with a stock line."""
     try:
         system = prompts.RETIREMENT_SYSTEM.format(
+            respect_rule=prompts.RESPECT_RULE,
             tone_rule=prompts.HINGLISH_RULE if tone == "HINGLISH" else "",
             outcome=retirement.outcome,
             verdict=verdict,
@@ -739,6 +773,12 @@ class ProveView(APIView):
         # try onto the trail before overwriting: the record is the product,
         # and clearing the image key here is what stops an accepted proof
         # from wearing the screenshot of the try that was rejected.
+        #
+        # PUSHED_BACK only, and deliberately not UNSETTLED. An UNJUDGED try was
+        # never refused — nobody read it — so filing it onto the trail would
+        # invent a refusal, and prompts.prior_tries would then hand the model a
+        # push-back it never wrote, with an empty reaction under it, as
+        # something to judge the next submission against.
         if checkin.pm_proof_text and checkin.proof_status == CheckIn.ProofStatus.PUSHED_BACK:
             ProofAttempt.objects.create(
                 checkin=checkin,
@@ -767,10 +807,8 @@ class ProveView(APIView):
         verdict, reaction = _react_to_proof(
             goal, checkin, request.user.tone, image_bytes, content_type or ""
         )
-        checkin.proof_status = (
-            CheckIn.ProofStatus.ACCEPTED
-            if verdict == "accept"
-            else CheckIn.ProofStatus.PUSHED_BACK
+        checkin.proof_status = VERDICT_STATUS.get(
+            verdict, CheckIn.ProofStatus.PUSHED_BACK
         )
         checkin.coach_reaction = reaction
         checkin.save()
@@ -795,8 +833,16 @@ def _react_to_proof(
     content_type: str = "",
 ) -> tuple[str, str]:
     """LLM garnish with a deterministic floor (transcriber's fix_punctuation
-    pattern): any failure logs and falls back to accept + stock reaction, so
-    the daily loop never breaks because a model call flaked.
+    pattern): any failure logs and falls back to a stock reaction, so the daily
+    loop never breaks because a model call flaked.
+
+    That floor is "unjudged", not "accept". The loop surviving an outage is
+    right and stays — the day is declared, proved, on the record, and in the
+    streak. Banking a gate proof for it was a second, separate decision riding
+    on the same word, and it handed the phase gate to whoever caught the model
+    on a bad afternoon. Splitting them costs the builder nothing: filing again
+    once the model answers gets the same evening a real reading, and until then
+    the cycle stays open rather than closing on a verdict nobody gave.
 
     A screenshot, when there is one, is read by the vision model in this same
     call — one judgement over the text and the image together, because they
@@ -855,13 +901,34 @@ def _react_to_proof(
             else llm.complete(system, user_text)
         )
         payload = json.loads(raw[raw.index("{") : raw.rindex("}") + 1])
-        verdict = payload.get("verdict", "accept")
-        if verdict not in ("accept", "push_back"):
-            verdict = "accept"
-        return verdict, str(payload.get("reaction") or prompts.STOCK_REACTION)
+        verdict = payload.get("verdict", "")
+        reaction = str(payload.get("reaction") or "").strip()
+        if verdict not in ("accept", "push_back") or not reaction:
+            # The model answered, but not the question it was asked. That is
+            # the same state of knowledge as it never answering, so it gets the
+            # same word — and it used to get "accept", which made a banked
+            # proof reachable from any submission that knocked the reply off
+            # its JSON: the proof text is the builder's own, and it goes into
+            # this very call.
+            #
+            # A verdict with no words behind it lands here too. There is
+            # nothing to say under an accept, and a push-back that cannot name
+            # what is missing is the wasted evening PROOF_REACTION_SYSTEM
+            # exists to forbid — so an unexplained verdict is treated as no
+            # verdict rather than imposed in silence.
+            logger.warning(f"Unreadable verdict {verdict!r} on checkin {checkin.id}")
+            return "unjudged", _unjudged_reaction(tone)
+        return verdict, reaction
     except Exception as e:
         logger.error(f"Proof reaction failed: {e}")
-        return "accept", prompts.STOCK_REACTION
+        return "unjudged", _unjudged_reaction(tone)
+
+
+def _unjudged_reaction(tone: str) -> str:
+    """What he says about an evening he never read. In both tones, like
+    STOCK_OFFER_ACCEPT and for the same reason: an outage is not a good moment
+    to also stop speaking a builder's language."""
+    return prompts.STOCK_UNJUDGED.get(tone, prompts.STOCK_UNJUDGED["ENGLISH"])
 
 
 class ChatView(APIView):

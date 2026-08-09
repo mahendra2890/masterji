@@ -71,7 +71,12 @@ class CheckInSerializer(serializers.ModelSerializer):
 class MessageSerializer(serializers.ModelSerializer):
     class Meta:
         model = Message
-        fields = ["id", "role", "content", "created_at"]
+        # `phase` has been stamped on every row since the model had the field,
+        # and was never sent. The client needs it to tell "this builder has
+        # said nothing in the phase they are in now" from "this log is empty",
+        # which is what decides whether the phase's opening questions are worth
+        # offering — see the openers in app/Masterji.tsx.
+        fields = ["id", "role", "content", "phase", "created_at"]
         read_only_fields = fields
 
 

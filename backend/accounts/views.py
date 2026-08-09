@@ -4,6 +4,7 @@ from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.serializers import TokenRefreshSerializer
 from rest_framework_simplejwt.tokens import RefreshToken
 
@@ -45,13 +46,35 @@ class CookieTokenRefreshView(APIView):
         serializer = TokenRefreshSerializer(data={"refresh": raw})
         try:
             serializer.is_valid(raise_exception=True)
-        except User.DoesNotExist:
-            # A cryptographically valid token for a user this database has
-            # never seen (another app's cookie on localhost, or a deleted
-            # account). That's a dead session, not a server error.
-            return Response(
-                {"detail": "Unknown session."}, status=status.HTTP_401_UNAUTHORIZED
+        except (TokenError, User.DoesNotExist):
+            # Every way a refresh cookie can fail to become a session, and all
+            # of them mean the same thing to the browser: sign in again.
+            #
+            # User.DoesNotExist is a valid token for a user this database has
+            # never seen (another app's cookie on localhost, a deleted account).
+            # TokenError is the rest — expired, malformed, or signed with a
+            # SECRET_KEY this deploy no longer uses. simplejwt's own
+            # TokenViewBase converts that one into a 401; this view reimplements
+            # that method and used not to, so the exception escaped DRF (it is
+            # not an APIException) and Django answered 500 in text/html.
+            #
+            # That was not merely the wrong code. lib/auth-client.ts reads any
+            # non-JSON reply as "the instance is still booting", so the app sat
+            # on "The server is waking up." and retried every three seconds
+            # forever, on a screen with no way out — and "/" paints the app
+            # rather than the landing while an access cookie exists, so there
+            # was no escape but clearing cookies by hand. A SECRET_KEY rotation
+            # would have done that to every signed-in builder at once.
+            #
+            # The dead cookie is cleared on the way out so the next request is
+            # the clean "No refresh cookie." 401 above: one bad answer, then a
+            # working landing page, instead of a loop.
+            response = Response(
+                {"detail": "Session expired — sign in again."},
+                status=status.HTTP_401_UNAUTHORIZED,
             )
+            clear_auth_cookies(response)
+            return response
         response = Response({"ok": True})
         # ROTATE_REFRESH_TOKENS is on, so a new refresh token comes back too
         set_auth_cookies(response, RefreshToken(serializer.validated_data["refresh"]))

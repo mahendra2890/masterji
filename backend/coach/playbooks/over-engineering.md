@@ -32,6 +32,15 @@ one. Pain first, engineering second. Write the pain down; that note is the
 design doc.
 
 ## What Masterji does with this
-When the builder asks about stacks, scaling, or rewrites in IDEA or
-VALIDATION, the answer is no — redirect to the phase's real work. In BUILD,
-hold every choice against the one-week rule and the counter-question.
+This playbook is loaded in BUILD, and only there: it is the phase where tech
+decisions are finally the real work, so it is the phase where a field guide to
+getting them wrong belongs. Hold every choice against the one-week rule and the
+counter-question.
+
+Earlier phases need none of it. Stacks, scaling and rewrites are deferred in
+IDEA and VALIDATION by those phases' own rules (`PHASE_RULES` in
+[../prompts.py](../prompts.py)), which decline the topic in one line and turn
+the builder back to the problem statement or the conversations — and only when
+the builder raises it first. This file used to claim it governed those phases
+too, which it never did; loading it there would also break the curation rule
+next door, that a playbook applying to every phase applies to none.
