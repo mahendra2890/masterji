@@ -156,6 +156,20 @@
   color: var(--accent);
 }
 
+/* The footer's copy of it is a target on its own, not a word inside a sentence,
+   so WCAG 2.2's inline exemption doesn't cover it and 41x20 doesn't clear the
+   24px floor. Scoped to .foot on purpose: the other .link on this page is
+   "gates.py" mid-paragraph, which IS exempt — its height is set by the
+   line-height of the text around it — and padding it would push that line
+   apart for no gain. */
+.foot .link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 4px;
+  margin: 0 -4px;
+}
+
 /* --- the product, standing still ------------------------------------------ */
 
 /* The frame around a picture of the app, built out of the app's own classes

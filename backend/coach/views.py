@@ -900,12 +900,21 @@ class ChatView(APIView):
             offer=target.proof_offer if target else "",
             missing=target.proof_missing if target else "",
         )
+        # SYSTEM rows are excluded, not mapped: they are the app talking about a
+        # turn that failed, and the only role this mapping had for them was
+        # "assistant" — which handed the model its own outage back as something
+        # it had said, on every turn after it, for as long as it stayed in the
+        # window. Excluded in the queryset rather than after the slice, so a run
+        # of failures can't push real turns out of HISTORY_LIMIT.
+        turns = goal.messages.exclude(role=Message.Role.SYSTEM).order_by(
+            "-created_at"
+        )[:HISTORY_LIMIT]
         history = [
             {
                 "role": "user" if m.role == Message.Role.USER else "assistant",
                 "content": m.content,
             }
-            for m in list(goal.messages.order_by("-created_at")[:HISTORY_LIMIT])[::-1]
+            for m in list(turns)[::-1]
         ]
 
         target = _offer_target(goal, today)
@@ -1034,8 +1043,15 @@ class ChatView(APIView):
             # a target. Nor does the one below it, partial notes with nothing to
             # pin them to: a turn that banked nothing, said nothing and proposed
             # nothing is a turn with nothing to record.
+            #
+            # `notice` is whether the row about to be written is the app's note
+            # rather than Masterji's answer. Only the wordless failure is: a
+            # turn that got some way in before it fell over saved real words,
+            # and those are his.
+            notice = False
             if broke and not content:
                 content = STREAM_BROKE
+                notice = True
             elif offered and offer_target is not None and not content:
                 receipt = (
                     NOTES_LANDED.format(missing=missing) if missing else OFFER_LANDED
@@ -1054,10 +1070,16 @@ class ChatView(APIView):
                     }
                 )
                 content = f"{content}\n\n{detail}".strip()
+                # The gate's answer is the server speaking through him and
+                # belongs in the transcript as his. It cannot reach a wordless
+                # failure anyway — a proposal arrives as a tool call, so the
+                # stream got that far — but the flag is cleared here rather
+                # than relied upon not to matter.
+                notice = False
             if content:
                 Message.objects.create(
                     goal=goal,
-                    role=Message.Role.COACH,
+                    role=Message.Role.SYSTEM if notice else Message.Role.COACH,
                     phase=goal.phase,
                     content=content,
                 )

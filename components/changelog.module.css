@@ -2,14 +2,21 @@
    dashboard's modals — this is a component, so it can't reach into
    masterji.module.css for them. */
 
+/* A 13px word was a 16px-tall target — under WCAG 2.2's 24px floor, and this
+   one sits in a header corner a thumb already rests in, beside "How it works"
+   and a hair from "sign out". Padded for the thumb and pulled back by the same
+   amount, the way .tourLink and .historyRow do it: a 29px target that occupies
+   exactly as much of the row as the word does, so nothing around it moves. */
 .trigger {
   position: relative;
   background: none;
   border: none;
   color: var(--muted);
   font-size: 13px;
+  line-height: 1;
   cursor: pointer;
-  padding: 0;
+  padding: 8px 10px;
+  margin: 0 -10px;
   white-space: nowrap;
 }
 
@@ -19,10 +26,13 @@
 
 /* Off the corner of the label rather than in the text flow, so the header
    doesn't shift by 8px the moment a change ships. */
+/* Offset from the trigger's PADDING box, which is 8px above and 10px right of
+   the word since the target grew. These two numbers put the dot back exactly
+   where it sat against the text: 2px above it, 7px past its end. */
 .dot {
   position: absolute;
-  top: -2px;
-  right: -7px;
+  top: 6px;
+  right: 3px;
   width: 6px;
   height: 6px;
   border-radius: 50%;
