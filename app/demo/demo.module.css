@@ -461,6 +461,25 @@
   min-height: 109px;
 }
 
+/* And the same clamp the real box gets on a short screen, for the same reason:
+   the tour is quoting that box, so it has to quote the height it is at the
+   height the reader is holding. See the @media (max-height: 700px) rule on
+   .composerInput in masterji.module.css. */
+@media (max-height: 700px) {
+  .composerBox {
+    min-height: calc(15px * 1.45 * 2 + 22px);
+  }
+}
+
+/* A <details> summary quoted without a <details> around it. The real one is
+   styled by `.proofExamples summary`, a descendant rule a flat mock can't
+   reach — so the look is restated here rather than borrowed off whichever
+   control happens to resemble it this month. */
+.fakeSummary {
+  color: var(--accent);
+  font-size: 12px;
+}
+
 /* The app's file-attach control, quoted rather than wired. */
 .fakeAttach {
   display: block;

@@ -394,15 +394,39 @@
   white-space: pre-wrap;
 }
 
+/* The one press in this card that can end the evening in a tap, so it looks
+   like a press. It was a 12.5px underlined link sitting under the answer while
+   "Submit proof" — the step AFTER this one — got the filled button, which put
+   the cheapest way to finish the day in the typography of a footnote.
+
+   Filled, but inside the draft's own panel rather than out in the card
+   competing with Submit: this one fills the box and Submit files it. They are
+   a sequence, not a choice, and the marigold rail is what says which panel
+   this button belongs to. */
 .proofOfferBtn {
-  background: none;
+  background: var(--accent);
+  color: var(--accent-ink);
   border: none;
-  padding: 0;
-  color: var(--accent);
-  font-size: 12.5px;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
   cursor: pointer;
   text-align: left;
-  text-decoration: underline;
+}
+
+.proofOfferBtn:hover {
+  filter: brightness(1.08);
+}
+
+/* The handle on the folded ask. Reads as a disclosure rather than as another
+   instruction, because by the time it folds the instruction has been met. */
+.proofHintSummary {
+  cursor: pointer;
+  color: var(--accent);
+  font-size: 12.5px;
+  user-select: none;
 }
 
 /* What the running draft still owes. Muted rather than alarming: it is the
@@ -839,6 +863,19 @@
   outline: none;
 }
 
+/* Four rows is right on a tall screen and wrong on a short one. At 375×667 —
+   the phone a lot of these builders are actually holding — four rows left the
+   log 181px against a 109px input: the box you type into was most of the
+   conversation it exists to serve, and two messages would not fit above it.
+   Two rows there. Nothing is lost by it; a longer reply scrolls inside the box
+   at two rows exactly as it does at four. Keyed to height rather than width
+   because a short laptop window has the same problem for the same reason. */
+@media (max-height: 700px) {
+  .composerInput {
+    height: calc(15px * 1.45 * 2 + 22px);
+  }
+}
+
 .composerInput:focus {
   border-color: var(--accent);
 }
@@ -848,6 +885,7 @@
    the composer's own padding so it reads as a footnote to the input rather
    than as another message in the log. */
 .composerNote,
+.composerNotes,
 .composerDraft {
   margin: -4px 0 0;
   padding: 0 12px 12px;
@@ -856,6 +894,13 @@
 }
 
 .composerNote {
+  color: var(--muted);
+}
+
+/* Notes in progress reads like the standing rule, not like the errand: there
+   is nothing to file yet, so this is reassurance. The accent in this corner
+   stays spent on .composerDraft — the one line that wants acting on. */
+.composerNotes {
   color: var(--muted);
 }
 
@@ -1336,6 +1381,17 @@
     color: var(--accent-ink);
     font-size: 11px;
     font-weight: 700;
+  }
+
+  /* The same word-shaped signal for running notes, one notch down. Outlined
+     rather than filled because a filled marigold badge is what "there is a
+     finished proof waiting for you" looks like, and notes are not that yet. */
+  .paneNotes {
+    padding: 2px 7px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--text);
+    font-size: 11px;
   }
 
   .header {
