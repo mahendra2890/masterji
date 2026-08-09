@@ -39,7 +39,14 @@ const LOOP = [
   },
   {
     when: "During",
-    what: "Do it. Think out loud with him when you're stuck — and remember the chat records nothing.",
+    // Credit first, gate second. This was the last place in the product still
+    // leading with "the chat records nothing" — the same sentence was fixed in
+    // the composer note, the welcome message and the tour, and this copy got
+    // missed. Leading with the gate reads as "don't bother typing", and since
+    // suggest_proof shipped it is also half untrue: the chat is where the
+    // evening's proof is written FROM, even though Today is where it lands.
+    // Same words, same rule, second clause.
+    what: "Do it. Think out loud with him when you're stuck — he writes tonight's proof from what you tell him. Nothing counts until you file it.",
   },
   {
     when: "Evening",
@@ -83,10 +90,29 @@ export default function Landing({
           than as a signature. */}
         <section className={styles.hero}>
           <h1 className={styles.title}>The coach who makes you ship.</h1>
+          {/* Who it's for, before what it does — and the first thing on this
+            page that was missing entirely.
+
+            Every reason to want this product named a mechanism: one goal, four
+            phases, a server that won't open the next one. None of it said whose
+            problem that solves. The audience was only ever implied, by the
+            examples — a tiffin app, the Block C mess queue, Instagram
+            resellers — and an implication is not a statement: a reader who
+            doesn't recognise themselves in a mess queue has been told nothing.
+
+            The long version, with the numbers under it, is in the README (GUESSS
+            India 2023: 32.5% of college students nascent entrepreneurs, ~4.8% of
+            student ventures ever making revenue). A landing page gets one
+            sentence, so it spends it on the person rather than the statistic —
+            and on the specific thing they are stuck with, which is not a lack of
+            information. They have the plans and the tutorials. What they don't
+            have is anyone who will ask to see it. */}
           <p className={styles.sub}>
-            One goal. Four phases you have to earn. A task declared every
-            morning, proof filed every evening — and a server that will not open
-            the next phase until the evidence is actually in.
+            For first-time builders in India who never got a mentor — the plans
+            are made, the tutorials are watched, and nobody is waiting to see it
+            on Friday. One goal. Four phases you have to earn. A task declared
+            every morning, proof filed every evening — and a server that will not
+            open the next phase until the evidence is actually in.
           </p>
           <div className={styles.actions}>
             <SignInButton className={styles.primary}>
