@@ -119,6 +119,10 @@ export type Guidance = {
   phaseHint: string;
   proofHint: string;
   proofExamples: string[];
+  /** Things to say to Masterji, offered while the chat log is still empty.
+   * Phase-shaped, and the server's to write for the same reason the rest of
+   * this bundle is. */
+  openers: string[];
 };
 
 export type CoachState = {
@@ -388,6 +392,7 @@ export async function getState(): Promise<CoachState> {
       phase_hint: string;
       proof_hint: string;
       proof_examples: string[];
+      openers?: string[];
     };
     uploads_enabled?: boolean;
     at_finish_line?: boolean;
@@ -404,6 +409,10 @@ export async function getState(): Promise<CoachState> {
           phaseHint: data.guidance.phase_hint,
           proofHint: data.guidance.proof_hint,
           proofExamples: data.guidance.proof_examples,
+          // Defaulted rather than required: a browser holding this bundle can
+          // outlive the deploy that starts sending it, and an empty list is
+          // already the "don't offer any" case the chat pane handles.
+          openers: data.guidance.openers ?? [],
         }
       : null,
     streak: data.streak ?? 0,

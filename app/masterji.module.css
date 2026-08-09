@@ -232,6 +232,46 @@
   padding: 0;
 }
 
+/* The exit. Was .linkBtn — a 49x16 underlined word in the corner a thumb rests
+   in, which made it both the easiest thing on a phone to hit by accident and
+   the only underlined thing in the header, so the door was also the loudest
+   control in the room.
+
+   Padding rather than a height, so the box grows around the same 13px word the
+   rest of the chrome uses and nothing here changes size. It clears WCAG 2.2's
+   24px on both axes at this size, and the media query below takes it to 44 on
+   the device where the miss actually happens. */
+.signOut,
+.signOutAsking {
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 8px 10px;
+  /* Both labels live in one box — "sign out" and "sign out?" — so the second
+     press lands where the first one did instead of chasing a header that
+     shifted under the finger. Sized to the longer of the two (77px measured),
+     with a little over for a font that renders wider than ours. */
+  min-width: 84px;
+  text-align: center;
+}
+
+.signOut:hover {
+  color: var(--text);
+}
+
+/* Asked, not done. Marigold on the surface rather than red: this is a question
+   about leaving, not a warning about damage, and the answer is one more press
+   or looking away. */
+.signOutAsking {
+  border-color: var(--accent);
+  background: var(--surface-2);
+  color: var(--accent);
+}
+
 .errorBanner,
 .error {
   color: var(--bad);
@@ -403,6 +443,16 @@
 .declared {
   margin: 0 0 10px;
   font-size: 14px;
+}
+
+/* The morning, closed off. Deliberately quiet — no border, no accent, none of
+   the marigold the card spends on things that need doing. It is the only line
+   in this product whose job is to say there is nothing to do, and it should
+   look like it. */
+.morningDone {
+  margin: 2px 0 10px;
+  color: var(--muted);
+  font-size: 13.5px;
 }
 
 .proofHint {
@@ -816,6 +866,54 @@
 
 .thinking {
   color: var(--muted);
+}
+
+/* Three things to say, under a log that has only been talked AT so far.
+   Indented to the width of the coach's bubble, so they read as the reply slot
+   they are about to fill rather than as another thing he said. */
+.openers {
+  margin-top: 4px;
+  padding-left: 38px;
+}
+
+.openersLabel {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+/* Stacked, not wrapped into a row: these are whole questions rather than the
+   two- and three-word goal chips, and a row of them turns into ragged
+   two-liners at every width. */
+.openerList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 7px;
+}
+
+/* Outlined and muted, like the goal examples and for the same reason: they
+   fill the composer, they don't send it, so they must not look like the one
+   filled button on this pane that does. */
+.opener {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 8px 14px;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13.5px;
+  line-height: 1.35;
+  text-align: left;
+  cursor: pointer;
+}
+
+.opener:hover {
+  border-color: var(--accent);
+  color: var(--text);
 }
 
 /* The composer band is now two rows: how Masterji is talking, then the box
@@ -1488,5 +1586,35 @@
 
   .who {
     display: none;
+  }
+
+  /* 44px on the device where the accident happens. This is the corner a thumb
+     rests in, and the cost of a miss here is a session and a round trip
+     through Google — on the one product whose whole premise is tomorrow.
+
+     The height is the point, so the padding buys it vertically and gives width
+     back: at 375px this row has 335px for four controls, and the first version
+     of this rule took the group to exactly 335 and wrapped "sign out" onto a
+     third header line — which cost the chat pane more than the bigger target
+     won. Narrower here than on the desktop rule, and still wider than the
+     "sign out?" it has to hold without moving. */
+  .signOut,
+  .signOutAsking {
+    min-height: 44px;
+    min-width: 78px;
+    padding: 14px 8px;
+  }
+
+  /* Tightened with them: the controls grew, so the space between them is where
+     the room comes from. Column gap only — the row gap is what keeps the two
+     header lines apart. */
+  .headerRight {
+    gap: 10px 9px;
+  }
+
+  /* The log is narrower here and these are full questions, so let them use the
+     width the coach's avatar was holding. */
+  .openers {
+    padding-left: 0;
   }
 }

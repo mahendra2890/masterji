@@ -129,10 +129,51 @@ GATE_NUDGE = {
 }
 
 
+# Three things to say to Masterji, for a chat log that has nothing in it yet.
+#
+# The empty log is a cold start with a cost: a builder who never talks to him
+# writes every evening's proof from a blank box, because the draft he hands
+# back under Today is assembled from the conversation. So the chat is not a
+# side room — it is how the evening gets cheap — and "Talk it through…" over an
+# empty pane is a poor invitation to the one habit that makes the rest work.
+#
+# Written in the builder's voice, not his: these are questions somebody would
+# actually type, phase-shaped, and two of the three in each set are the doubt
+# that stalls people in that phase rather than a request for instructions.
+# Tapping one fills the box and leaves the sending — and the editing — with the
+# builder, the same bargain GOAL_EXAMPLES and the proof draft already make.
+#
+# They are suggestions, not a menu the coach is limited to, and none of them
+# touches the gate: gates.py has never read a message.
+OPENERS = {
+    Phase.IDEA: [
+        "Who exactly has this problem?",
+        "Where would I find these people?",
+        "Is this goal too big?",
+    ],
+    Phase.VALIDATION: [
+        "What do I ask so they don't just say yes?",
+        "Where do I find one person to talk to this week?",
+        "They said they'd use it — does that count?",
+    ],
+    Phase.BUILD: [
+        "What's the smallest thing I can put in front of someone?",
+        "How rough is too rough?",
+        "I'm stuck on what to build first.",
+    ],
+    Phase.LAUNCH: [
+        "Where do I put this in front of strangers?",
+        "What do I ask a stranger for?",
+        "Nobody replied. Now what?",
+    ],
+}
+
+
 def for_phase(phase: Phase) -> dict:
     """The whole builder-facing bundle for one phase, for the API payload."""
     return {
         "phase_hint": PHASE_HINT[phase],
         "proof_hint": PROOF_HINT[phase],
         "proof_examples": PROOF_EXAMPLES[phase],
+        "openers": OPENERS[phase],
     }
