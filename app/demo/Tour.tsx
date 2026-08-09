@@ -682,9 +682,30 @@ const SLIDES: Slide[] = [
           </Mark>
         </section>
 
+        {/* Earned, and not yet opened. The deck went from the refusal straight
+            to the advanced stepper, which skips the one screen the gate exists
+            to produce — and which a builder can now sit on, since the card
+            says so rather than waiting to be asked. Same builder as the panel
+            above, one proof later: the count is met and the bar is full. */}
+        <section className={app.card}>
+          <p className={app.cardLabel}>3 of 3 — earned</p>
+          <div className={app.gateRow}>
+            <span>
+              <strong>3</strong>/3 proofs toward BUILD
+            </span>
+          </div>
+          <div className={app.gateBar}>
+            <div className={app.gateFill} style={{ width: "100%" }} />
+          </div>
+          <Mark n={3}>
+            <p className={app.gateEarned}>Earned. BUILD is yours to open.</p>
+            <span className={app.primaryBtn}>Open BUILD</span>
+          </Mark>
+        </section>
+
         <section className={app.card}>
           <p className={app.cardLabel}>3 of 3 — open</p>
-          <Mark n={3}>
+          <Mark n={4}>
             <ol className={app.stepper}>
               <li className={app.stepDone}>IDEA</li>
               <li className={app.stepDone}>VALIDATION</li>
@@ -705,6 +726,11 @@ const SLIDES: Slide[] = [
       <>
         The refusal, then the errand. One conversation — not &quot;keep
         validating&quot;.
+      </>,
+      <>
+        Below the bar the button asks, and can be refused. At the bar it stops
+        asking — the count is already met, so the only thing left is opening
+        BUILD.
       </>,
       <>
         Unlocking changes what he&apos;ll talk about. The tech-stack question
