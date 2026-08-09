@@ -302,6 +302,40 @@ export function phaseWindow(
   return { start: into?.createdAt ?? goal.createdAt, end: outOf?.createdAt ?? null };
 }
 
+/** A check-in's day, written the way the reader writes days.
+ *
+ * `CheckIn.date` is a calendar date the client stamped — "2026-08-10", no
+ * clock attached — and the record used to put it on screen three different
+ * wrong ways: `date.slice(5)` gave "08-10" in the sidebar, and the day
+ * drill-in and the closed-idea record printed the raw ISO string. "08-10" is
+ * the worst of the three: this product is written for India, `en-IN` reads
+ * day-first, and 10 August spent its whole life on screen claiming to be 8
+ * October. The one place that already got this right is the changelog, and
+ * this is its rule.
+ *
+ * Parsed AND formatted as UTC, for the reason Changelog.formatDate gives: a
+ * bare "YYYY-MM-DD" parses as UTC midnight, so any reader west of Greenwich
+ * renders it a day early. That is the opposite of `formatDate` in
+ * Masterji.tsx, which takes phase-transition *timestamps* and must stay on the
+ * reader's own clock — same-looking helpers, different clocks, which is why
+ * they are named apart rather than merged.
+ */
+const day = (ymd: string, opts: Intl.DateTimeFormatOptions) =>
+  new Date(`${ymd}T00:00:00Z`).toLocaleDateString("en-IN", {
+    ...opts,
+    timeZone: "UTC",
+  });
+
+/** "10 Aug" — the compact row in the record, where the goal supplies the year
+ * and the column is narrow. */
+export const formatDayShort = (ymd: string) =>
+  day(ymd, { day: "numeric", month: "short" });
+
+/** "10 Aug 2026" — the heading of a standalone day, which can be read months
+ * later out of an archived idea and has room to say which year. */
+export const formatDay = (ymd: string) =>
+  day(ymd, { day: "numeric", month: "short", year: "numeric" });
+
 /* --- plumbing ------------------------------------------------------------ */
 
 async function refreshSession(): Promise<boolean> {

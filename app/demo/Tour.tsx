@@ -387,10 +387,15 @@ const SLIDES: Slide[] = [
             paragraph for one release and was removed as clutter, so this deck
             is once again the only place the toggle is explained at all: if
             this note goes, the product explains it nowhere. */}
-        <strong>Think with me</strong> trades assignments for questions and puts
-        options on the table instead — for the part of the work that comes
-        before there&apos;s anything to declare. It stays set until you change
-        it, on every device, and it moves the gate by nothing.
+        {/* The explicit {" "} is load-bearing — see the same note in
+            Landing.tsx. Without it this sentence shipped as "Think with
+            metrades assignments", which is the one sentence in the product
+            that explains the mode at all. */}
+        <strong>Think with me</strong>{" "}
+        trades assignments for questions and puts options on the table instead
+        — for the part of the work that comes before there&apos;s anything to
+        declare. It stays set until you change it, on every device, and it
+        moves the gate by nothing.
       </>,
       <>
         The rule, where you can&apos;t miss it. He writes tonight&apos;s proof

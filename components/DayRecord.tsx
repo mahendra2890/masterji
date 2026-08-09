@@ -1,5 +1,5 @@
 import FailedTries from "@/components/FailedTries";
-import type { CheckIn } from "@/lib/coach-api";
+import { formatDay, type CheckIn } from "@/lib/coach-api";
 import styles from "@/app/masterji.module.css";
 
 /** One day of the record, in full: what was claimed, what Masterji made of
@@ -35,7 +35,7 @@ export default function DayRecord({
     <>
       {showHead && (
         <p className={styles.dayHead}>
-          <span className={styles.dayDate}>{c.date}</span>
+          <span className={styles.dayDate}>{formatDay(c.date)}</span>
           {c.phase && <span className={styles.dayPhase}>{c.phase}</span>}
           <span className={VERDICT[c.proofStatus].className(styles)}>
             {VERDICT[c.proofStatus].label}

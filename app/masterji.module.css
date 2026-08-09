@@ -263,6 +263,26 @@
   color: var(--text);
 }
 
+/* The tour link, next to "What's new" and deliberately indistinguishable from
+   it — same colour, same size, same weight. Two words in the account chrome
+   that each open an explanation; nothing here should read as louder than the
+   other. The vertical padding buys a 29px target for a 16px word, and the
+   negative inline margin gives the width straight back, so the header spaces
+   the same as it did with nothing there. */
+.tourLink {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1;
+  text-decoration: none;
+  white-space: nowrap;
+  padding: 8px 10px;
+  margin: 0 -10px;
+}
+
+.tourLink:hover {
+  color: var(--text);
+}
+
 /* Asked, not done. Marigold on the surface rather than red: this is a question
    about leaving, not a warning about damage, and the answer is one more press
    or looking away. */
@@ -763,6 +783,11 @@
   color: var(--muted);
   font-size: 12px;
   flex-shrink: 0;
+  /* "08-10" was a fixed five characters; "10 Aug" is five or six depending on
+     the day, and a column that changes width per row makes forty declarations
+     start at two different left edges. Six characters of the mono font, so the
+     widest date sets the column and the rest align under it. */
+  min-width: 6ch;
 }
 
 .historyPhase {

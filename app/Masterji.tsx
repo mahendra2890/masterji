@@ -17,6 +17,7 @@ import {
   ApiError,
   createGoal,
   declare,
+  formatDayShort,
   judgeDeclaration,
   getState,
   phaseWindow,
@@ -168,6 +169,37 @@ function SignOutButton() {
   );
 }
 
+/** The way back to the tour, from inside the account.
+ *
+ * /demo/ was reachable from exactly one place — the sign-in popup — so the
+ * four screens that explain this product disappeared the moment somebody had
+ * an account. That is the wrong way round: a stranger can always press the
+ * button again, and the builder who actually needs the explanation is the one
+ * three days in, looking at a control whose second option they have never
+ * understood. The tour is the only place "Think with me" is explained at all
+ * (Tour.tsx says so itself), and it was behind a sign-out.
+ *
+ * A plain quiet link beside "What's new" rather than anything new: the two
+ * are the same kind of thing — a word in the account chrome that opens an
+ * explanation — and the mode bar over the composer is a control, not a help
+ * page, which is where this emphatically does not go.
+ *
+ * Padded for the thumb and pulled back by the same amount, the way
+ * .historyRow does it: a 24px target that occupies exactly as much of the
+ * header as the word does.
+ */
+function TourLink() {
+  return (
+    <a
+      className={styles.tourLink}
+      href="/demo/"
+      title="The guided tour of these screens"
+    >
+      How it works
+    </a>
+  );
+}
+
 /** A day's verdict in one glyph, for the compact rows. Same shape as
  * CLOSED_CHIP above — a property access, not a string lookup, so a renamed
  * class is a type error rather than an undefined className at runtime. */
@@ -190,7 +222,7 @@ function HistoryRow({ checkin: c, onOpen }: { checkin: CheckIn; onOpen: () => vo
   return (
     <li className={styles.historyItem}>
       <button className={styles.historyRow} onClick={onOpen} title="Open this day">
-        <span className={styles.historyDate}>{c.date.slice(5)}</span>
+        <span className={styles.historyDate}>{formatDayShort(c.date)}</span>
         <span className={styles.historyText}>{c.amDeclaration || "—"}</span>
         <span className={CHIP[c.proofStatus].className(styles)}>
           {CHIP[c.proofStatus].glyph}
@@ -740,8 +772,13 @@ export default function Masterji({ user }: { user: SessionUser }) {
           </section>
         )}
 
+        {/* The tour matters most here and costs least here: this is the screen
+            somebody lands on the moment they finish signing up, with nothing
+            on it yet to explain itself, and the footer holds two quiet words
+            rather than a full control strip. */}
         <div className={styles.onboardFooter}>
           <SignOutButton />
+          <TourLink />
           <Changelog />
         </div>
 
@@ -878,6 +915,7 @@ export default function Masterji({ user }: { user: SessionUser }) {
             </span>
           )}
           <span className={styles.who}>{user.username}</span>
+          <TourLink />
           <Changelog />
           <SignOutButton />
         </div>
