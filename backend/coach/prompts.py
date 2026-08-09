@@ -284,6 +284,14 @@ Build on it. Don't re-ask what is in there, don't send them back to someone \
 they have already spoken to for the same thing, and don't reopen work a phase \
 already cleared. Name a piece of it only where it is useful — this is context, \
 not something to recite back at them.
+
+And never write one of them up AGAIN. Everything in that list is banked, so it \
+cannot also be tonight's proof: if what they are describing now is one of these \
+retold — the same conversation, the same artifact, the same day's work in new \
+words — do not call suggest_proof on it. Say which one it repeats, and ask what \
+today had in it that the list doesn't. The next step on something in there, a \
+second conversation with the same person, or different work on the same day are \
+NOT repeats: draft those, and say in one clause what makes this one new.
 """
 
 # The same record, handed to the evening's judge, for the one question the
@@ -410,12 +418,57 @@ empty reaction, and an empty reaction is the compliment.
 If they said they'd talk to three shopkeepers, ask for the three names and what \
 each one said — not a generic "notes from a conversation"."""
 
+# What the builder was TOLD would count, in the room where it is decided.
+#
+# The chat coach reads the bar (BAR_RULE) and the morning's judgement reads it
+# (DECLARATION_SYSTEM's proof_hint). The EVENING — the one call in this product
+# whose output gates.py counts — read neither. It was handed a phase NAME and
+# asked for a verdict, so the standard it graded against was whatever the model
+# already believed the word "VALIDATION" meant. SUBSTANCE_RULE sat three lines
+# under it saying "the bar above says what evidence has to CONTAIN", about a bar
+# that was not in this prompt; it used to say "the playbooks", which were not in
+# it either.
+#
+# Both directions of one failure live there. The coach says "that clears it"
+# against guidance.PROOF_HINT and the evening asks for something else, which is
+# the goalposts moving between two rooms of the same product; or the evening
+# banks a proof the written bar would not have, and the gate is the product.
+# guidance.py's docstring already makes the argument this closes: one source of
+# truth, because two copies drift and only one of them is the one gates.py
+# enforces.
+#
+# Deliberately narrower than the chat's BAR_RULE. That one also carries what to
+# do when a builder is stuck, which is conversation and not judgement, and this
+# one carries two guards the chat has no use for: tonight's tailored ask
+# outranks the phase's general bar, and a task that was off-phase is judged on
+# the task. A bar arriving in the judging room must not become a new way to
+# refuse work that was actually done — false refusals are the failure this file
+# spent its whole history removing.
+JUDGE_BAR = """WHAT THE BUILDER WAS TOLD WOULD COUNT IN THIS PHASE — the same words the app \
+shows them under the proof box, and the standard they were working to today:
+{proof_hint}
+
+Proofs accepted here have read like this:
+{proof_examples}
+
+Read those for what they CONTAIN. They are the floor and not the ceiling, and \
+they are not a checklist to tick: the same facts in their own words, in any \
+order, scattered through a scruffy paragraph, clear them. You may not ask for \
+more than this because you can picture a better version of it.
+
+Two things outrank this bar, and both go the same way. If there is a tailored \
+ask below — what you told them this morning to bring — that is what tonight is \
+judged against, and nothing here raises it. And if the task they declared was \
+not this phase's work, judge the proof against THAT task: an off-phase day \
+still earns its proof, and what makes the detour cost something is the phase \
+gate, not you."""
+
 # The line between a gate that means something and a gate that is a spelling
-# test. The playbooks describe what evidence has to CONTAIN; a builder who did
-# the work and wrote it up in their own way has met the bar, and refusing that
-# is enforcing our vocabulary rather than our method.
-SUBSTANCE_RULE = """Judge the substance, never the shape. The playbooks say what a piece of \
-evidence has to CONTAIN — they are not a format the builder has to reproduce. \
+# test. The bar above describes what evidence has to CONTAIN; a builder who did
+# the work and wrote it up in their own way has met it, and refusing that is
+# enforcing our vocabulary rather than our method.
+SUBSTANCE_RULE = """Judge the substance, never the shape. The bar above says what a piece of \
+evidence has to CONTAIN — it is not a format the builder has to reproduce. \
 No required headings, no ordering, no vocabulary of ours. If the facts are \
 there in their own words, even scattered through a paragraph, even scruffy, \
 that is an accept; and if it would read better rearranged, rearrange it for \
@@ -470,6 +523,8 @@ end-of-day proof of work. Be lenient on quality — done beats perfect — but \
 push back when the "proof" is planning dressed as progress (a plan, a mood \
 board, "research", tool configuration) rather than real-world contact or a \
 real artifact.
+
+{judge_bar}
 
 {substance_rule}
 
@@ -948,6 +1003,20 @@ def bar_for(phase: Phase) -> str:
     first: IDEA carries a second one precisely because a lone example gets
     taken as the bar (see guidance.PROOF_EXAMPLES)."""
     return BAR_RULE.format(
+        proof_hint=guidance.PROOF_HINT[phase],
+        proof_examples="\n".join(f"- {e}" for e in guidance.PROOF_EXAMPLES[phase]),
+    )
+
+
+def judge_bar_for(phase: Phase) -> str:
+    """The same bar, for the evening's verdict rather than the conversation.
+
+    One module behind both, deliberately: the coach promises what will count and
+    the judge decides whether it did, and a product whose two answers to that
+    come from different places is the goalposts moving. What differs is only
+    what a judgement needs and a conversation doesn't — see JUDGE_BAR.
+    """
+    return JUDGE_BAR.format(
         proof_hint=guidance.PROOF_HINT[phase],
         proof_examples="\n".join(f"- {e}" for e in guidance.PROOF_EXAMPLES[phase]),
     )

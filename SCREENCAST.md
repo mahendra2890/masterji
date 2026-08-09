@@ -1,8 +1,16 @@
-# Screencast plan
+# Screencast plan — the beats that have to be shown
 
-A recording plan for the submission video. [WORKFLOW.md](WORKFLOW.md) is the
-narrative; this is the running order, what is on screen for each beat, and how
-to reproduce each moment so nothing has to be faked or re-shot.
+The submission asks for a **10–30 minute** recording of the AI workflow. The
+spine of that recording is [WORKFLOW.md](WORKFLOW.md), read in its own order:
+the loop, the bill for running sessions in parallel, the three times the model
+was wrong, and what verification meant. Most of it is narration over an editor
+and a terminal, and it does not need a shot list.
+
+This file is the other four minutes — the moments that have to be *shown* on
+screen rather than told, in the order they sit in the video, with how to
+reproduce each one so nothing has to be faked or re-shot. Drop these into the
+narration where they belong; they are not a running order for the whole video
+and a four-minute video does not meet the brief.
 
 Every clip below was run and observed on 10 August 2026 against a live model —
 these are recordings of things that happened, not a storyboard of things that
@@ -23,7 +31,9 @@ at the other two because the repo and the live URL already carry them.
 The failure mode to avoid: a product demo with the workflow bolted on at the
 end. Lead with how it was built. The product is the evidence, not the subject.
 
-## Running order — about four minutes
+## The shown beats — about four minutes of the recording
+
+Timestamps are relative to this sequence, not to the finished video.
 
 **0:00 · Who this is for.** One sentence, not a paragraph. A first-time builder
 in a tier-2 college who has three notebooks of ideas and has never spoken to a
@@ -110,9 +120,11 @@ Then tap the same opener live. Current answer:
   cd backend && OPENAI_BASE_URL=http://127.0.0.1:1 .venv/bin/python manage.py test
   ```
 
-  204 pass, same runtime. Worth showing rather than asserting: a suite that
-  stubs its model calls is easy to claim and easy to be wrong about, and one
-  unstubbed call is all it takes to start costing money and failing offline.
+  All of them pass, in the same time as a normal run — 238 as of 10 August,
+  and don't quote a number you haven't just watched print. Worth showing
+  rather than asserting: a suite that stubs its model calls is easy to claim
+  and easy to be wrong about, and one unstubbed call is all it takes to start
+  costing money and failing offline.
 - And the opposite check: nine scenarios run once against a live model, because
   a suite that stubs every model call proves the server and nothing about the
   coach.

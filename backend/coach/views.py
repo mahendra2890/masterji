@@ -1003,6 +1003,12 @@ def _react_to_proof(
     tries = list(checkin.attempts.all())
     try:
         system = prompts.PROOF_REACTION_SYSTEM.format(
+            # The standard the builder was shown, in the room that decides
+            # whether they met it. Read out of guidance.PROOF_HINT, the same
+            # module the check-in form, the gate refusal and the chat coach read
+            # — so "that clears it" in the afternoon and the verdict at 11pm
+            # cannot be answers to two different questions.
+            judge_bar=prompts.judge_bar_for(Phase(goal.phase)),
             substance_rule=prompts.SUBSTANCE_RULE,
             respect_rule=prompts.RESPECT_RULE,
             tone_rule=prompts.HINGLISH_RULE if tone == "HINGLISH" else "",
