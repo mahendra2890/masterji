@@ -47,7 +47,9 @@ things you can audit:
   each evening, phases I could not skip without editing my own database.
   What that loop produced is this repository — every builder-visible change
   between 5 and 10 August 2026 arriving through a reviewed pull request, and
-  written to the product's own changelog on the way in.
+  written to the product's own changelog on the way in. How it was built, and
+  the three times the model was wrong about its own product, is in
+  [WORKFLOW.md](WORKFLOW.md).
   That isn't a success story. It's a record, and it's the only kind of
   credibility a first build earns.
 
