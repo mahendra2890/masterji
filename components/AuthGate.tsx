@@ -13,9 +13,21 @@ import noteStyles from "@/components/waking-note.module.css";
 
 const RETRY_EVERY_MS = 3000;
 
+/** Sign out, then go to "/" — the landing page, not the sign-in wall.
+ *
+ * Sending them to /login/ was right back when "/" was the app and nothing
+ * else: there was nowhere else to put someone without a session. But it
+ * answered "I'm done" with a Google button, which reads as "sign in again"
+ * — the one thing they just said they didn't want.
+ *
+ * "/" is now a real page, and the door back in is the Sign in link in its
+ * corner. Nothing flashes on the way: logout clears the access cookie, so
+ * page.tsx's first paint is already the landing, and AuthGate leaves a
+ * visitor there once Django confirms there's no session.
+ */
 export async function signOutAndLeave() {
   await apiLogout();
-  window.location.href = "/login/";
+  window.location.href = "/";
 }
 
 /** Renders children only for signed-in users. The signed-in user is passed
