@@ -218,8 +218,14 @@ export default function Landing({
             Each one opens on evidence you banked in the phase before it. The
             coach can be argued with; the gate can&apos;t — it&apos;s a{" "}
             <code>WHERE</code> clause, and the model only gets to{" "}
-            <em>propose</em> an advance. Talk about tech stacks all you like in
-            VALIDATION. It won&apos;t count, and he&apos;ll say so.
+            {/* The explicit {" "} is load-bearing: a text node that starts on
+              its own source line loses its leading space in the build, so
+              "</em> an advance" shipped as "proposean advance" and only the
+              compiled output ever showed it. Same reason the Google button's
+              label uses a flex gap rather than a space. */}
+            <em>propose</em>{" "}
+            an advance. Talk about tech stacks all you like in VALIDATION. It
+            won&apos;t count, and he&apos;ll say so.
           </p>
         </section>
 

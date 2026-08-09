@@ -8,7 +8,7 @@
 
 import { useEffect } from "react";
 import DayRecord, { VERDICT } from "@/components/DayRecord";
-import type { CheckIn } from "@/lib/coach-api";
+import { formatDay, type CheckIn } from "@/lib/coach-api";
 import styles from "./masterji.module.css";
 
 export default function DayDetail({
@@ -34,10 +34,10 @@ export default function DayDetail({
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
-        aria-label={`${checkin.date} — the whole day`}
+        aria-label={`${formatDay(checkin.date)} — the whole day`}
       >
         <div className={styles.modalHeader}>
-          <h3>{checkin.date}</h3>
+          <h3>{formatDay(checkin.date)}</h3>
           <button className={styles.modalClose} onClick={onClose} aria-label="Close">
             ×
           </button>
