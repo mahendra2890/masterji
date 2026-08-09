@@ -860,14 +860,32 @@ export default function Masterji({ user }: { user: SessionUser }) {
 
             {/* At LAUNCH with proof on the record, finishing is the expected
                 move, so it gets a real button. Everywhere else it lives behind
-                the quiet link — available, just not advertised. */}
+                the quiet link — available, just not advertised.
+
+                It used to read "Close this out", which is what you say about a
+                ticket. This button cannot appear unless at_finish_line is true,
+                and that means the record already holds accepted proof — so the
+                words are the database talking, not praise. Same earned line and
+                primary button as the gate one screen up, because it is the same
+                kind of moment.
+
+                It invites the claim rather than declaring the win: the box it
+                opens still asks what happened and can still end in "I'm
+                dropping it". And the quiet link below stays neutral on purpose
+                — it is the way out for an idea that died too, and nobody should
+                have to click a victory to quit. */}
             {state.atFinishLine && !retiring && (
-              <button
-                className={styles.secondaryBtn}
-                onClick={() => setRetiring(true)}
-              >
-                Close this out
-              </button>
+              <>
+                <p className={styles.gateEarned}>
+                  Earned. Proof is on the record.
+                </p>
+                <button
+                  className={styles.primaryBtn}
+                  onClick={() => setRetiring(true)}
+                >
+                  Claim the win
+                </button>
+              </>
             )}
 
             {!retiring ? (
