@@ -449,27 +449,16 @@
   color: var(--muted);
 }
 
-/* The real composer's textarea is four rows tall — 109px, the number derived
-   on .composerInput — and a div wearing its class is only as tall as the one
-   line of placeholder inside it. The tour is quoting that screen, so it has to
-   quote its height too, or the box a builder is told to type into on the next
-   page is half the size of the one they meet.
+/* The real composer used to need a height quoted here — it was four rows tall
+   whatever was in it, and a div wearing its class is only as tall as the line
+   of placeholder inside it, so the mock came out at half the size of the box a
+   builder meets on the next page. It now rests at one row and grows into what
+   gets typed, and one line of placeholder in a div wearing .composerInput is
+   one row. The mock is the right height by being the same thing, which is
+   what borrowing the class was supposed to buy. Nothing to state.
 
-   The Send button needs no rule of its own any more: the real .composerRow
-   bottom-aligns it, and the mock inherits that with the class. */
-.composerBox {
-  min-height: 109px;
-}
-
-/* And the same clamp the real box gets on a short screen, for the same reason:
-   the tour is quoting that box, so it has to quote the height it is at the
-   height the reader is holding. See the @media (max-height: 700px) rule on
-   .composerInput in masterji.module.css. */
-@media (max-height: 700px) {
-  .composerBox {
-    min-height: calc(15px * 1.45 * 2 + 22px);
-  }
-}
+   Same for the Send button beside it: the real .composerRow bottom-aligns it,
+   and the mock inherits that with the class. */
 
 /* A <details> summary quoted without a <details> around it. The real one is
    styled by `.proofExamples summary`, a descendant rule a flat mock can't

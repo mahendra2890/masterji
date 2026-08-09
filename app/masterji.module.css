@@ -779,9 +779,10 @@
 }
 
 /* Send sits at the bottom of the box rather than stretching up it. Default
-   flex stretch was invisible while the input was one row tall and the button
-   was the same height by accident; against four rows it drew a 109px slab of
-   marigold next to the text. Bottom-aligned puts it where the caret ends up. */
+   flex stretch looks fine against an empty composer, where the button happens
+   to be the same height as one row — and then draws a growing slab of marigold
+   the moment the box does what it now does. Bottom-aligned, it keeps its own
+   height, and it stays level with the line the caret is actually on. */
 .composerRow {
   display: flex;
   align-items: flex-end;
@@ -847,13 +848,26 @@
   color: var(--muted);
 }
 
-/* line-height is stated rather than left at `normal` because `rows` multiplies
-   it: unstated, the box's height was whatever the font felt like, and the
-   tour's mock of this box could only ever guess at it. 15px × 1.45 × 4 rows
-   + 20px padding + 2px border = 109px, which is the number the mock uses. */
+/* The height itself is set from JS, a line at a time as the box fills — see
+   fitComposer in Masterji.tsx. What's left here is where it stops.
+
+   line-height is stated rather than left at `normal` for the same reason it
+   always was, and one more: unstated, the box's height is whatever the font
+   feels like, which the tour's mock of this box could only guess at — and now
+   also what every row of growth is a multiple of. One row is 15px × 1.45 =
+   21.75px, so a box of n rows is 21.75n + 20px padding + 2px border. */
 .composerInput {
   flex: 1;
   resize: none;
+  /* The scrollbar the cap implies. Stated rather than left to the UA default
+     so the measure pass in fitComposer is reading the same box everywhere. */
+  overflow-y: auto;
+  /* Ten rows, then it scrolls. Growing without a stop would let a long enough
+     answer push the conversation off the top of its own screen, which is the
+     failure the old fixed height had — just triggered by typing instead of by
+     opening the page. Ten is past where an evening's reply lands, so in
+     practice the box holds all of it and the cap never shows itself. */
+  max-height: calc(15px * 1.45 * 10 + 22px);
   background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -863,16 +877,16 @@
   outline: none;
 }
 
-/* Four rows is right on a tall screen and wrong on a short one. At 375×667 —
-   the phone a lot of these builders are actually holding — four rows left the
-   log 181px against a 109px input: the box you type into was most of the
-   conversation it exists to serve, and two messages would not fit above it.
-   Two rows there. Nothing is lost by it; a longer reply scrolls inside the box
-   at two rows exactly as it does at four. Keyed to height rather than width
-   because a short laptop window has the same problem for the same reason. */
+/* The same cap, lower, where the screen is short. At 375×667 — the phone a lot
+   of these builders are actually holding — the chat pane has about 290px for
+   the log and the box together, so ten rows would leave the conversation a
+   sliver. Five. Nothing is lost by it that wasn't already lost at ten: past
+   the cap the reply scrolls inside the box either way. Keyed to height rather
+   than width because a short laptop window has the problem for the same
+   reason a phone does. */
 @media (max-height: 700px) {
   .composerInput {
-    height: calc(15px * 1.45 * 2 + 22px);
+    max-height: calc(15px * 1.45 * 5 + 22px);
   }
 }
 

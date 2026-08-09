@@ -404,9 +404,7 @@ const SLIDES: Slide[] = [
               </div>
             </Mark>
             <div className={app.composerRow}>
-              <div
-                className={`${app.composerInput} ${styles.ph} ${styles.composerBox}`}
-              >
+              <div className={`${app.composerInput} ${styles.ph}`}>
                 Talk it through…
               </div>
               <span className={app.primaryBtn}>Send</span>
