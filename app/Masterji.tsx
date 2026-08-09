@@ -93,6 +93,61 @@ function HistoryRow({ checkin: c, onOpen }: { checkin: CheckIn; onOpen: () => vo
   );
 }
 
+/** The pieces tonight's draft still owes, as the server listed them — one
+ * phrase per piece, semicolons between. Split in one place because two screens
+ * read it: the Today card lists them, and the line over the composer counts
+ * them for a builder who is on the other pane. */
+const missingPieces = (missing: string) =>
+  missing
+    .split(";")
+    .map((piece) => piece.trim())
+    .filter(Boolean);
+
+/** What tonight's proof has to contain: the tailored ask when the model wrote
+ * one, the phase's standing ask when it couldn't, and a worked example behind
+ * a disclosure for the builder who reads the rule and still doesn't know what
+ * to type.
+ *
+ * `folded` is the evening where Masterji has already written a draft that
+ * clears the bar. The rule is reference then, not instruction — and left open
+ * it sat between the answer and the box the answer goes into. Folded rather
+ * than dropped: a builder who wants to check his draft against the ask can
+ * still open it. */
+function ProofAsk({
+  ask,
+  examples,
+  folded,
+}: {
+  ask: string;
+  examples: string[];
+  folded: boolean;
+}) {
+  const body = (
+    <>
+      <p>{ask}</p>
+      {examples.length > 0 && (
+        <details className={styles.proofExamples}>
+          <summary>Show me one that was accepted</summary>
+          {examples.map((ex, i) => (
+            <p key={i} className={styles.proofExample}>
+              {ex}
+            </p>
+          ))}
+        </details>
+      )}
+    </>
+  );
+  if (!folded) return <div className={styles.proofHint}>{body}</div>;
+  return (
+    <details className={styles.proofHint}>
+      <summary className={styles.proofHintSummary}>
+        What tonight needs, in full
+      </summary>
+      {body}
+    </details>
+  );
+}
+
 export default function Masterji({ user }: { user: SessionUser }) {
   const [state, setState] = useState<CoachState | null>(null);
   const [error, setError] = useState("");
@@ -117,6 +172,8 @@ export default function Masterji({ user }: { user: SessionUser }) {
   const [pmText, setPmText] = useState("");
   const [pmUrl, setPmUrl] = useState("");
   const [pmImage, setPmImage] = useState<File | null>(null);
+  // The evening's box, so the button that fills it can put the caret in it.
+  const pmBoxRef = useRef<HTMLTextAreaElement>(null);
   // The gate's last answer, and the situation it answered. Rendered only
   // while the two still match — see gateKey above.
   const [gateNote, setGateNote] = useState<{ text: string; key: string } | null>(
@@ -457,6 +514,14 @@ export default function Masterji({ user }: { user: SessionUser }) {
   // working-out — they'd relight it on nearly every turn and teach the builder
   // that the dot means nothing.
   const draftWaiting = dayOpen && Boolean(today?.proofOffer) && !today?.proofMissing;
+  // Notes still being gathered: he has part of tonight's proof written down and
+  // has said which pieces are outstanding. Not draftWaiting — there is nothing
+  // to file yet — but emphatically not nothing, which is what the chat pane
+  // told the builder for as long as this state existed. The whole point of
+  // running notes is that they can SEE they were heard, and the one surface
+  // they were looking at while being heard denied it.
+  const owed = today?.proofMissing ? missingPieces(today.proofMissing) : [];
+  const notesRunning = dayOpen && Boolean(today?.proofOffer) && owed.length > 0;
 
   const showPane = (next: "today" | "chat") => {
     setPane(next);
@@ -574,6 +639,13 @@ export default function Masterji({ user }: { user: SessionUser }) {
           {pane !== "today" &&
             (draftWaiting ? (
               <span className={styles.paneBadge}>draft</span>
+            ) : notesRunning ? (
+              /* Notes get a word too, and a quieter one. The dot was ruled out
+                 for them because it would relight every turn; this doesn't —
+                 it is lit by a STATE ("he has some of tonight's proof"), so it
+                 comes on with the first piece and stays put until the last.
+                 Outlined rather than filled: worth knowing, not an errand. */
+              <span className={styles.paneNotes}>notes</span>
             ) : dayOpen ? (
               <span className={styles.paneDot} aria-hidden="true" />
             ) : null)}
@@ -821,34 +893,21 @@ export default function Masterji({ user }: { user: SessionUser }) {
                 {judging && !today.declarationReaction && (
                   <p className={styles.judging}>Masterji is reading it…</p>
                 )}
-                {(today.proofAsk || guidance) && (
-                  <div className={styles.proofHint}>
-                    {/* The tailored ask when there is one; the phase's static
-                        ask when the model was unreachable at declare time. */}
-                    <p>{today.proofAsk || guidance?.proofHint}</p>
-                    {guidance && guidance.proofExamples.length > 0 && (
-                      <details className={styles.proofExamples}>
-                        <summary>Show me one that was accepted</summary>
-                        {guidance.proofExamples.map((ex, i) => (
-                          <p key={i} className={styles.proofExample}>
-                            {ex}
-                          </p>
-                        ))}
-                      </details>
-                    )}
-                  </div>
-                )}
                 {/* Masterji's own draft, written from work the builder already
-                    described in chat. The ask above says what tonight needs;
-                    this says "you've already told me — here it is". Filed
-                    unedited it skips a second judgement server-side, so the
-                    button copies it verbatim rather than reformatting it.
-                    While pieces are still owed it is notes rather than an
-                    offer — the same words, doing a different job. This is the
-                    only place the builder can SEE that he heard them, which is
-                    the whole reason they stop saying it twice, and it has to
-                    show the gap in the same breath or a half-finished draft
-                    reads as one that's ready to file. */}
+                    described in chat. It says "you've already told me — here
+                    it is", and while pieces are still owed it is notes rather
+                    than an offer — the same words, doing a different job. This
+                    is the only place the builder can SEE that he heard them,
+                    which is the whole reason they stop saying it twice, and it
+                    has to show the gap in the same breath or a half-finished
+                    draft reads as one that's ready to file.
+
+                    ABOVE the ask, not below it. This is the answer and the ask
+                    is the question; a card that puts the question first makes
+                    the builder read a rule they have already satisfied before
+                    it will show them the words that satisfy it. Filed unedited
+                    a complete draft skips a second judgement server-side, so
+                    the button copies it verbatim rather than reformatting. */}
                 {today.proofOffer && (
                   <div className={styles.proofOffer}>
                     <p className={styles.proofOfferLabel}>
@@ -857,23 +916,28 @@ export default function Masterji({ user }: { user: SessionUser }) {
                         : "Masterji wrote this from your conversation"}
                     </p>
                     <p className={styles.proofOfferText}>{today.proofOffer}</p>
-                    {today.proofMissing && (
+                    {owed.length > 0 && (
                       <div className={styles.proofGap}>
                         <p className={styles.proofGapLabel}>Still needed tonight</p>
                         <ul className={styles.proofGapList}>
-                          {today.proofMissing
-                            .split(";")
-                            .map((piece) => piece.trim())
-                            .filter(Boolean)
-                            .map((piece, i) => (
-                              <li key={i}>{piece}</li>
-                            ))}
+                          {owed.map((piece, i) => (
+                            <li key={i}>{piece}</li>
+                          ))}
                         </ul>
                       </div>
                     )}
                     <button
                       className={styles.proofOfferBtn}
-                      onClick={() => setPmText(today.proofOffer)}
+                      onClick={() => {
+                        setPmText(today.proofOffer);
+                        // And put them in the box it filled. The draft sits
+                        // above the ask now, so the textarea is further down
+                        // the card than the button that fills it — a press
+                        // whose effect happens off-screen is a press that
+                        // reads as broken, and this is the one press in the
+                        // card that can end the evening.
+                        pmBoxRef.current?.focus();
+                      }}
                     >
                       {today.proofMissing
                         ? "Start from these — add the rest below"
@@ -881,7 +945,15 @@ export default function Masterji({ user }: { user: SessionUser }) {
                     </button>
                   </div>
                 )}
+                {(today.proofAsk || guidance) && (
+                  <ProofAsk
+                    ask={today.proofAsk || guidance?.proofHint || ""}
+                    examples={guidance?.proofExamples ?? []}
+                    folded={draftWaiting}
+                  />
+                )}
                 <textarea
+                  ref={pmBoxRef}
                   className={styles.textarea}
                   rows={3}
                   placeholder="Evening proof — what actually happened?"
@@ -1138,12 +1210,30 @@ export default function Masterji({ user }: { user: SessionUser }) {
               start typing — which is exactly when a builder is pouring the
               evening's work into the wrong box. This wraps, and it stays. */}
           {dayOpen && (
-            <p className={draftWaiting ? styles.composerDraft : styles.composerNote}>
+            <p
+              className={
+                draftWaiting
+                  ? styles.composerDraft
+                  : notesRunning
+                    ? styles.composerNotes
+                    : styles.composerNote
+              }
+            >
               {draftWaiting
                 ? "Masterji drafted tonight's proof — file it under Today."
-                : today?.amDeclaration
-                  ? "Nothing here counts until you file it under Today."
-                  : "Nothing here counts. Declare today's task under Today first."}
+                : notesRunning
+                  ? /* The standing rule is still true and still said — what
+                       changes is that it stops being the whole truth. He is
+                       writing this conversation down under Today as it
+                       happens; "nothing here counts" on its own read as
+                       "you are wasting your breath" at the exact moment the
+                       builder was giving him tonight's evidence. */
+                    `Masterji is writing this up under Today — ${owed.length} piece${
+                      owed.length === 1 ? "" : "s"
+                    } still needed. Nothing counts until you file it.`
+                  : today?.amDeclaration
+                    ? "Nothing here counts until you file it under Today."
+                    : "Nothing here counts. Declare today's task under Today first."}
             </p>
           )}
         </section>

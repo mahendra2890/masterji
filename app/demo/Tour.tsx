@@ -486,10 +486,13 @@ const SLIDES: Slide[] = [
                 did about this problem, and what commitment you asked for (and
                 whether you got it).
               </p>
-              <p className={app.proofExamples}>
-                <span className={app.proofOfferBtn}>
-                  Show me one that was accepted
-                </span>
+              {/* The disclosure's own summary look, not app.proofOfferBtn.
+                  That class used to be an underlined accent link and was
+                  borrowed here for the shape of one; it is the draft's filled
+                  button now, and a mock wearing it would show this line as
+                  the loudest control on the slide. */}
+              <p className={`${app.proofExamples} ${styles.fakeSummary}`}>
+                Show me one that was accepted
               </p>
             </div>
           </Mark>
