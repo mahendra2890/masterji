@@ -7,7 +7,7 @@
 // Rendered from the app header, the between-goals screen and the demo — the
 // endpoint is public, so the same component works signed out.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { getChangelog, type ChangelogEntry } from "@/lib/coach-api";
 import styles from "./changelog.module.css";
 
@@ -32,23 +32,80 @@ const formatDate = (ymd: string) =>
     timeZone: "UTC",
   });
 
+/** How many entries the mount fetch asks for.
+ *
+ * Enough to fill the popup on the first screen — it caps at min(82dvh, 720px)
+ * and an entry runs around 110px — so somebody who opens this reads real
+ * content while the rest is still in flight, rather than a spinner. Small
+ * enough that the price of the dot came down from 42KB to 3.7KB (measured at
+ * 77 entries; the ratio is what matters, since the list only ever grows). */
+const PREVIEW = 6;
+
 export default function Changelog() {
   const [entries, setEntries] = useState<ChangelogEntry[] | null>(null);
+  // How many exist, as the server counts them. `entries.length < total` is
+  // what "we are holding the preview" means — asked rather than inferred from
+  // the length matching PREVIEW, which is wrong on the day there are exactly
+  // six.
+  const [total, setTotal] = useState(0);
   const [failed, setFailed] = useState(false);
+  // The rest didn't arrive. Distinct from `failed`, which is nothing arriving:
+  // here the preview is on screen and readable, and the only thing owed is the
+  // tail — so the popup says so under the entries instead of replacing them
+  // with an error.
+  const [tailFailed, setTailFailed] = useState(false);
+  const [loadingTail, setLoadingTail] = useState(false);
   const [open, setOpen] = useState(false);
   // Read from localStorage in an effect, so the first client render matches
   // the server's (no dot) and hydration stays quiet. "" = never read.
   const [seen, setSeen] = useState<string | null>(null);
+  // The full list has been asked for. Set the moment the request goes out, so
+  // a preview still in flight when somebody opens the popup cannot land
+  // afterwards and cut the whole list back to six under the reader.
+  const asked = useRef(false);
 
+  /** The newest few. What every mount pays, on every screen. */
   const load = useCallback(() => {
     setFailed(false);
-    getChangelog()
-      .then(setEntries)
-      .catch(() => setFailed(true));
+    getChangelog(PREVIEW)
+      .then(({ entries, total }) => {
+        if (asked.current) return; // the whole list is on its way or here
+        setEntries(entries);
+        setTotal(total);
+      })
+      .catch(() => {
+        if (!asked.current) setFailed(true);
+      });
   }, []);
 
-  // On mount rather than on click: the dot has to know the newest date
-  // before anyone opens anything. It's one small unauthenticated GET.
+  /** The whole list, once somebody has actually asked to read it — which is
+   * what opening the popup is.
+   *
+   * Replaces rather than appends: one request is one consistent snapshot, and
+   * stitching a tail onto a preview taken seconds earlier can duplicate or skip
+   * an entry published in between. Re-reading the 3KB is the price of that, and
+   * only a reader who opened the popup ever pays it. */
+  const loadAll = useCallback(() => {
+    asked.current = true;
+    setFailed(false);
+    setTailFailed(false);
+    setLoadingTail(true);
+    getChangelog()
+      .then(({ entries, total }) => {
+        setEntries(entries);
+        setTotal(total);
+      })
+      // Which of the two messages this becomes is decided at render, by whether
+      // there is anything on screen to be a footnote to: a preview that arrived
+      // gets "the older ones didn't load", an empty popup gets the whole-list
+      // error and its own retry.
+      .catch(() => setTailFailed(true))
+      .finally(() => setLoadingTail(false));
+  }, []);
+
+  // On mount rather than on click: the dot has to know the newest date before
+  // anyone opens anything, and only the newest entry can answer that — which
+  // is why this asks for a handful and not for all of them.
   useEffect(() => {
     load();
     try {
@@ -72,9 +129,17 @@ export default function Changelog() {
   // read the list is behind by definition.
   const unseen = seen !== null && latest !== "" && seen < latest;
 
+  // Everything the server has, as far as this browser knows. `entries` null is
+  // the mount fetch still in flight, which is not "holding all of them".
+  const haveAll = entries !== null && entries.length >= total;
+
   const onOpen = () => {
     setOpen(true);
-    if (failed) load(); // a flaked fetch shouldn't leave an empty popup forever
+    // Opening IS the ask, and it is the only request in this component anybody
+    // asked for. One call covers every state the preview can have left behind —
+    // it flaked, it is still in flight, it arrived with more behind it — because
+    // in all three the answer a reader wants is the whole list.
+    if (!haveAll) loadAll();
     if (latest) {
       setSeen(latest);
       try {
@@ -119,10 +184,14 @@ export default function Changelog() {
               record of his own. Newest first.
             </p>
 
-            {failed ? (
+            {/* Nothing on screen at all: either the mount fetch flaked and the
+                open-fetch has not answered yet, or the open-fetch flaked too.
+                Retrying asks for the whole list — a reader looking at this has
+                the popup open, so the preview is not what they want. */}
+            {failed || (tailFailed && !entries) ? (
               <p className={styles.empty}>
                 Couldn&apos;t load the changelog.{" "}
-                <button className={styles.retry} onClick={load}>
+                <button className={styles.retry} onClick={loadAll}>
                   Try again
                 </button>
               </p>
@@ -153,6 +222,27 @@ export default function Changelog() {
                   );
                 })}
               </ol>
+            )}
+
+            {/* Under the entries, never instead of them. The preview is real
+                content and already readable, so what is outstanding is only the
+                tail and this is a footnote about the tail. It names the number,
+                because a wait with no size to it reads as broken. */}
+            {entries !== null && entries.length > 0 && !haveAll && (
+              <p className={styles.tail}>
+                {loadingTail ? (
+                  `Fetching the other ${total - entries.length}…`
+                ) : (
+                  <>
+                    {total - entries.length} older{" "}
+                    {total - entries.length === 1 ? "entry" : "entries"}{" "}
+                    didn&apos;t load.{" "}
+                    <button className={styles.retry} onClick={loadAll}>
+                      Try again
+                    </button>
+                  </>
+                )}
+              </p>
             )}
           </div>
         </div>
