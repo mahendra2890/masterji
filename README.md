@@ -45,10 +45,17 @@ things you can audit:
 - **The gates were pointed at me first.** I ran the rest of this
   hackathon through Masterji — one goal, declared each morning, proof
   each evening, phases I could not skip without editing my own database.
-  What that loop produced is this repository — every builder-visible
-  change between 5 and 10 August 2026 arriving through a reviewed pull
-  request, and written to the product's own changelog on the way in. How
-  it was built, and the three times the model was wrong about its own
+  It ends where it is supposed to end: **reached LAUNCH, 7 proofs banked,
+  6 of them from real-world contact, 5 days of work on the record.**
+
+  ![The goal reaching LAUNCH: seven proofs banked, six from real-world
+  contact, five days of work on the record.](docs/run/the-record-at-launch.png)
+
+  Two of those days it refused me — the screenshots below are that run, not a
+  storyboard. What the loop also produced is this repository: every
+  builder-visible change between 5 and 10 August 2026 arriving through a
+  reviewed pull request, and written to the product's own changelog on the way
+  in. How it was built, and the three times the model was wrong about its own
   product, is in [WORKFLOW.md](WORKFLOW.md).
   That isn't a success story. It's a record, and it's the only kind of
   credibility a first build earns.
@@ -77,6 +84,11 @@ The product's spine is a **server-enforced state machine**, not a prompt:
   wrote. The chat is deliberately *not* fenced — talking a coach into
   believing a customer said something is lying about the work, and no fence
   has ever fixed that.
+
+  ![Two of three proofs banked in VALIDATION. The advance is refused with
+  what is still owed, and the coach adds that the person already counted
+  cannot be counted again.](docs/run/the-gate-refuses.png)
+
 - **A proof cannot be banked twice.** Several declare→prove cycles in a day
   are supported on purpose (real work counts when it happens), and each
   accepted proof banks toward the phase — so one conversation filed three
@@ -117,6 +129,12 @@ The product's spine is a **server-enforced state machine**, not a prompt:
   now reads it. It is deliberately **not** a cap. Nothing passes because a
   builder resubmitted often enough; work that isn't there is refused on the
   fourth try and the fortieth.
+
+  ![A proof accepted on the third try, with the two refusals unfolded
+  underneath it in red and the reason each one gave.](docs/run/the-tries-that-were-refused.png)
+
+  *Two refused tries, kept and unfolded under the accepted one. The third try
+  passed because the work arrived, not because it was the third.*
 - **Masterji drafts the proof, the builder files it.** The commonest way to
   lose an evening was to describe real work in chat, get coached at about
   it, and file nothing — because translating what you said into what the
@@ -128,7 +146,23 @@ The product's spine is a **server-enforced state machine**, not a prompt:
   nothing by itself: filing is the builder's, and so is the gate credit.
   Evidence is judged on what it *contains*, never on reproducing the
   playbooks' format — nobody is tested on how well they learned our
-  vocabulary.
+  vocabulary. A builder who has just been refused can unfold a proof that was
+  accepted, so the bar is something you can read rather than guess at.
+
+  ![A refused proof in red, the phase's ask restated under it, and an unfolded
+  panel headed "show me one that was accepted" containing two worked examples
+  from a different builder's goal.](docs/run/off-phase-and-a-worked-example.png)
+
+  *The refusal says the work was real but off-phase — BUILD wants the smallest
+  thing a user can touch, so rewriting the coach's own prompt is tooling, not
+  exposure. The worked examples are the same bar, met.*
+
+  ![The draft Masterji wrote from the conversation, sitting on the check-in
+  form above the empty proof box, with a button to use it as-is and fields for
+  a link and a screenshot.](docs/run/the-draft-lands-under-today.png)
+
+  *Written for him, filed by him. The button fills the box he still has to
+  submit.*
 - **He writes it down as you say it, so you never say it twice.** He used to
   hold every piece in his head until the bar was fully met, which meant
   nothing accumulated anywhere and every turn re-derived the evening from a
@@ -139,6 +173,10 @@ The product's spine is a **server-enforced state machine**, not a prompt:
   sees both under **Today**; the next chat turn and the evening's judgement
   both read the notes as facts already given, so nothing in them can be asked
   for a second time.
+
+  ![The Today panel showing what Masterji has from the conversation so far and,
+  under it, a box headed "still needed tonight" listing the one piece the bar
+  still lacks.](docs/run/the-notes-and-what-is-missing.png)
 - **And what the days before produced.** All of that was scoped to one
   evening. The record of every earlier day reached no prompt at all, so on the
   fourth evening of VALIDATION the coach had the count — *2/3 accepted proofs
@@ -166,6 +204,13 @@ The product's spine is a **server-enforced state machine**, not a prompt:
   nothing missing files straight through without a second judgement, filing a
   short one is still judged on its merits, and `gates.py` counts what it
   always counted.
+
+  ![The coach naming exactly which part of the bar is still missing: it has the
+  commitment ask, and still needs whether the answer was yes or
+  no.](docs/run/the-counting-is-the-servers.png)
+
+  *Every piece is acknowledged as it lands and the shortfall is named. Nothing
+  here is the model's opinion of how far along you are.*
 - **Phase-gated coaching:** the system prompt is assembled per-request
   from database state plus the phase's playbook — small, self-authored
   distillations of the lean-execution canon (crediting *The Mom Test*,
@@ -200,6 +245,17 @@ The product's spine is a **server-enforced state machine**, not a prompt:
   coaching app is for. Only ever when they raise it, never as a diagnosis from
   a gap in the record, and it moves the turn and nothing else: the gate has
   never read a message, and a test pins that from this rule too.
+
+  ![Three messages — "I can't do this", "this is too tough", "I want to give
+  up" — each answered without an assignment: stopping tonight is allowed,
+  closing the goal costs nothing and would be a decision rather than a
+  failure, and if it is more than a hard week, a person you trust or a doctor
+  rather than a coaching app.](docs/run/some-nights-are-not-about-the-work.png)
+
+  *No task under any of those three replies, and the gate still reads
+  `1/3`. "I want to stop this" is a decision he tells them they are allowed to
+  make; "I can't do any of this" is not something he tries to solve in a
+  reply.*
 
 ## Architecture
 
