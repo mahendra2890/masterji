@@ -306,9 +306,30 @@ const SLIDES: Slide[] = [
           </p>
           {/* The header's own controls, unmarked. A reader can see what they
               are, and neither of them moves the gate — which is the only thing
-              about them this deck has to be sure of. */}
+              about them this deck has to be sure of.
+
+              Both languages on screen with the live one lit, which is the
+              control the app has had since `.toneBtn` was deleted — the same
+              segmented shape as the mode switch further down this mock, and
+              for the same reason: a lone button reading "EN" states the
+              language you already have and never reveals that the other one
+              exists. This deck kept drawing the button after the app stopped
+              having it, and because a CSS module hands back `undefined` for a
+              class that isn't there, the chip lost its styling too and shipped
+              as bare text beside a styled streak pill. Borrowed pixels only
+              carry a change across while the class still exists; nothing warns
+              you when one goes.
+
+              Spans, like every other mock control in this file: they cannot be
+              pressed, so they must not announce themselves as things that
+              can. */}
           <div className={styles.headerStrip}>
-            <span className={app.toneBtn}>EN</span>
+            <div className={app.toneSwitch}>
+              <span className={app.toneOptOn}>EN</span>
+              <span className={app.toneOpt} lang="hi">
+                हिं
+              </span>
+            </div>
             <span className={app.streak}>4 days 🔥</span>
           </div>
 
@@ -377,8 +398,8 @@ const SLIDES: Slide[] = [
       <>
         He&apos;s phase-aware. The answer you get in VALIDATION is not the
         answer the same question gets in BUILD — the playbook for your phase is
-        loaded into every reply. <strong>EN → हिं</strong> switches him to
-        Hinglish; neither that nor the streak beside it touches the gate.
+        loaded into every reply. The <strong>EN / हिं</strong> switch beside the
+        streak puts him in Hinglish; neither of them touches the gate.
       </>,
       <>
         {/* The app's own caption is one clause now — "Assignments and
