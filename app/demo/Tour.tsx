@@ -27,8 +27,9 @@
 // Copy rule for this file: every number, refusal and worked example here is
 // quoted from the thing that produces it — gates.PROOFS_REQUIRED,
 // gates.try_advance, guidance.PHASE_HINT/PROOF_HINT/PROOF_EXAMPLES/GATE_NUDGE,
-// views.WELCOME. If one of those changes and this file doesn't, the tour
-// teaches a product that no longer exists.
+// views.WELCOME, prompts.WHEN_IT_IS_NOT_ABOUT_THE_WORK. If one of those
+// changes and this file doesn't, the tour teaches a product that no longer
+// exists.
 //
 // It also starts where the builder does. The deck used to open on a goal
 // already three-quarters through VALIDATION, which taught the one phase a
@@ -306,9 +307,30 @@ const SLIDES: Slide[] = [
           </p>
           {/* The header's own controls, unmarked. A reader can see what they
               are, and neither of them moves the gate — which is the only thing
-              about them this deck has to be sure of. */}
+              about them this deck has to be sure of.
+
+              Both languages on screen with the live one lit, which is the
+              control the app has had since `.toneBtn` was deleted — the same
+              segmented shape as the mode switch further down this mock, and
+              for the same reason: a lone button reading "EN" states the
+              language you already have and never reveals that the other one
+              exists. This deck kept drawing the button after the app stopped
+              having it, and because a CSS module hands back `undefined` for a
+              class that isn't there, the chip lost its styling too and shipped
+              as bare text beside a styled streak pill. Borrowed pixels only
+              carry a change across while the class still exists; nothing warns
+              you when one goes.
+
+              Spans, like every other mock control in this file: they cannot be
+              pressed, so they must not announce themselves as things that
+              can. */}
           <div className={styles.headerStrip}>
-            <span className={app.toneBtn}>EN</span>
+            <div className={app.toneSwitch}>
+              <span className={app.toneOptOn}>EN</span>
+              <span className={app.toneOpt} lang="hi">
+                हिं
+              </span>
+            </div>
             <span className={app.streak}>4 days 🔥</span>
           </div>
 
@@ -375,10 +397,45 @@ const SLIDES: Slide[] = [
         sideways actually cost something.
       </>,
       <>
-        He&apos;s phase-aware. The answer you get in VALIDATION is not the
-        answer the same question gets in BUILD — the playbook for your phase is
-        loaded into every reply. <strong>EN → हिं</strong> switches him to
-        Hinglish; neither that nor the streak beside it touches the gate.
+        {/* The middle clause is the only thing this deck says about the register
+            he answers a hard night in (prompts.WHEN_IT_IS_NOT_ABOUT_THE_WORK),
+            and it is a clause on purpose rather than the fifth slide.
+
+            It is in the deck at all because both of the usual reasons to leave
+            something out fail here. The landing page doesn't say it — that page
+            is "The coach who makes you ship" and a server that won't open the
+            next phase, which is the half of him this slide already shows. And
+            unlike the running proof notes, which were cut because the screen
+            announces itself, this has NO surface in the app: nothing in the UI
+            mentions it, so the only way to find out it exists is to have the
+            night and type it to him. That is exactly the night somebody quietly
+            stops opening the app instead.
+
+            It is a clause and not a slide for the same reason the rule itself
+            gives — it arrives as a clause, not as the subject. A slide would
+            make it the subject, which is the one thing the rule forbids: no
+            counsellor voice, no diagnosis, nothing performed. A deck that
+            advertised this as a feature would be misrepresenting it more
+            precisely than one that left it out.
+
+            Deliberately short on what he says back. The true things are his to
+            say in the moment (missing days deletes nothing banked, closing a
+            goal is free), and a visitor doesn't need them rehearsed — they need
+            to know the register exists.
+
+            The two sentences around it were tightened to pay for it. These
+            notes are a grid and every card in a row is as tall as the longest
+            one, so a note that runs on doesn't cost itself — it hangs a void
+            under the two beside it. This one still ends up the longest on the
+            slide; the sentences it displaced were the restatement of the
+            phase-aware point and "beside the streak", which the mock shows
+            anyway. */}
+        He&apos;s phase-aware: the answer you get in VALIDATION isn&apos;t the
+        one that question gets in BUILD — your phase&apos;s playbook is in every
+        reply. And push-back isn&apos;t his only register — bring him a night
+        that isn&apos;t about the work, and he answers the person, not the task.
+        The <strong>EN / हिं</strong> switch puts him in Hinglish; none of it
+        touches the gate.
       </>,
       <>
         {/* The app's own caption is one clause now — "Assignments and
