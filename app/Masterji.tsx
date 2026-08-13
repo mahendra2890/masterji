@@ -9,6 +9,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { signOutAndLeave } from "@/components/AuthGate";
 import FailedTries from "@/components/FailedTries";
 import Changelog from "@/components/Changelog";
+import TakeTheRecord from "@/components/TakeTheRecord";
 import ClosedIdea from "./ClosedIdea";
 import DayDetail from "./DayDetail";
 import { updatePrefs, type SessionUser } from "@/lib/auth-client";
@@ -21,6 +22,7 @@ import {
   declare,
   formatDayShort,
   judgeDeclaration,
+  getGoalHistory,
   getState,
   localDate,
   phaseWindow,
@@ -465,6 +467,19 @@ export default function Masterji({ user }: { user: SessionUser }) {
   // question you have today, and a builder who answered one last Tuesday
   // shouldn't be met by a wall of rows every morning after.
   const [showAllDays, setShowAllDays] = useState(false);
+  // The days beyond the ones the dashboard payload carries. StateView caps at
+  // CHECKIN_HISTORY, so on a goal past the cap "show all" has to go and get the
+  // rest — the record used to offer all ninety of ninety-five and the other five
+  // were simply gone.
+  //
+  // Both are stamped with the goal they belong to rather than cleared by an
+  // effect: retiring an idea and starting the next one replaces `checkins` in
+  // place, and rows held here without a name on them would have gone on
+  // rendering the dead goal's record under the new goal's title.
+  const [allDays, setAllDays] = useState<{ goalId: number; rows: CheckIn[] } | null>(
+    null
+  );
+  const [allDaysFailedFor, setAllDaysFailedFor] = useState<number | null>(null);
   // A builder who reached for tonight's box before tonight — finished early,
   // or filing at four because they're out at seven. Only ever forces the
   // evening half OPEN; everything that opens it on its own is in eveningOpen.
@@ -1256,6 +1271,12 @@ export default function Masterji({ user }: { user: SessionUser }) {
 
   const { goal, gate, streak, today, checkins, transitions, messages, phases, guidance } =
     state;
+  // What the record can render, and what the record actually holds. They differ
+  // only past the payload cap, and the count in the button has to be the second
+  // one or it is describing the truncation rather than the record.
+  const days = allDays?.goalId === goal.id ? allDays.rows : checkins;
+  const daysHeld = Math.max(state.checkinsTotal, checkins.length);
+  const daysMissing = daysHeld > days.length;
   void justRetired; // consumed by the no-goal branch above
   const doneIdx = phases.indexOf(goal.phase);
   // Today's loop is still open — worth a dot on the pane you can't see.
@@ -2006,22 +2027,47 @@ export default function Masterji({ user }: { user: SessionUser }) {
             <section className={styles.card}>
               <p className={styles.cardLabel}>The record</p>
               <ul className={styles.history}>
-                {(showAllDays ? checkins : checkins.slice(0, RECORD_PREVIEW)).map(
-                  (c) => (
-                    <HistoryRow key={c.id} checkin={c} onOpen={() => setViewDay(c)} />
-                  )
-                )}
+                {(showAllDays ? days : days.slice(0, RECORD_PREVIEW)).map((c) => (
+                  <HistoryRow key={c.id} checkin={c} onOpen={() => setViewDay(c)} />
+                ))}
               </ul>
-              {checkins.length > RECORD_PREVIEW && (
+              {daysHeld > RECORD_PREVIEW && (
                 <button
                   className={styles.moreDays}
-                  onClick={() => setShowAllDays((v) => !v)}
+                  onClick={async () => {
+                    const opening = !showAllDays;
+                    setShowAllDays(opening);
+                    // Fetched on the press that needs them, not on load: this is
+                    // the whole record of a long goal, and most mornings nobody
+                    // asks for it.
+                    if (!opening || !daysMissing) return;
+                    setAllDaysFailedFor(null);
+                    try {
+                      const { checkins: rows } = await getGoalHistory(goal.id);
+                      setAllDays({ goalId: goal.id, rows });
+                    } catch {
+                      setAllDaysFailedFor(goal.id);
+                    }
+                  }}
                 >
                   {showAllDays
                     ? `Show the last ${RECORD_PREVIEW}`
-                    : `Show all ${checkins.length}`}
+                    : `Show all ${daysHeld}`}
                 </button>
               )}
+              {/* Said out loud rather than left as a short list. A record that
+                  quietly hands back fewer days than it just offered is the exact
+                  failure this card was fixed for. */}
+              {showAllDays && allDaysFailedFor === goal.id && daysMissing && (
+                <p className={styles.recordShort}>
+                  Couldn&apos;t load the earlier days — showing the {days.length}{" "}
+                  most recent of {daysHeld}.
+                </p>
+              )}
+              {/* The live goal, offered here because the artifact is most wanted
+                  while the work is still going: an E-Cell application or an
+                  interview does not wait for the idea to end. */}
+              <TakeTheRecord goalId={goal.id} />
             </section>
           )}
 

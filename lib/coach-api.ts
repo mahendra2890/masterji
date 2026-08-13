@@ -6,6 +6,7 @@
 // it streams NDJSON and gets its own reader below.
 
 import { API_URL } from "@/lib/auth-client";
+import { filenameFrom } from "./download";
 
 const TIMEOUT_MS = 15000;
 
@@ -203,6 +204,12 @@ export type CoachState = {
   bestStreak: number;
   today: CheckIn | null;
   checkins: CheckIn[];
+  /** How many days the goal actually has, which is not always how many arrived:
+   * this payload is capped, and the record card's "Show all N" used to count the
+   * rows it was handed. On a goal past the cap that offered all ninety of
+   * ninety-five, with no sign the other five existed. When this is larger than
+   * `checkins.length`, the rest come from `getGoalHistory`. */
+  checkinsTotal: number;
   transitions: PhaseTransition[];
   messages: ChatMessage[];
   phases: Phase[];
@@ -472,12 +479,18 @@ async function refreshSession(): Promise<boolean> {
   return res?.ok ?? false;
 }
 
-async function request<T>(
+/** The request itself: the timeout, the 401→refresh→replay, and a DRF refusal
+ * turned into an ApiError. Hands back the raw Response because its two callers
+ * read the body differently — everything here is JSON except the record export,
+ * which is a file. Splitting at the body rather than writing a second wrapper
+ * keeps the session refresh in one place, which is the part worth not copying.
+ */
+async function send(
   path: string,
   init: RequestInit = {},
   retried = false,
   timeoutMs = TIMEOUT_MS
-): Promise<T> {
+): Promise<Response> {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
   let res: Response;
@@ -502,7 +515,7 @@ async function request<T>(
   }
   if (res.status === 401) {
     if (!retried && (await refreshSession()))
-      return request<T>(path, init, true, timeoutMs);
+      return send(path, init, true, timeoutMs);
     throw new ApiError("Your session expired — sign in again.", 401);
   }
   if (!res.ok) {
@@ -521,6 +534,16 @@ async function request<T>(
     } catch {}
     throw new ApiError(msg, res.status);
   }
+  return res;
+}
+
+async function request<T>(
+  path: string,
+  init: RequestInit = {},
+  retried = false,
+  timeoutMs = TIMEOUT_MS
+): Promise<T> {
+  const res = await send(path, init, retried, timeoutMs);
   return res.status === 204 ? (undefined as T) : res.json();
 }
 
@@ -550,6 +573,7 @@ export async function getState(): Promise<CoachState> {
     best_streak?: number;
     today?: ServerCheckIn | null;
     checkins?: ServerCheckIn[];
+    checkins_total?: number;
     transitions?: ServerTransition[];
     messages?: ServerMessage[];
     phases?: Phase[];
@@ -587,6 +611,9 @@ export async function getState(): Promise<CoachState> {
     bestStreak: data.best_streak ?? 0,
     today: data.today ? fromServerCheckIn(data.today) : null,
     checkins: (data.checkins ?? []).map(fromServerCheckIn),
+    // Falls back to what arrived, so a browser holding this bundle from before
+    // the field existed reads "nothing is missing" rather than "everything is".
+    checkinsTotal: data.checkins_total ?? (data.checkins ?? []).length,
     transitions: (data.transitions ?? []).map(fromServerTransition),
     messages: (data.messages ?? []).map(fromServerMessage),
     phases: data.phases ?? [
@@ -632,6 +659,29 @@ export async function getGoalHistory(id: number): Promise<GoalHistory> {
     checkins: data.checkins.map(fromServerCheckIn),
     transitions: data.transitions.map(fromServerTransition),
     bestStreak: data.streak,
+  };
+}
+
+export const EXPORT_MIME = "text/markdown";
+
+/** The whole record of one goal as a file the builder keeps — every day's
+ * declaration, proof and verdict, the tries that were pushed back, the phases
+ * as they opened, and how it ended.
+ *
+ * Rendered by the server, named by the server. This fetches it rather than
+ * linking to the endpoint so an expired session is refreshed and replayed the
+ * way it is everywhere else; a plain navigation would download the error page.
+ */
+export async function exportGoal(
+  id: number
+): Promise<{ filename: string; text: string }> {
+  const res = await send(`goals/${id}/export/`);
+  return {
+    filename: filenameFrom(
+      res.headers.get("Content-Disposition"),
+      "masterji-record.md"
+    ),
+    text: await res.text(),
   };
 }
 

@@ -26,7 +26,7 @@ from django.utils import timezone
 from rest_framework.test import APITestCase
 from rest_framework.throttling import ScopedRateThrottle
 
-from . import bar, gates, guidance, links, prompts, throttles, views
+from . import bar, export, gates, guidance, links, prompts, throttles, views
 from .management.commands import check_migration_leaf
 from .models import (
     ChangelogEntry,
@@ -83,6 +83,21 @@ class CoachTestCase(APITestCase):
     def make_goal(self, user=None, **kwargs) -> Goal:
         kwargs.setdefault("title", "Tiffin app")
         return Goal.objects.create(user=user or self.alice, **kwargs)
+
+    def _days(self, goal: Goal, n: int):
+        """n declared days, newest first, one per date — enough rows to push a
+        goal past a payload cap. Declarations only: the callers are asking how
+        many rows a view hands back, not what the gate makes of them.
+        """
+        CheckIn.objects.bulk_create(
+            CheckIn(
+                goal=goal,
+                date=date.today() - timedelta(days=i),
+                phase=goal.phase,
+                am_declaration=f"day {i}",
+            )
+            for i in range(n)
+        )
 
     def accept_proofs(self, goal: Goal, n: int):
         """Bank n accepted proofs in the goal's CURRENT phase — the gate
@@ -1141,6 +1156,19 @@ class StateTests(CoachTestCase):
             ["IDEA", "VALIDATION", "BUILD", "LAUNCH", "TRACTION"],
         )
 
+    def test_state_says_how_many_days_it_is_not_sending(self):
+        """The dashboard keeps its row budget and stops implying it is the whole
+        record. "Show all 90" was the button's label on a goal with 95 days,
+        because the client counted the rows the payload happened to carry — a
+        number that can only ever describe the truncation. The count has to come
+        from the server, the way ChangelogView already sends `total`.
+        """
+        goal = self.make_goal()
+        self._days(goal, views.CHECKIN_HISTORY + 5)
+        data = self.client.get("/api/coach/state/").data
+        self.assertEqual(len(data["checkins"]), views.CHECKIN_HISTORY)
+        self.assertEqual(data["checkins_total"], views.CHECKIN_HISTORY + 5)
+
     def test_state_carries_the_best_run_alongside_the_current_one(self):
         """A broken streak reports 0, and 0 on its own reads as "none of it
         happened". The longest run was already computed for the retirement
@@ -1834,6 +1862,19 @@ class GoalHistoryTests(CoachTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIsNone(response.data["retirement"])
 
+    def test_history_is_not_capped_at_the_dashboard_limit(self):
+        """CHECKIN_HISTORY is a payload budget for the dashboard, and this view
+        is the one that exists because the whole record is too much to send on
+        every page load. It used to apply the same 90-row slice, so a goal that
+        ran past three months lost its first weeks from the panel that is
+        supposed to be the product's memory — and from the export, which reads
+        these rows and calls itself the whole story.
+        """
+        goal = self.make_goal()
+        self._days(goal, views.CHECKIN_HISTORY + 5)
+        response = self.client.get(f"/api/coach/goals/{goal.pk}/history/")
+        self.assertEqual(len(response.data["checkins"]), views.CHECKIN_HISTORY + 5)
+
     def test_foreign_goal_history_404s(self):
         bobs = self.make_goal(user=self.bob)
         self.assertEqual(
@@ -1861,6 +1902,152 @@ class GoalHistoryTests(CoachTestCase):
             self.client.post(f"/api/coach/goals/{goal.pk}/retire/", {"reason": "Done."})
         archive = self.client.get("/api/coach/state/").data["archive"]
         self.assertEqual(archive[0]["goal"], goal.pk)
+
+
+class GoalExportTests(CoachTestCase):
+    """The record as a file the builder can take with them.
+
+    Every line of it is a rendering of rows that already existed, so most of
+    what needs pinning is not the prose: it is that the file carries the whole
+    record rather than the dashboard's slice of it, that it carries the refused
+    tries as well as the accepted ones, and that it never contains a link which
+    is dead by the time anyone opens the file.
+    """
+
+    def _export(self, goal) -> str:
+        response = self.client.get(f"/api/coach/goals/{goal.pk}/export/")
+        self.assertEqual(response.status_code, 200)
+        # Asserted on every export below rather than in a test of its own: the
+        # client reads the filename out of this header (which is why the API
+        # exposes it cross-origin) instead of keeping a second copy of the
+        # naming rule, so a header that stopped arriving would rename every
+        # download without breaking anything the server can see.
+        self.assertEqual(
+            response["Content-Disposition"],
+            f'attachment; filename="{export.filename(goal, date.today())}"',
+        )
+        return response.content.decode()
+
+    def test_export_carries_the_whole_story(self):
+        """Declaration, proof, verdict, the try that was pushed back, the phase
+        crossing and the retirement. A record that shows only what was accepted
+        is a brochure, and the refusals are the part that makes the rest
+        credible — the product's own argument for itself.
+        """
+        goal = self.make_goal()
+        self.accept_proofs(goal, 1)
+        self.client.post(f"/api/coach/goals/{goal.pk}/advance/")
+        goal.refresh_from_db()
+        checkin = CheckIn.objects.create(
+            goal=goal,
+            date=date(2026, 8, 10),
+            phase=goal.phase,
+            am_declaration="talk to two resellers",
+            pm_proof_text="notes from Priya",
+            proof_url="https://example.com/notes",
+            proof_status=CheckIn.ProofStatus.ACCEPTED,
+            coach_reaction="That's the one.",
+        )
+        ProofAttempt.objects.create(
+            checkin=checkin,
+            text="I plan to talk to them tomorrow",
+            reaction="That's a plan, not a proof.",
+        )
+        with mock.patch("coach.views.llm.complete", return_value="Noted."):
+            self.client.post(
+                f"/api/coach/goals/{goal.pk}/retire/", {"reason": "Wrong segment."}
+            )
+
+        text = self._export(goal)
+        for fragment in (
+            "Tiffin app",
+            "10 Aug 2026",
+            "IDEA → VALIDATION",
+            "talk to two resellers",
+            "notes from Priya",
+            "https://example.com/notes",
+            "That's the one.",
+            "I plan to talk to them tomorrow",
+            "That's a plan, not a proof.",
+            "Wrong segment.",
+            # Computed at close from contact proofs, never self-declared: one
+            # VALIDATION proof is under gates.INVALIDATED_AT, so the honest
+            # reading is UNTESTED and the file says so rather than flattering.
+            "UNTESTED",
+        ):
+            self.assertIn(fragment, text, fragment)
+
+    def test_export_is_not_capped_at_the_dashboard_limit(self):
+        """The reason this shipped with #88 rather than after it. An export
+        built on the dashboard's 90-row query would drop the first weeks of a
+        four-month goal while calling itself the full record — the one failure
+        this artifact cannot have, because nobody checks a file for the days it
+        is missing.
+        """
+        goal = self.make_goal()
+        self._days(goal, views.CHECKIN_HISTORY + 5)
+        text = self._export(goal)
+        self.assertIn(f"day {views.CHECKIN_HISTORY + 4}", text)
+
+    def test_export_starts_where_the_record_starts(self):
+        """A check-in can be dated earlier than the goal row that owns it: dates
+        come from the builder's clock and `created_at` from the server's UTC, and
+        `streaks.span` exists because of exactly that. The header read
+        `created_at` on its own in the first draft of this file, which produced
+        "Started 13 Aug" above a first entry dated the 9th — a document that
+        argues with itself in front of whoever the builder handed it to.
+        """
+        goal = self.make_goal()
+        earliest = date.today() - timedelta(days=4)
+        CheckIn.objects.create(
+            goal=goal,
+            date=earliest,
+            phase=goal.phase,
+            am_declaration="the first day of it",
+        )
+        self.assertIn(
+            f"Started: {earliest.day} {earliest:%b %Y}",
+            self._export(goal),
+        )
+
+    def test_export_names_a_screenshot_and_never_links_it(self):
+        """Proof images are signed on read and the links expire in minutes. A
+        file kept for a placement interview must not carry one, so the export
+        records that a screenshot was filed and stops there. Pinned with storage
+        configured, because the failure mode is reusing the serializer payload
+        that signs these URLs for the app."""
+        goal = self.make_goal()
+        CheckIn.objects.create(
+            goal=goal,
+            date=date(2026, 8, 10),
+            phase=goal.phase,
+            am_declaration="ship the form",
+            pm_proof_text="filed it",
+            proof_image_key="proofs/abc.png",
+            proof_status=CheckIn.ProofStatus.ACCEPTED,
+        )
+        with (
+            mock.patch("coach.storage.is_configured", return_value=True),
+            mock.patch(
+                "coach.storage.view_url", return_value="https://r2.example/signed"
+            ),
+        ):
+            text = self._export(goal)
+        self.assertIn("screenshot", text.lower())
+        self.assertNotIn("https://r2.example/signed", text)
+
+    def test_foreign_goal_export_404s(self):
+        bobs = self.make_goal(user=self.bob)
+        self.assertEqual(
+            self.client.get(f"/api/coach/goals/{bobs.pk}/export/").status_code, 404
+        )
+
+    def test_export_requires_auth(self):
+        goal = self.make_goal()
+        self.client.force_authenticate(None)
+        self.assertEqual(
+            self.client.get(f"/api/coach/goals/{goal.pk}/export/").status_code, 401
+        )
 
 
 class LoopholeTests(CoachTestCase):

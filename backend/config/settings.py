@@ -139,6 +139,11 @@ CORS_ALLOWED_ORIGINS = env_list(
 )
 # The browser sends auth cookies cross-origin (3000 → 8000) only with this on
 CORS_ALLOW_CREDENTIALS = True
+# Response headers a cross-origin reader may see. Only one, and it earns it: the
+# record export names its own file, and without this the client cannot read that
+# name and would have to keep a second copy of the naming rule — two names for
+# one file depending on whether you fetched it from the app or with curl.
+CORS_EXPOSE_HEADERS = ["Content-Disposition"]
 CSRF_TRUSTED_ORIGINS = env_list(
     "CSRF_TRUSTED_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000"
 )
