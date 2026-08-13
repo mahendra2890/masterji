@@ -9,10 +9,13 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getChangelog, type ChangelogEntry } from "@/lib/coach-api";
+import { hasUnseen } from "@/lib/changelog-seen";
 import { useDialogFocus } from "@/lib/dialog-focus";
 import styles from "./changelog.module.css";
 
-/** The newest date this browser has read. A dot nags until it catches up. */
+/** The newest date this browser has read. A dot nags until it catches up.
+ * Written when the popup is opened, and once on the first mount of a browser
+ * that has never held one — see `neverStamped` below. */
 const SEEN_KEY = "masterji.changelog.seen";
 
 const KIND_LABEL: Record<ChangelogEntry["kind"], string> = {
@@ -64,6 +67,10 @@ export default function Changelog() {
   // a preview still in flight when somebody opens the popup cannot land
   // afterwards and cut the whole list back to six under the reader.
   const asked = useRef(false);
+  // This browser has never held a stamp, so it is owed one as soon as there is
+  // a date to write. Set from the mount read and spent once — a ref rather
+  // than state because nothing renders differently for it.
+  const neverStamped = useRef(false);
 
   /** The newest few. What every mount pays, on every screen. */
   const load = useCallback(() => {
@@ -110,7 +117,14 @@ export default function Changelog() {
   useEffect(() => {
     load();
     try {
-      setSeen(localStorage.getItem(SEEN_KEY) ?? "");
+      const stored = localStorage.getItem(SEEN_KEY);
+      // `null` is a browser that has never been written to — a first run, on a
+      // product whose history it cannot be behind on. Distinguishing that from
+      // the blocked case below is the whole of what makes the dot honest: this
+      // one gets stamped once a date arrives, that one can never be stamped
+      // and must not be asked to.
+      neverStamped.current = stored === null;
+      setSeen(stored ?? "");
     } catch {
       // Storage blocked (private mode, embedded webview) — no dot, and the
       // popup still works. Not worth surfacing.
@@ -132,9 +146,20 @@ export default function Changelog() {
   useDialogFocus(dialog, open);
 
   const latest = entries?.[0]?.shippedOn ?? "";
-  // ISO dates compare correctly as strings, and a browser that has never
-  // read the list is behind by definition.
-  const unseen = seen !== null && latest !== "" && seen < latest;
+
+  // The first mount in a browser's life, stamped the moment the fetch answers
+  // with something to stamp. Not in the mount effect above, because the one
+  // thing that effect does not have is the date to write.
+  useEffect(() => {
+    if (!neverStamped.current || latest === "") return;
+    neverStamped.current = false;
+    setSeen(latest);
+    try {
+      localStorage.setItem(SEEN_KEY, latest);
+    } catch {}
+  }, [latest]);
+
+  const unseen = hasUnseen(seen, latest);
 
   // Everything the server has, as far as this browser knows. `entries` null is
   // the mount fetch still in flight, which is not "holding all of them".
