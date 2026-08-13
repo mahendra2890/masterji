@@ -224,13 +224,24 @@ def for_phase(phase: Phase) -> dict:
 # bargain as OPENERS above: tapping one fills the composer and leaves the
 # sending with the builder.
 #
-# These three are the actual freezes, not three flavours of "help me brainstorm":
-# no idea at all, too many ideas, and the fear that the idea is too obvious to
-# be worth doing. The first one is also the condition the coach's week-walk is
-# keyed to — a builder who taps it has told the room they arrived empty-handed,
-# which is the one case where walking their week is the right opening move.
+# These four are the actual freezes, not four flavours of "help me brainstorm":
+# no idea at all, too many ideas, the fear that the idea is too obvious to be
+# worth doing, and the belief that somebody else has already settled it. The
+# first one is also the condition the coach's week-walk is keyed to — a builder
+# who taps it has told the room they arrived empty-handed, which is the one case
+# where walking their week is the right opening move.
+#
+# The fourth is not a restatement of the third, which is why it is here rather
+# than folded into it: "too obvious" is a fear about whether the idea is WORTH
+# doing, "someone's already built this" is a belief that the question is already
+# ANSWERED and the work is therefore pointless. Different freeze, different
+# answer — and the answer is this product's own thesis, so the room should not
+# have to improvise it. The register that answers it is a block in
+# prompts.WORKSHOP_SYSTEM, keyed to this opener the way the week-walk is keyed
+# to the first.
 WORKSHOP_OPENERS = [
     "I don't have an idea yet.",
     "I have three ideas and can't pick.",
     "Is my idea too obvious?",
+    "Someone's already built this.",
 ]

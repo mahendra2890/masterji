@@ -5073,10 +5073,41 @@ class WorkshopTests(CoachTestCase):
         )
         self.assertIn(prompts.HINGLISH_RULE, hinglish)
 
-    def test_the_openers_are_the_three_actual_freezes(self):
+    def test_the_openers_are_the_four_actual_freezes(self):
+        """Four, not a growing list of prompts: no idea at all, too many ideas,
+        the fear that the idea is too obvious, and the belief that somebody has
+        already settled the question. The count is asserted because the way this
+        list goes wrong is by accumulating conversation-starters — the moment it
+        is a menu rather than the freezes, tapping one stops meaning anything."""
         payload = self.client.get("/api/coach/state/").json()
         self.assertEqual(payload["workshop_openers"], guidance.WORKSHOP_OPENERS)
-        self.assertEqual(len(guidance.WORKSHOP_OPENERS), 3)
+        self.assertEqual(len(guidance.WORKSHOP_OPENERS), 4)
+
+    def test_the_competition_opener_has_a_register_waiting_for_it(self):
+        """An opener with nothing behind it is a question the room improvises
+        an answer to, and this is the one where improvising costs most: the
+        honest answer — an existing product is evidence the problem is real,
+        and only the people can say whether it is solved for them — is this
+        product's own thesis and points straight at VALIDATION.
+
+        Keyed to the opener the way the week-walk is keyed to the first one, so
+        the assertion is that both halves shipped, not that a string exists."""
+        self.assertIn("Someone's already built this.", guidance.WORKSHOP_OPENERS)
+        text = prompts.build_workshop_prompt(
+            candidates=[],
+            turns_used=0,
+            turns_total=views.WORKSHOP_TURNS,
+            maximum=Workshop.MAX_CANDIDATES,
+            tone="ENGLISH",
+        )
+        self.assertIn("SOMEBODY HAS ALREADY BUILT IT", text)
+        # The distinction the fourth opener exists for: not a restatement of
+        # "too obvious", and not answered with reassurance about market size.
+        flat = text.replace("\n", " ")
+        self.assertIn("the problem is REAL", flat)
+        self.assertIn("evidence that it is solved for the people", flat)
+        # The redirect that makes this answerable rather than consoling.
+        self.assertIn("VALIDATION exists to make them have", flat)
 
     def test_an_outage_leaves_the_room_standing(self):
         """The turn is spent and said so, the way a broken chat turn is: a model

@@ -146,6 +146,16 @@
   line-height: 1.6;
 }
 
+/* `margin: 0` above is deliberate and stays: every section owns its own
+   rhythm. It only worked because no section had ever held two of these — the
+   ladder section is the first, and without this the room-before-IDEA paragraph
+   and the gate paragraph render as one run-on block with no gap at all.
+   Scoped to the adjacent pair so the three single-paragraph sections keep the
+   spacing they were tuned with. */
+.sectionBody + .sectionBody {
+  margin-top: 14px;
+}
+
 .sectionBody code {
   font-family: var(--font-mono), monospace;
   font-size: 0.9em;

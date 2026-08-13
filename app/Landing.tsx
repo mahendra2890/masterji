@@ -210,6 +210,29 @@ export default function Landing({
                     Bring me notes tonight.
                   </p>
                 </div>
+                {/* The second objection, and the commoner one: the page used
+                  to answer only the builder who already has an idea, which is
+                  not the visitor most likely to leave. The builder's line is
+                  guidance.WORKSHOP_OPENERS[0] word for word — a real tappable
+                  chip, not copy written for this page. Every claim in the
+                  reply is server truth: WORKSHOP_TURNS is 15, the pile is
+                  capped at three (models.Workshop), the room grades nothing
+                  and banks nothing, and suggest_goal fills the commit box
+                  while pressing it stays the builder's. */}
+                <div className={app.userMsg}>
+                  <p className={app.msgBody}>I don&apos;t have an idea yet.</p>
+                </div>
+                <div className={app.coachMsg}>
+                  <span className={app.avatar}>म</span>
+                  <p className={app.msgBody}>
+                    Then we start before the ladder. Fifteen turns, and the
+                    first one is yours: what did you stand in a queue for this
+                    week, or watch somebody work around? Park up to three, pick
+                    one. Nothing in here is graded and nothing banks — when one
+                    of them wins I&apos;ll fill the commit box, and pressing it
+                    is still yours.
+                  </p>
+                </div>
               </div>
             </div>
           </div>
@@ -242,8 +265,27 @@ export default function Landing({
             <li className={styles.phase}>LAUNCH</li>
             <li className={styles.phase}>TRACTION</li>
           </ol>
+          {/* The ladder starts at IDEA and the product doesn't: there is a
+            room before it, and this page said nothing about it for a day. The
+            first screen is not commit-or-leave, which is the thing a visitor
+            with no idea yet has to know before the ladder above reads as a
+            door rather than a wall. Fifteen turns is WORKSHOP_TURNS; the room
+            is not on this list because it is not a phase — nothing in it
+            banks, and gates.py never reads it.
+
+            Named, and placed, in the words the product itself uses: Tour.tsx
+            says "the workshop is under the box" and Masterji.tsx says
+            "Workshop closed." when the turns run out. A visitor told about an
+            unnamed room has to recognise it on arrival; one told its name and
+            where it sits does not. */}
           <p className={styles.sectionBody}>
-            Each one opens on evidence you banked in the phase before it. The
+            Before IDEA there&apos;s a room that isn&apos;t on this ladder — the
+            workshop, under the commit box: fifteen turns to find the idea, if
+            you don&apos;t have one yet. Nothing in it counts toward anything —
+            that&apos;s the point of it.
+          </p>
+          <p className={styles.sectionBody}>
+            Each phase opens on evidence you banked in the phase before it. The
             coach can be argued with; the gate can&apos;t — it&apos;s a{" "}
             <code>WHERE</code> clause, and the model only gets to{" "}
             {/* The explicit {" "} is load-bearing: a text node that starts on
