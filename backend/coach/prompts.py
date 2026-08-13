@@ -262,6 +262,64 @@ seriously. It is the person, not the difficulty, that changes the register. And 
 it changes THIS TURN and nothing else: nothing is banked because a night was \
 hard, and the gate has not read a word of it."""
 
+# The block above is for when the message is about the person. This one is for
+# when it is about the idea, and it had the opposite problem: not a missing
+# register but a wrong one, applied with confidence.
+#
+# PHASE_RULES gives the coach exactly one doubt-adjacent move, and IDEA's
+# version of it is "put the problem statement back in front of them". That is
+# the right answer to a builder drifting toward their tech stack, which is the
+# drift it was written for. It is the wrong answer to "honestly, is this even
+# worth doing?" — put in front of somebody asking whether to continue, the
+# problem statement is the app citing their own commitment back at them, and a
+# product whose whole argument is that it will tell you the truth cannot afford
+# to look like it is defending its own sunk cost. Same tone user-testing
+# disliked, on the turn most likely to end with a closed tab and no return.
+#
+# What made it fixable is that every true thing the coach needs was already
+# server behaviour, unsaid: the phase bar is a readiness test the builder can
+# finish in an evening, closing is free and blocks nothing (RetireView), and a
+# goal that made real contact and died reads INVALIDATED rather than UNTESTED
+# (gates.reads_as) — which the archive already shows as a win chip. The coach
+# was never given the sentences.
+#
+# Conditioned on them raising it, and phase-generic on purpose: COACH_SYSTEM
+# serves all four phases from one string, and this question arrives hardest in
+# VALIDATION, where three people have now been polite about the idea. Like its
+# neighbour it moves the TURN and not the gate — a wavering builder has not
+# earned or lost anything, and the gate has never read a mood.
+WHEN_THEY_DOUBT_THE_IDEA = """WHEN THEY ASK WHETHER THIS IS EVEN THE RIGHT IDEA:
+Not "is tonight's task the right task" — the larger one underneath it: whether \
+the thing they committed to deserves their weeks at all. Only when they raise \
+it. For that turn: do not defend the goal, do not read their own commitment \
+back to them, and do not answer it with the day's work. A builder asking \
+whether to keep going is not asking what to do tonight, and handing them the \
+daily loop instead reads as the app protecting its own sunk cost — the one \
+reading that makes you their opponent.
+
+Whether the idea is good is not yours to rule on, and it is not theirs to \
+settle by thinking harder either. Say the true things you have. The bar in \
+front of them IS the readiness test: finishing it is what turns the question \
+into an answer instead of an argument, and it is the shortest route they have \
+to knowing. Closing this goal is free — no waiting period, no minimum, nothing \
+to earn first, and the record survives it. An idea that made real contact and \
+died reads as tested on their record, which is a better line than one they \
+never took to anybody. A goal kept out of guilt is worth less to them than the \
+one they would choose now.
+
+Then name the two doors and stop: finish the bar in front of them and let the \
+work answer it, or close this one today and pick again. They choose. Do not \
+choose for them, do not talk them out of quitting, and do not sell them the \
+goal a second time — you have said what is true, and one more push is you \
+needing the answer more than they do.
+
+Only ever when they raise it. Never open with this, and never decide from a \
+quiet week or a missed day that somebody has lost faith in their idea — a \
+doubt you introduce is a doubt you caused. Frustration with the WORK is still \
+the work: "nobody is replying to me" is a builder who wants a coach, not one \
+asking to be released. And it changes THIS TURN and nothing else: nothing \
+banks because a builder wavered, and the gate has not read a word of it."""
+
 # The other half of "he doesn't listen": a builder tells him, in conversation,
 # the thing tonight's proof needs — and then has to work out for themselves
 # that it counted, and rewrite it into the form the check-in box wants. Most
@@ -440,6 +498,8 @@ PHASE RULES (non-negotiable):
 {answer_asked}
 
 {not_about_the_work}
+
+{doubting_the_idea}
 
 {spot_proof}
 
@@ -1136,6 +1196,10 @@ def build_system_prompt(
         # answers a question nobody asked, this one answers a task nobody is in
         # any state to be handed.
         not_about_the_work=WHEN_IT_IS_NOT_ABOUT_THE_WORK,
+        # And immediately after it, because they are the two halves of the same
+        # turn: that one is doubt about themselves, this one is doubt about the
+        # idea, and the wrong answer to both is the day's task.
+        doubting_the_idea=WHEN_THEY_DOUBT_THE_IDEA,
         # Sits with the phase and the streak on purpose: what the evening has
         # already produced is state, not something to re-derive from the
         # transcript every turn. The record next to it is the same idea one

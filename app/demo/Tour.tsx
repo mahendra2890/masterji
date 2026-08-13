@@ -127,10 +127,12 @@ const SLIDES: Slide[] = [
           <p className={app.wordmark}>मास्टरजी</p>
           <h2 className={app.onboardTitle}>One goal.</h2>
           <p className={app.onboardSub}>
-            Masterji coaches one thing at a time. Pick the one that matters and
-            commit — then it&apos;s one task each morning and proof of it each
-            evening, about two minutes a day. You can close it whenever you
-            like.
+            Masterji coaches one thing at a time. Pick the problem you&apos;ll
+            test first — not the idea you&apos;ll finish — then it&apos;s one task
+            each morning and proof of it each evening, about two minutes a day.
+            The first thing he asks for is one evening at your desk. You can close
+            it whenever you like, and an idea that dies in front of real people
+            reads as tested on your record — most first ones should.
           </p>
           <Mark n={1}>
             <div className={app.onboardForm}>
@@ -203,8 +205,10 @@ const SLIDES: Slide[] = [
               <Mark n={3}>
                 <Line who="COACH">
                   Goal locked: &quot;Tiffin-delivery app for my college&quot;.
-                  Rule one: one goal at a time, and this is yours now. You start
-                  in IDEA — write a one-paragraph problem statement, then the
+                  Rule one: one goal at a time, and this is yours now. What you
+                  picked is the problem you test first, not an idea you are stuck
+                  with. You start in IDEA — write a one-paragraph problem
+                  statement, then the
                   route to these people: one place they already are, why you
                   think they&apos;re there, and how you&apos;d get one
                   conversation this week. No names needed, and you won&apos;t

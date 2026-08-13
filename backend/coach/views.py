@@ -80,9 +80,19 @@ WHERE_TO_FILE = "Today"
 # second — and the promise waits on a declaration for the same reason
 # _offer_target does: with no task to hang notes on, there is nothing to write
 # up yet.
+#
+# The second sentence is the commit screen's reframe arriving a moment later,
+# and it is here rather than only there because this is the first thing the
+# coach himself says: "this is yours now" is the whole of what the builder had
+# to go on, and it reads as a lock rather than as the start of a test. The
+# reframe is one sentence and no more — the message's job past that point is the
+# phase in front of them, and the record promise (an idea that dies in front of
+# real people reads as tested) belongs on the screen where the hesitation
+# actually happens, not stacked on top of the week's instructions.
 WELCOME = (
     'Goal locked: "{title}". Rule one: one goal at a time, and this is yours '
-    "now. You start in IDEA — write a one-paragraph problem statement, then "
+    "now. What you picked is the problem you test first, not an idea you are "
+    "stuck with. You start in IDEA — write a one-paragraph problem statement, then "
     "the route to these people: one place they already are, why you think "
     "they're there, and how you'd get one conversation this week. No names "
     "needed, and you won't message anyone until VALIDATION. Declare today's "
