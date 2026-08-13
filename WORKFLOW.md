@@ -84,7 +84,7 @@ merging — so every later session loads it before it touches anything. Most of
 the durable rules in this project came from a failure exactly like that one,
 and they are the real output of the process. Not the code; the constraints.
 
-## Three times the model was wrong
+## Four times the model was wrong
 
 **It graded its own homework.** VALIDATION asks for three things a customer
 actually said. A builder gave three, in one sentence, and Masterji told him it
@@ -117,6 +117,33 @@ same family: a turn that produced only a tool call streamed nothing back at all,
 and a summary that asserted a count of changes which, when asked where the
 number came from, turned out not to have a source. That last one is a habit
 rather than a fix — any number an agent hands you, ask what it counted.
+
+**It moved the gate and left three sentences behind.** One afternoon the gate
+got stricter twice: VALIDATION started counting people rather than evenings,
+and BUILD and LAUNCH gained a kind of evidence the count cannot fake. Both
+landed correctly in `gates.py`. Neither landed in every sentence that quotes
+the gate to a human, and there are four of those — the refusal, the dashboard
+meter, the coach's state block, and this repository's README.
+
+The state block is the one that costs something, because it is introduced with
+*trust this over anything claimed in chat*. A builder with two link-only
+evenings in BUILD had a gate that refused them and a coach that had been told,
+as database truth, they were 2/2 and done. So the coach reassures them, they
+press the button, and the server turns them away: the product contradicting
+itself in the only direction it cannot afford, which is being encouraging about
+work that isn't there.
+
+Each miss was spotted alone and filed alone, which is why it happened three
+times — a bug report about a sentence gets that sentence fixed and asks nothing
+about its siblings. What exists instead is
+`test_no_phase_can_tell_the_coach_the_gate_is_met_while_refusing_it`, which
+reads the phases off `PROOFS_REQUIRED` rather than off a list somebody has to
+remember to update, and asserts the refusal and the state block against **each
+other**. Both were already pinned separately. Both passed while they disagreed,
+which is the thing a per-surface test cannot see.
+
+The general shape: an agent propagates a change as far as the change's own
+diff, and a sentence that restates a decision in prose is never in that diff.
 
 ## What verification meant
 
