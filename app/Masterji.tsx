@@ -15,6 +15,7 @@ import DayDetail from "./DayDetail";
 import { updatePrefs, type SessionUser } from "@/lib/auth-client";
 import { useDialogFocus } from "@/lib/dialog-focus";
 import { readDraft, writeDraft } from "@/lib/drafts";
+import { pinLog } from "@/lib/log-pin";
 import {
   advanceGoal,
   ApiError,
@@ -643,14 +644,16 @@ export default function Masterji({ user }: { user: SessionUser }) {
     setPmText((current) => current || unread.pmProofText);
   }, [unread]);
 
-  // Pin the log to the newest message by scrolling the log itself.
+  // Pin the log to the newest turn by scrolling the log itself.
   // scrollIntoView walks up to the nearest scrollable ancestor, and on a
   // phone — where the log only becomes its own scroll box once the chat
   // pane is showing — that ancestor is the page: every load dropped the
   // builder at the very bottom of it, below the whole dashboard.
+  //
+  // Which end of the newest turn gets pinned is lib/log-pin.ts, and the
+  // arithmetic lives there because it is the same question for both logs.
   useEffect(() => {
-    const box = messagesRef.current;
-    if (box) box.scrollTop = box.scrollHeight;
+    pinLog(messagesRef.current, streamingText !== null);
   }, [state?.messages.length, streamingText, pane]);
 
   // The same pin for the room's log, which never had one. That log is a 320px
@@ -661,12 +664,10 @@ export default function Masterji({ user }: { user: SessionUser }) {
   // the tiebreak is the room's whole output, the thing `suggest_goal` is
   // grounded in.
   //
-  // Deliberately the same rule as the chat's above rather than a better one:
-  // there is a live proposal to pin a long incoming turn to its own top instead,
-  // and that belongs in one place for both logs.
+  // `wsPending` counts as arriving, not settled: it is the builder's own line,
+  // shown the moment they press send, and the reply is about to land under it.
   useEffect(() => {
-    const box = wsLogRef.current;
-    if (box) box.scrollTop = box.scrollHeight;
+    pinLog(wsLogRef.current, wsStreaming !== null || wsPending !== null);
   }, [state?.workshop?.messages.length, wsStreaming, wsPending]);
 
   // The composer is the height of what's in it: one row while it's empty, a
@@ -1185,6 +1186,7 @@ export default function Masterji({ user }: { user: SessionUser }) {
               {ws?.messages.map((m) => (
                 <p
                   key={m.id}
+                  data-turn
                   className={
                     m.role === "USER" ? styles.wsMine : styles.wsTheirs
                   }
@@ -1193,10 +1195,12 @@ export default function Masterji({ user }: { user: SessionUser }) {
                 </p>
               ))}
               {wsPending !== null && (
-                <p className={styles.wsMine}>{wsPending}</p>
+                <p data-turn className={styles.wsMine}>
+                  {wsPending}
+                </p>
               )}
               {wsStreaming !== null && (
-                <p className={styles.wsTheirs}>
+                <p data-turn className={styles.wsTheirs}>
                   {wsStreaming || <span className={styles.wsThinking}>…</span>}
                 </p>
               )}
@@ -2234,7 +2238,7 @@ export default function Masterji({ user }: { user: SessionUser }) {
               if (m.role === "SYSTEM") {
                 const said = saidBefore(messages, i);
                 return (
-                  <div key={m.id} className={styles.systemMsg}>
+                  <div key={m.id} data-turn className={styles.systemMsg}>
                     <p className={styles.systemText}>{m.content}</p>
                     {said && (
                       <button
@@ -2253,6 +2257,7 @@ export default function Masterji({ user }: { user: SessionUser }) {
               return (
                 <div
                   key={m.id}
+                  data-turn
                   className={m.role === "COACH" ? styles.coachMsg : styles.userMsg}
                 >
                   {m.role === "COACH" && <span className={styles.avatar}>म</span>}
@@ -2261,12 +2266,12 @@ export default function Masterji({ user }: { user: SessionUser }) {
               );
             })}
             {pendingUserMsg && (
-              <div className={styles.userMsg}>
+              <div data-turn className={styles.userMsg}>
                 <p className={styles.msgBody}>{pendingUserMsg}</p>
               </div>
             )}
             {streamingText !== null && (
-              <div className={styles.coachMsg}>
+              <div data-turn className={styles.coachMsg}>
                 <span className={styles.avatar}>म</span>
                 <p className={styles.msgBody}>
                   {streamingText || <span className={styles.thinking}>…</span>}
