@@ -16,10 +16,10 @@ from .models import Goal, Phase
 PLAYBOOKS_DIR = Path(__file__).resolve().parent / "playbooks"
 
 PLAYBOOKS_BY_PHASE = {
-    Phase.IDEA: ["problem-statement"],
-    Phase.VALIDATION: ["customer-conversations"],
+    Phase.IDEA: ["problem-statement", "choosing-an-idea"],
+    Phase.VALIDATION: ["customer-conversations", "getting-the-conversation"],
     Phase.BUILD: ["over-engineering", "mvp-scoping", "shipping-cadence"],
-    Phase.LAUNCH: ["launch-checklist"],
+    Phase.LAUNCH: ["launch-checklist", "the-first-rupee"],
 }
 
 # What each phase is for, and what waits. Written as redirects rather than
