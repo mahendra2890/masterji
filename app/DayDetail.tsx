@@ -10,13 +10,20 @@ import { useEffect, useRef } from "react";
 import DayRecord, { VERDICT } from "@/components/DayRecord";
 import { formatDay, type CheckIn } from "@/lib/coach-api";
 import { useDialogFocus } from "@/lib/dialog-focus";
+import { ordinalLabel } from "@/lib/record";
 import styles from "./masterji.module.css";
 
 export default function DayDetail({
   checkin,
+  cycle,
   onClose,
 }: {
   checkin: CheckIn;
+  /** Which declare→prove cycle of its own day this is. The heading is the
+   * date, and on a day that was run twice the date does not identify which of
+   * the two was opened — the row it was opened from says so, and the panel
+   * that replaces the screen has to keep saying it. */
+  cycle: number;
   onClose: () => void;
 }) {
   // Escape closes. This can open ON TOP of the phase drill-in, so without a
@@ -42,7 +49,14 @@ export default function DayDetail({
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
-        aria-label={`${formatDay(checkin.date)} — the whole day`}
+        aria-label={
+          // "the whole day" is only true of a day that ran once. On a day with
+          // repeats this panel is one of them, and the label is the only thing
+          // a screen reader gets — the marker below it is a visual column.
+          cycle > 1
+            ? `${formatDay(checkin.date)} — the ${ordinalLabel(cycle)} cycle of this day`
+            : `${formatDay(checkin.date)} — the whole day`
+        }
       >
         <div className={styles.modalHeader}>
           <h3>{formatDay(checkin.date)}</h3>
@@ -53,6 +67,9 @@ export default function DayDetail({
 
         <p className={styles.modalMeta}>
           {checkin.phase && <span className={styles.metaBit}>{checkin.phase}</span>}
+          {cycle > 1 && (
+            <span className={styles.metaBit}>{ordinalLabel(cycle)} cycle</span>
+          )}
           <span className={`${styles.metaBit} ${VERDICT[checkin.proofStatus].className(styles)}`}>
             {VERDICT[checkin.proofStatus].label}
           </span>

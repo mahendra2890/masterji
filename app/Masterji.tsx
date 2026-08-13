@@ -17,11 +17,13 @@ import { useDialogFocus } from "@/lib/dialog-focus";
 import { readDraft, writeDraft } from "@/lib/drafts";
 import { isEarned } from "@/lib/gate";
 import { pinLog } from "@/lib/log-pin";
+import { cycleOrdinals, newestFirst, ordinalLabel, rowsExtent } from "@/lib/record";
 import {
   advanceGoal,
   ApiError,
   createGoal,
   declare,
+  formatDay,
   formatDayShort,
   judgeDeclaration,
   getGoalHistory,
@@ -346,12 +348,41 @@ const isUnsettled = (s: CheckIn["proofStatus"]) =>
  * A row is a summary, so it has to open: the proof, the screenshot and
  * Masterji's reaction are all on the check-in and were reachable from
  * nowhere. Shared by the sidebar record and the phase drill-in, which show
- * the same rows and must open the same thing. */
-function HistoryRow({ checkin: c, onOpen }: { checkin: CheckIn; onOpen: () => void }) {
+ * the same rows and must open the same thing.
+ *
+ * `cycle` is which declare→prove cycle of its own day this row is, and the
+ * date alone cannot say it: a day may hold more than one, and the commonest
+ * second task is a continuation of the first, so two rows can differ in
+ * nothing but their glyph. `showCycle` is the list's decision rather than the
+ * row's — the marker gets a column of its own, and a list with no repeat in it
+ * should not pay for one on a phone. */
+function HistoryRow({
+  checkin: c,
+  cycle,
+  showCycle,
+  onOpen,
+}: {
+  checkin: CheckIn;
+  cycle: number;
+  showCycle: boolean;
+  onOpen: () => void;
+}) {
+  const repeat = cycle > 1;
   return (
     <li className={styles.historyItem}>
-      <button className={styles.historyRow} onClick={onOpen} title="Open this day">
+      <button
+        className={styles.historyRow}
+        onClick={onOpen}
+        title={repeat ? `Open this day — ${ordinalLabel(cycle)} cycle` : "Open this day"}
+      >
         <span className={styles.historyDate}>{formatDayShort(c.date)}</span>
+        {/* Empty on a day's first cycle rather than absent, so the rows of one
+            list still align with each other. */}
+        {showCycle && (
+          <span className={styles.historyCycle}>
+            {repeat ? `· ${ordinalLabel(cycle)}` : ""}
+          </span>
+        )}
         <span className={styles.historyText}>{c.amDeclaration || "—"}</span>
         <span className={CHIP[c.proofStatus].className(styles)}>
           {CHIP[c.proofStatus].glyph}
@@ -1441,6 +1472,14 @@ export default function Masterji({ user }: { user: SessionUser }) {
   const days = allDays?.goalId === goal.id ? allDays.rows : checkins;
   const daysHeld = Math.max(state.checkinsTotal, checkins.length);
   const daysMissing = daysHeld > days.length;
+  // Which cycle of its own day each row is. Computed once over the widest set
+  // this render holds, because the record card, the phase drill-in and the day
+  // panel all show subsets of it and must call the same row the same thing.
+  // Not memoised: hooks are illegal this far down the component (the no-goal
+  // branch above returns first), and this is a Map over at most the rows
+  // already being mapped, filtered and searched inline on this same render.
+  const cycles = cycleOrdinals(days);
+  const cycleOf = (c: CheckIn) => cycles.get(c.id) ?? 1;
   void justRetired; // consumed by the no-goal branch above
   const doneIdx = phases.indexOf(goal.phase);
   // Read twice below — once by the meter's colour and once by the branch that
@@ -2282,9 +2321,20 @@ export default function Masterji({ user }: { user: SessionUser }) {
             <section className={styles.card}>
               <p className={styles.cardLabel}>The record</p>
               <ul className={styles.history}>
-                {(showAllDays ? days : days.slice(0, RECORD_PREVIEW)).map((c) => (
-                  <HistoryRow key={c.id} checkin={c} onOpen={() => setViewDay(c)} />
-                ))}
+                {(() => {
+                  const ordered = newestFirst(days);
+                  const shown = showAllDays ? ordered : ordered.slice(0, RECORD_PREVIEW);
+                  const anyRepeat = shown.some((c) => cycleOf(c) > 1);
+                  return shown.map((c) => (
+                    <HistoryRow
+                      key={c.id}
+                      checkin={c}
+                      cycle={cycleOf(c)}
+                      showCycle={anyRepeat}
+                      onOpen={() => setViewDay(c)}
+                    />
+                  ));
+                })()}
               </ul>
               {daysHeld > RECORD_PREVIEW && (
                 <button
@@ -2635,7 +2685,19 @@ export default function Masterji({ user }: { user: SessionUser }) {
           // server-side. Don't infer it from dates: CheckIn.date is the
           // client's local date while transitions are server UTC, so the
           // two disagree around a late-night advance.
-          const windowCheckins = checkins.filter((c) => c.phase === viewPhase);
+          const windowCheckins = newestFirst(checkins.filter((c) => c.phase === viewPhase));
+          // ...and the heading now comes from those same rows. It used to be
+          // derived from `win` alone — the transitions — so the modal could
+          // state a range its own contents fell outside, with the correct list
+          // under an incorrect label. The genuine case is the one the comment
+          // above names: a proof filed at 00:30 on the night a phase advances
+          // lands outside the window that contains it.
+          //
+          // The open end stays `win`'s to say. A phase the builder is still in
+          // ends at "now", and the rows cannot know that — the last of them is
+          // a date, not an end.
+          const extent = rowsExtent(windowCheckins);
+          const anyRepeat = windowCheckins.some((c) => cycleOf(c) > 1);
           return (
             <div className={styles.modalOverlay} onClick={() => setViewPhase(null)}>
               <div
@@ -2656,8 +2718,27 @@ export default function Masterji({ user }: { user: SessionUser }) {
                     ×
                   </button>
                 </div>
+                {/* Two clocks, deliberately: `formatDay` reads CheckIn.date,
+                    which is a bare client-local date, and `formatDate` reads a
+                    transition's server timestamp on the reader's own clock.
+                    The fallback keeps the second because with no rows there is
+                    nothing else to say, and the empty branch below says the
+                    rest. */}
                 <p className={styles.modalMeta}>
-                  {formatDate(win.start)} — {win.end ? formatDate(win.end) : "now"}
+                  {extent ? (
+                    <>
+                      {formatDay(extent.start)} —{" "}
+                      {win.end ? formatDay(extent.end) : "now"} · {extent.days}{" "}
+                      {extent.days === 1 ? "day" : "days"}
+                      {/* Rows are cycles, and a day may hold more than one, so
+                          a count of rows cannot be called a count of days. */}
+                      {extent.cycles > extent.days && `, ${extent.cycles} cycles`}
+                    </>
+                  ) : (
+                    <>
+                      {formatDate(win.start)} — {win.end ? formatDate(win.end) : "now"}
+                    </>
+                  )}
                 </p>
                 {windowCheckins.length === 0 ? (
                   <p className={styles.modalEmpty}>
@@ -2666,7 +2747,13 @@ export default function Masterji({ user }: { user: SessionUser }) {
                 ) : (
                   <ul className={styles.history}>
                     {windowCheckins.map((c) => (
-                      <HistoryRow key={c.id} checkin={c} onOpen={() => setViewDay(c)} />
+                      <HistoryRow
+                        key={c.id}
+                        checkin={c}
+                        cycle={cycleOf(c)}
+                        showCycle={anyRepeat}
+                        onOpen={() => setViewDay(c)}
+                      />
                     ))}
                   </ul>
                 )}
@@ -2683,6 +2770,7 @@ export default function Masterji({ user }: { user: SessionUser }) {
       {viewDay && (
         <DayDetail
           checkin={checkins.find((c) => c.id === viewDay.id) ?? viewDay}
+          cycle={cycleOf(viewDay)}
           onClose={() => setViewDay(null)}
         />
       )}
