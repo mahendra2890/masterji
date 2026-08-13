@@ -1,26 +1,66 @@
 import type { Metadata, Viewport } from "next";
-import { Fraunces, Karla, JetBrains_Mono } from "next/font/google";
+import localFont from "next/font/local";
 import { Analytics } from "@vercel/analytics/next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import "./globals.css";
 
-const fraunces = Fraunces({
+// These three were `next/font/google` until the fonts took a deploy down.
+// That helper fetches the files from Google *during the build* and inlines
+// them; when the fetch fails the generated CSS keeps an unresolvable
+// `@vercel/turbopack-next/internal/font/google/font` specifier, and the build
+// dies with one "Module not found" per @font-face — eleven of them, on a commit
+// that only added a markdown file. Nothing about the app was wrong and a retry
+// passed, which is the problem: it can fail again on any commit, including one
+// going to production.
+//
+// The files are now in the repo, so a build needs no network at all. They are
+// the same variable woff2 files Google was serving, latin subset only — which
+// is deliberately unchanged from `subsets: ["latin"]`: the Devanagari in
+// "मास्टरजी" was never covered by these fonts and still falls back to a system
+// face. Weight ranges cover exactly the weights that were requested before.
+//
+// Refreshing them means re-fetching from the Google CSS API and replacing the
+// four files; nothing here reaches out on its own, so a new Fraunces upstream
+// will not arrive by surprise.
+const fraunces = localFont({
   variable: "--font-display",
-  subsets: ["latin"],
-  weight: ["500", "600", "700"],
-  style: ["normal", "italic"],
+  display: "swap",
+  src: [
+    {
+      path: "./fonts/fraunces-latin-var.woff2",
+      weight: "500 700",
+      style: "normal",
+    },
+    {
+      path: "./fonts/fraunces-latin-var-italic.woff2",
+      weight: "500 700",
+      style: "italic",
+    },
+  ],
 });
 
-const karla = Karla({
+const karla = localFont({
   variable: "--font-body",
-  subsets: ["latin"],
-  weight: ["400", "500", "700"],
+  display: "swap",
+  src: [
+    {
+      path: "./fonts/karla-latin-var.woff2",
+      weight: "400 700",
+      style: "normal",
+    },
+  ],
 });
 
-const jetbrainsMono = JetBrains_Mono({
+const jetbrainsMono = localFont({
   variable: "--font-mono",
-  subsets: ["latin"],
-  weight: ["400", "600"],
+  display: "swap",
+  src: [
+    {
+      path: "./fonts/jetbrains-mono-latin-var.woff2",
+      weight: "400 600",
+      style: "normal",
+    },
+  ],
 });
 
 const siteTitle = "Masterji — the coach who makes you ship";
