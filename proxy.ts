@@ -8,9 +8,23 @@ import { NextResponse, type NextRequest, type ProxyConfig } from "next/server";
 // front of it — probe the API, and when it is still asleep serve our own
 // note instead of proxying through to that page.
 //
-// Cost when the API is awake: one in-region round trip (tens of ms) on
-// admin page loads. Only page loads — never /api/*, /static/*, or form
-// posts, which the rewrites in next.config.ts still handle untouched.
+// Two navigations get this treatment, and they are the only two that leave
+// this app for Django with a person watching: /admin, and the Google sign-in
+// link. The sign-in link is the one that matters — components/SignIn.tsx
+// points a plain <a> at /api/auth/google/login/, so clicking "Sign in" is a
+// top-level navigation Render answers with its boot reel. That is a stranger's
+// first click, and Render's logs are the worst thing to answer it with.
+//
+// The rest of /api/* is deliberately untouched, including the OAuth callback.
+// The callback carries a one-time code from Google that expires, so parking it
+// behind a poll risks a wait that ends in a dead code — a broken sign-in
+// instead of a slow one. It is also the safe one to skip: nothing reaches the
+// callback without the login redirect that just woke the server.
+//
+// Cost when the API is awake: one in-region round trip (tens of ms) on those
+// two navigations. Only page loads — never the app's own /api/* calls,
+// /static/*, or form posts, which the rewrites in next.config.ts still handle
+// untouched.
 //
 // ?boot=logs opts back out: the note links to it, and the request then
 // passes straight through to whatever Render is serving.
@@ -22,7 +36,17 @@ const API_URL = process.env.API_URL ?? "http://127.0.0.1:8000";
  * so cap the wait rather than making the visitor sit through it. */
 const PROBE_TIMEOUT_MS = 3000;
 
-export const config: ProxyConfig = { matcher: ["/admin", "/admin/:path*"] };
+// Both slash forms of the login path: trailingSlash: true means the href in
+// SignIn.tsx carries one, but a hand-typed or bookmarked URL may not, and a
+// matcher is matched before that gets normalised.
+export const config: ProxyConfig = {
+  matcher: [
+    "/admin",
+    "/admin/:path*",
+    "/api/auth/google/login",
+    "/api/auth/google/login/",
+  ],
+};
 
 export default async function proxy(req: NextRequest) {
   const { pathname, search, searchParams } = req.nextUrl;

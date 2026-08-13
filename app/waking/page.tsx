@@ -1,12 +1,13 @@
 import noteStyles from "@/components/waking-note.module.css";
 import styles from "./waking.module.css";
 import Waking from "./Waking";
+import { resolveWakingTargets } from "./dest";
 
 export const metadata = { title: "Waking up — Masterji" };
 
 /** Shown in place of Render's boot-log page while the free instance starts
- * (see proxy.ts). Reached by rewrite, so the browser's URL is still the
- * admin path the visitor asked for. */
+ * (see proxy.ts). Reached by rewrite, so the browser's URL is still the path
+ * the visitor asked for — /admin, or the Google sign-in link. */
 export default async function WakingPage({
   searchParams,
 }: {
@@ -14,13 +15,10 @@ export default async function WakingPage({
 }) {
   const { next } = await searchParams;
 
-  // This value is handed to the browser as a redirect target, so only take
-  // it when it's the admin path we put there: no protocol-relative "//host"
-  // slipping through as an open redirect, and no "/admin/../elsewhere",
-  // which the browser would quietly resolve back out of /admin/.
-  const wanted = next && /^\/admin(\/|$)/.test(next) && !next.includes("..");
-  const dest = wanted ? next : "/admin/";
-  const logs = `${dest}${dest.includes("?") ? "&" : "?"}boot=logs`;
+  // ?next= is attacker-controllable and dest is handed to the browser as a
+  // redirect target, so the rule for reading it lives in dest.ts with the
+  // tests that pin it.
+  const { dest, logs } = resolveWakingTargets(next);
 
   return (
     <main className={noteStyles.screen}>
