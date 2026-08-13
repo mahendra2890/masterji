@@ -701,6 +701,15 @@
 
 /* Attach control. A styled label wrapping a hidden input — the native file
    button can't be restyled and looks foreign against a chalkboard. */
+/* Sits directly on top of .attach and shares its left edge, so it reads as a
+   note about that control rather than about the proof above it. */
+.attachNote {
+  margin: 0 0 6px;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
 .attach {
   display: block;
   margin: 0 0 10px;

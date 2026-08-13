@@ -9,6 +9,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getChangelog, type ChangelogEntry } from "@/lib/coach-api";
+import { useDialogFocus } from "@/lib/dialog-focus";
 import styles from "./changelog.module.css";
 
 /** The newest date this browser has read. A dot nags until it catches up. */
@@ -124,6 +125,12 @@ export default function Changelog() {
     return () => window.removeEventListener("keydown", onKey);
   }, [open]);
 
+  // The trigger stays mounted behind this one, so `open` is the whole of it —
+  // and it is also what puts focus back on "What's new" rather than on the top
+  // of a header the reader has already tabbed past.
+  const dialog = useRef<HTMLDivElement>(null);
+  useDialogFocus(dialog, open);
+
   const latest = entries?.[0]?.shippedOn ?? "";
   // ISO dates compare correctly as strings, and a browser that has never
   // read the list is behind by definition.
@@ -162,6 +169,7 @@ export default function Changelog() {
       {open && (
         <div className={styles.overlay} onClick={() => setOpen(false)}>
           <div
+            ref={dialog}
             className={styles.modal}
             onClick={(e) => e.stopPropagation()}
             role="dialog"
