@@ -331,7 +331,16 @@ npm install && npm run dev
 No Google or OpenAI keys needed to explore: the sign-in popup grows
 a **dev sign-in** button in development (the endpoint 404s in production),
 and a failed LLM call degrades gracefully. Tests: `.venv/bin/python
-manage.py test`.
+manage.py test` for the backend, `npm run test:web` for the frontend.
+
+The frontend suite is deliberately tiny and stays that way unless
+[#117](https://github.com/mahendra2890/masterji/issues/117) decides otherwise:
+the Django suite is the product's real invariant surface, because the gate is
+server-side by design. What earns a place here is frontend logic that is pure,
+decidable, and costly to be wrong about — today that is the redirect guard on
+the cold-start page ([app/waking/dest.ts](app/waking/dest.ts)), whose input
+comes from the URL bar. Rendering and layout are still verified by driving the
+running app.
 
 Deployment (Vercel + Render + Neon + Namecheap DNS): see
 [DEPLOY.md](DEPLOY.md).
