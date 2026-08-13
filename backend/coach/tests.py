@@ -26,7 +26,7 @@ from django.utils import timezone
 from rest_framework.test import APITestCase
 from rest_framework.throttling import ScopedRateThrottle
 
-from . import bar, export, gates, guidance, links, prompts, throttles, views
+from . import bar, export, gates, guidance, links, prompts, streaks, throttles, views
 from .management.commands import check_migration_leaf
 from .models import (
     ChangelogEntry,
@@ -2656,6 +2656,124 @@ class DoubtingTheIdeaTests(CoachTestCase):
         block = prompts.WHEN_THEY_DOUBT_THE_IDEA
         self.assertIn("bar in front of them", block)
         self.assertNotIn("problem statement", block)
+
+
+class TheCoachCanSeeTheCalendarTests(CoachTestCase):
+    """The state block held counts and no dates.
+
+    It carries the phase, the gate's arithmetic, the streak and tonight — all
+    of it true, none of it saying WHEN. So a builder on day two of VALIDATION
+    and one circling it for three weeks were described to the model in the same
+    words, and a builder coming back after a silent week was described as though
+    they had been here last night. Under a heading that says "trust this over
+    anything claimed in chat", the coach could only bluff or contradict them.
+    """
+
+    def block(self, goal, **kwargs):
+        return prompts.build_system_prompt(
+            goal, gates.gate_status(goal), 0, "nothing yet", "ENGLISH", **kwargs
+        )
+
+    def test_the_state_block_says_how_long_this_phase_has_been_open(self):
+        """The fact the tough-love register had no truthful way to state.
+        Enforcement is untouched: a phase has no clock, and this only lets the
+        coach say out loud what the record already knows."""
+        goal = self.make_goal(phase=Phase.VALIDATION)
+        self.assertIn("In this phase: 12 days", self.block(goal, days_in_phase=12))
+
+    def test_a_calendar_is_only_ever_stated_when_it_was_computed(self):
+        """Every other caller of build_system_prompt — the tests here, and any
+        future one without the builder's own date — gets the block it always
+        got. A default would have the prompt asserting a calendar nobody
+        measured, which is the one thing this block may never do."""
+        goal = self.make_goal()
+        self.assertNotIn("In this phase:", self.block(goal))
+        self.assertNotIn("Last complete day:", self.block(goal))
+
+    def test_the_day_a_phase_opens_is_not_a_negative_number(self):
+        """TIME_ZONE is UTC and the loop runs on the builder's own date, so for
+        anyone behind UTC the phase can be stamped on a date their calendar has
+        not reached — see streaks.days_in_phase. Clamped there rather than worded
+        around here."""
+        goal = self.make_goal()
+        Goal.objects.filter(pk=goal.pk).update(
+            phase_entered_at=timezone.now() + timedelta(days=1)
+        )
+        goal.refresh_from_db()
+        self.assertEqual(streaks.days_in_phase(goal, date.today()), 0)
+        self.assertIn("In this phase: today", self.block(goal, days_in_phase=0))
+
+    def test_a_broken_streak_says_how_long_it_has_been(self):
+        """The returning builder is the most valuable person to get the next
+        sentence right for, and the coach had nothing to get it right from."""
+        goal = self.make_goal()
+        self.assertIn(
+            "Last complete day: 6 days ago", self.block(goal, days_since_complete=6)
+        )
+
+    def test_a_running_streak_is_told_no_gap(self):
+        """The streak line already says a day was complete today or yesterday —
+        current_streak counts no further back. Restating it as a gap every turn
+        is noise in a block whose whole authority is that everything in it
+        matters, and an invitation to remark on an absence that isn't one."""
+        goal = self.make_goal()
+        self.assertNotIn(
+            "Last complete day", self.block(goal, days_in_phase=3, days_since_complete=1)
+        )
+
+    def test_a_goal_that_never_completed_a_day_is_given_no_gap(self):
+        """A goal committed this morning has no last complete day, and the
+        honest rendering of that is silence — "0 days ago" would be false and
+        "never" is an accusation on somebody's first afternoon."""
+        goal = self.make_goal()
+        self.assertNotIn("Last complete day", self.block(goal, days_in_phase=0))
+
+    def test_the_calendar_rule_reaches_every_phase(self):
+        """Same reach as the other registers: the gap is a fact about the
+        person, and WHEN_IT_IS_NOT_ABOUT_THE_WORK already forbids deciding
+        somebody is struggling from one. Handing the model the gap without the
+        rule would be the product supplying the evidence for the sentence it
+        spent that block banning."""
+        goal = self.make_goal()
+        for phase in gates.PHASE_ORDER:
+            with self.subTest(phase=phase):
+                goal.phase = phase
+                goal.save(update_fields=["phase"])
+                self.assertIn(prompts.THE_CALENDAR, self.block(goal))
+        self.assertIn("never a deadline", prompts.THE_CALENDAR)
+        self.assertIn("Nothing was lost", prompts.THE_CALENDAR)
+
+    def test_the_chat_turn_carries_both_dates(self):
+        """The wiring, without which every assertion above passes against a
+        prompt no builder is ever served. ChatView is the only caller that
+        knows the builder's own date, which is why it is the only one that
+        computes either number."""
+        goal = self.make_goal(phase=Phase.VALIDATION)
+        today = date.today()
+        Goal.objects.filter(pk=goal.pk).update(
+            phase_entered_at=timezone.now() - timedelta(days=9)
+        )
+        CheckIn.objects.create(
+            goal=goal,
+            date=today - timedelta(days=4),
+            phase=goal.phase,
+            am_declaration="talk to Ramesh",
+            pm_proof_text="notes from the talk",
+        )
+        seen = {}
+
+        def capture(system, messages, **kwargs):
+            seen["system"] = system
+            yield "delta", "Kaam dikhao."
+
+        with mock.patch("coach.views.llm.stream_chat", side_effect=capture):
+            b"".join(
+                self.client.post(
+                    "/api/coach/chat/", {"content": "I disappeared, sorry"}
+                ).streaming_content
+            )
+        self.assertIn("In this phase: 9 days", seen["system"])
+        self.assertIn("Last complete day: 4 days ago", seen["system"])
 
 
 class VoiceReachesEveryRoomTests(CoachTestCase):

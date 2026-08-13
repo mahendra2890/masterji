@@ -1518,6 +1518,11 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
             # who they spoke to should not be asked again because the goal has
             # since moved on. Same call as gates.accepted_proofs_total.
             banked=_banked(goal),
+            # The only caller that knows the builder's own date, which is why
+            # it is the only one that measures either of these. Both are
+            # subtractions over rows this turn already read.
+            days_in_phase=streaks.days_in_phase(goal, today),
+            days_since_complete=streaks.days_since_complete(goal, today),
         )
         # SYSTEM rows are excluded, not mapped: they are the app talking about a
         # turn that failed, and the only role this mapping had for them was

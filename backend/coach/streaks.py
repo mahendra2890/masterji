@@ -16,6 +16,17 @@ def _complete_dates(goal: Goal) -> set[date]:
     return set(rows.values_list("date", flat=True))
 
 
+def last_complete_date(goal: Goal) -> date | None:
+    """The newest day this goal declared AND proved, or None if there is none.
+
+    Same set the streak is counted from, deliberately: the state block states
+    both, and a "last complete day" that meant something other than what
+    "consecutive complete days" counts would be two lines contradicting each
+    other under a heading that says to trust them.
+    """
+    return max(_complete_dates(goal), default=None)
+
+
 def current_streak(goal: Goal, today: date) -> int:
     complete = _complete_dates(goal)
     day = today if today in complete else today - timedelta(days=1)
@@ -68,6 +79,41 @@ def days_active(goal: Goal, today: date) -> int:
     """
     start, end = span(goal, today)
     return (end - start).days + 1
+
+
+def days_in_phase(goal: Goal, today: date) -> int:
+    """How long the CURRENT phase has been open, on the builder's calendar.
+
+    The same collision `span` documents, with less to fix it with: there is no
+    row carrying the local date a phase was entered on, only `phase_entered_at`,
+    which is a server UTC timestamp. So a builder BEHIND UTC can have a phase
+    stamped on a date their own calendar has not reached — clamped to 0 here, so
+    the first day of a phase reads as its first day rather than as minus one. A
+    builder AHEAD of UTC who advanced after local midnight keeps a count one day
+    high for the life of that phase; that one is left standing, because the
+    alternatives are inventing a timezone for them or storing a date nothing
+    else needs, and one day of drift on "three weeks in VALIDATION" changes no
+    sentence the coach would say.
+
+    Read twice per turn — the coach's state block and the goal card both quote
+    it — which is the reason it is one function rather than a subtraction at
+    each end.
+    """
+    return max(0, (today - goal.phase_entered_at.date()).days)
+
+
+def days_since_complete(goal: Goal, today: date) -> int | None:
+    """Days since the last day that was declared AND proved; None if never.
+
+    No calendar collision to manage, unlike the two above: CheckIn.date is
+    already the builder's own local date, so both ends of this subtraction are
+    on one. Clamped at 0 all the same, because the ends can still come from two
+    — views._client_day falls back to the server's UTC date when the query
+    string is garbled, and for a builder ahead of UTC their own rows can be
+    dated past it. A negative gap is not a thing to hand a coach.
+    """
+    last = last_complete_date(goal)
+    return None if last is None else max(0, (today - last).days)
 
 
 def lifetime_days(user) -> int:

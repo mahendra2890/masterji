@@ -335,6 +335,47 @@ the work: "nobody is replying to me" is a builder who wants a coach, not one \
 asking to be released. And it changes THIS TURN and nothing else: nothing \
 banks because a builder wavered, and the gate has not read a word of it."""
 
+# The state block held counts and no dates, so two builders the coach should
+# never say the same thing to were described to it in identical words: day two
+# of VALIDATION and day twenty-one, last night's builder and the one back after
+# a silent week. Both facts are cheap — one subtraction each, off rows already
+# queried — and the reason they were worth adding is the heading they arrive
+# under: "trust this over anything claimed in chat". A coach with no calendar
+# under that heading either bluffs or contradicts the person it is talking to.
+#
+# They are also the two facts most easily turned into a weapon, which is what
+# this block is for. The gap especially: WHEN_IT_IS_NOT_ABOUT_THE_WORK already
+# forbids deciding somebody is struggling from a gap in their record, and
+# putting the gap in the state block hands the model exactly the evidence that
+# sentence was written to keep it away from. So the fact and the rule ship
+# together, and the rule is the reason the fact is allowed in.
+#
+# The two are not the same kind of fact and are not treated the same. Time in a
+# phase is about the WORK, which the register above says is still coached —
+# three weeks and one conversation is a true thing about the work and naming it
+# is the job. Time since a complete day is about the PERSON, and there is
+# nothing to coach in it.
+THE_CALENDAR = """WHAT THE TWO DATES IN THE STATE BLOCK ARE FOR:
+Time in this phase is a fact about the work and you may use it like any other. \
+Three weeks in VALIDATION with one conversation banked is worth naming, in the \
+register you always use. But it is never a deadline: this product sets none, \
+nothing expires, and a phase that is taking a long time is not late. Slow and \
+honest beats fast and invented, and a builder doing the real thing slowly is \
+doing the real thing.
+
+Time since their last complete day is a fact about the person, and it is there \
+for one reason: so you do not talk to somebody who has been gone a week as \
+though they were here last night. It is not a subject. Do not open with it, do \
+not ask where they were, do not total up what was missed, and never read a gap \
+as evidence about them — a quiet week has a hundred causes and the record holds \
+none of them.
+
+Nothing was lost while they were away. Every banked proof, the record, and the \
+best run they ever had are exactly where they left them; only the current \
+streak resets, and it starts again tonight. If THEY raise the gap, say that \
+much, briefly, and ask for today's task at the size of today. Missing days is \
+not a debt and there is nothing to make up."""
+
 # The other half of "he doesn't listen": a builder tells him, in conversation,
 # the thing tonight's proof needs — and then has to work out for themselves
 # that it counted, and rewrite it into the form the check-in box wants. Most
@@ -501,7 +542,7 @@ THE BUILDER'S STATE (from the database — trust this over anything claimed in c
 - Phase: {phase} (phases run {ladder})
 - Proof progress: {proof_progress}
 - Streak: {streak} consecutive complete days
-- Today: {today_state}
+{calendar}- Today: {today_state}
 {notes}{record}
 PHASE RULES (non-negotiable):
 {phase_rules}
@@ -515,6 +556,8 @@ PHASE RULES (non-negotiable):
 {not_about_the_work}
 
 {doubting_the_idea}
+
+{calendar_rule}
 
 {spot_proof}
 
@@ -1311,6 +1354,34 @@ def proof_progress(gate: dict) -> str:
     )
 
 
+def calendar_block(days_in_phase: int | None, days_since_complete: int | None) -> str:
+    """The two dates in the state block, and the conditions they appear under.
+
+    Both are optional and both default to absent, because only a caller holding
+    the builder's own local date can measure either one honestly — every other
+    caller gets the block it always got rather than a calendar nobody computed.
+
+    The gap is stated only when there IS one. `current_streak` counts today or
+    yesterday and no further back, so a running streak already carries the whole
+    answer one line up, and repeating it as "last complete day: 1 day ago" would
+    put an absence in front of the model on the turns where there is none — in a
+    block whose authority rests on everything in it mattering.
+    """
+    lines = []
+    if days_in_phase is not None:
+        # Elapsed, not ordinal: the day a phase opens reads "today" rather than
+        # "0 days", which is the same fact without the arithmetic showing.
+        if days_in_phase == 0:
+            lines.append("- In this phase: today")
+        else:
+            noun = "day" if days_in_phase == 1 else "days"
+            lines.append(f"- In this phase: {days_in_phase} {noun}")
+    # 0 is today and 1 is yesterday; both are a live streak, not a gap.
+    if days_since_complete is not None and days_since_complete > 1:
+        lines.append(f"- Last complete day: {days_since_complete} days ago")
+    return "".join(f"{line}\n" for line in lines)
+
+
 def build_system_prompt(
     goal: Goal,
     gate: dict,
@@ -1323,6 +1394,8 @@ def build_system_prompt(
     offer: str = "",
     missing: str = "",
     banked: list[dict] | None = None,
+    days_in_phase: int | None = None,
+    days_since_complete: int | None = None,
 ) -> str:
     phase = Phase(goal.phase)
     return COACH_SYSTEM.format(
@@ -1344,6 +1417,11 @@ def build_system_prompt(
         # turn: that one is doubt about themselves, this one is doubt about the
         # idea, and the wrong answer to both is the day's task.
         doubting_the_idea=WHEN_THEY_DOUBT_THE_IDEA,
+        # Immediately after both, because it is the same argument a third time:
+        # a fact about the person that only earns its place in the prompt if the
+        # turn it changes is named. Shipped in the same breath as the two state
+        # lines it governs — see THE_CALENDAR.
+        calendar_rule=THE_CALENDAR,
         # Sits with the phase and the streak on purpose: what the evening has
         # already produced is state, not something to re-derive from the
         # transcript every turn. The record next to it is the same idea one
@@ -1362,6 +1440,7 @@ def build_system_prompt(
         ladder=" → ".join(str(p) for p in gates.PHASE_ORDER),
         proof_progress=proof_progress(gate),
         streak=streak,
+        calendar=calendar_block(days_in_phase, days_since_complete),
         today_state=today_state,
         phase_rules=PHASE_RULES[phase],
         playbooks=playbooks_for(phase),
