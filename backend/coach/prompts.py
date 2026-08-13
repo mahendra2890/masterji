@@ -1233,12 +1233,27 @@ def proof_progress(gate: dict) -> str:
     `try_advance` was about to turn away. A count is not a verdict, and this
     line is the only place the model learns the difference.
 
+    The third time was the terminal phase, where there is no fraction to state:
+    a builder at the end of the ladder was described as "0/0 accepted proofs
+    toward — (final phase)", which is a sentence about a gate that does not
+    exist rather than about the work that does.
+
     Byte-identical to what this line has always said on every phase that counts
     rows and owes no kind — where the count is the whole of the gate and there
     is no second fact to add.
     """
     have, need = gate["have"], gate["need"]
-    toward = gate["next_phase"] or "— (final phase)"
+    if gate["next_phase"] is None:
+        # The end of the ladder. There is no denominator here and nothing to be
+        # owed toward one, so the count is stated plainly and the absence of a
+        # gate is stated as the fact it is — otherwise the model reads a 0 and
+        # tells a builder who banked a returning user that nothing counted.
+        noun = "proof" if have == 1 else "proofs"
+        return (
+            f"{have} accepted {noun} at the final phase — the ladder ends here, "
+            "so there is no next gate and nothing more the count can buy."
+        )
+    toward = gate["next_phase"]
     banked = gate.get("banked", have)
     # Named once the count is met and not before — exactly where the refusal
     # (gates.try_advance) and the meter (Masterji.tsx) name it. Below that the
