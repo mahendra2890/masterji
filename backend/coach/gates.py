@@ -225,8 +225,26 @@ def gate_status(goal: Goal) -> dict:
     about, because the builder pressed it on the product's own word.
     """
     need = PROOFS_REQUIRED.get(Phase(goal.phase))
-    if need is None:  # TRACTION — nothing left to unlock
-        return {"have": 0, "need": 0, "next_phase": None, "owed": [], "banked": 0}
+    if need is None:
+        # TRACTION — nothing left to unlock, and this branch used to say so by
+        # returning zeros across the board. Half of that was right: `need` is 0
+        # because there is no requirement here, and the dashboard hides the whole
+        # meter behind `need > 0`. The other half said the record was empty. It
+        # is the same count `at_finish_line` reads to light "Claim the win", so
+        # the button could be offered while the coach's state block — introduced
+        # with "trust this over anything claimed in chat" — reported nothing
+        # banked, at the phase where the builder has done the hardest thing the
+        # product asks for. A phase with no gate still has a record.
+        have = accepted_proofs(goal)
+        return {
+            "have": have,
+            "need": 0,
+            "next_phase": None,
+            # No requirement, so nothing can be owed toward one; and TRACTION
+            # counts rows, which is what makes banked identical to have.
+            "owed": [],
+            "banked": have,
+        }
     idx = PHASE_ORDER.index(Phase(goal.phase))
     have = accepted_proofs(goal)
     return {

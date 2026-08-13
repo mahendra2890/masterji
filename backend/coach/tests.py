@@ -17,7 +17,7 @@ from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.db import IntegrityError
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import SimpleTestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APITestCase
 from rest_framework.throttling import ScopedRateThrottle
@@ -2702,6 +2702,43 @@ class TractionTests(CoachTestCase):
         self.assertIn(Phase.TRACTION, message)
         self.assertNotIn("LAUNCH", message)
 
+    def test_the_final_phase_says_what_is_banked_rather_than_zero(self):
+        """`need is None` is a fact about the gate, and the terminal branch
+        wrote it as a fact about the record: hardcoded zeros, so the state block
+        read "0/0 accepted proofs toward — (final phase)" for a builder who had
+        banked the hardest proof the product asks for — under a heading that
+        tells the model to trust it over anything claimed in chat.
+
+        `need` stays 0, and that is the half of the placeholder that was right:
+        the dashboard hides the whole meter behind `gate.need > 0`, and the end
+        of the ladder has no requirement to show a fraction of.
+        """
+        goal = self.make_goal(phase=Phase.TRACTION)
+        self.bank(goal, 2, parts=["returned"])
+        status = gates.gate_status(goal)
+        self.assertEqual((status["have"], status["banked"]), (2, 2))
+        self.assertEqual(status["need"], 0)
+        line = prompts.proof_progress(status)
+        self.assertIn("2 accepted proofs", line)
+        self.assertNotIn("0/0", line)
+
+    def test_the_win_button_cannot_be_lit_while_the_coach_hears_nothing_banked(self):
+        """The cross-surface pin, and the one #115's guard cannot make: that test
+        reads its phases off PROOFS_REQUIRED, and TRACTION is the phase with no
+        entry, so the terminal case is exactly what its loop skips.
+
+        `at_finish_line` counts the same rows `gate_status` does — its own
+        docstring says so — so the dashboard could offer "Claim the win" while
+        the state block said the record held nothing, and a builder saying "I
+        banked it" was contradicted by a coach quoting the database.
+        """
+        goal = self.make_goal(phase=Phase.TRACTION)
+        self.bank(goal, 1, parts=["returned"])
+        self.assertTrue(gates.at_finish_line(goal))
+        line = prompts.proof_progress(gates.gate_status(goal))
+        self.assertIn("1 accepted proof", line)
+        self.assertNotIn("0 accepted", line)
+
     def test_the_coach_is_told_the_whole_ladder(self):
         """The state block is introduced with "trust this over anything claimed
         in chat", and it used to spell the ladder out by hand — so the turn a
@@ -4014,6 +4051,34 @@ class ChangelogTests(APITestCase):
         self.assertIn(
             ("coach", "0011_seed_changelog"), MigrationLoader(None).graph.nodes
         )
+
+
+class SeededChangelogTests(TestCase):
+    """The rows the migrations put in every database, read the way the frontend
+    reads them.
+
+    Separate from ChangelogTests because that class deletes the seeded history in
+    setUp — how the endpoint behaves is not about its content — and this is the
+    one assertion that is only about the content.
+    """
+
+    def test_every_seeded_kind_is_one_the_frontend_can_render(self):
+        """`kind` has `choices`, and choices are not enforced on write: a data
+        migration calling `get_or_create` never reaches `full_clean`, so a typo
+        ships. One did — 0058 seeded the TRACTION announcement as "ADDED" —
+        and components/Changelog.tsx looks the label up in a total map, so
+        `KIND_LABEL[e.kind]` came back `undefined` and the newest capability the
+        product had shipped wore a chip with no text and no styling.
+
+        Asserted over the rows rather than by parsing the migration files,
+        because the rows are what the frontend gets. Guards every future row for
+        the price of this one.
+        """
+        kinds = set(ChangelogEntry.all_objects.values_list("kind", flat=True))
+        # Without this the assertion below passes on an empty table, which is
+        # the one way it could go quiet without going green for a good reason.
+        self.assertTrue(kinds)
+        self.assertEqual(kinds - set(ChangelogEntry.Kind.values), set())
 
 
 # --- what a paid endpoint will and won't take --------------------------------
