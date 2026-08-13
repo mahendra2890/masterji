@@ -34,5 +34,23 @@ dev = [
 # A Django project, not an installable package — sync deps only.
 package = false
 
+# Enforced in CI — see the Lint step in .github/workflows/checks.yml.
+#
+# The rule set is narrow deliberately: `I` is import order and `F401` is unused
+# imports. Both are mistakes rather than taste, both have exactly one correct
+# answer, and both are things a reviewer would otherwise spend a comment on.
+#
+# `ruff format` is deliberately NOT part of the contract, and the reason is
+# worth keeping because the question comes back every time somebody opens this
+# file. It would reformat 62 of 153 files today, and what it would reformat is
+# largely this codebase's memory: the long comment blocks that record why a
+# rule is the way it is, wrapped and indented by hand where that made them
+# readable. A formatter has opinions about those that no reviewer asked for.
+#
+# The gap also grows on its own — it was 50 files when this was measured on
+# 3fbe679 and 62 on 2e376f3 — so "we'll adopt it once it's smaller" is not a
+# plan. Adopting it means deciding to spend the sweep, in its own pull request,
+# on a quiet moment with nothing else in flight. Until somebody decides that,
+# `format` stays unrun rather than half-run.
 [tool.ruff.lint]
 select = ["I", "F401"]

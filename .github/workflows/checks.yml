@@ -58,6 +58,25 @@ jobs:
       - name: One migration leaf per app
         run: uv run python manage.py check_migration_leaf
 
+      # Also under a second, so it sits with the leaf check ahead of the ninety
+      # the tests take.
+      #
+      # This adds no rule. `[tool.ruff.lint] select = ["I", "F401"]` has been in
+      # pyproject.toml all along and ruff has been a dev dependency all along;
+      # what was missing was anything that ran it, which made it a tool that
+      # looked like a guarantee and was not one. The whole cost of turning it
+      # into one was a single misplaced import in coach/tests.py.
+      #
+      # Unqualified — `.`, not `coach/` — because the rest of the backend is
+      # already clean at zero cost, and the error a linter is hired for is the
+      # one nobody has written yet. Scoping this to the app that happened to
+      # hold today's error would leave accounts/ and config/ unwatched.
+      #
+      # `check` only: `ruff format` is deliberately not part of the contract,
+      # and pyproject.toml carries the reasoning next to the config it governs.
+      - name: Lint
+        run: uv run ruff check .
+
       # Unqualified, and the label is the thing worth explaining. `coach.tests`
       # hid the nine tests in `backend/accounts/tests.py` from every pull
       # request this repo has ever had, and they are not incidental coverage:
