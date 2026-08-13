@@ -47,9 +47,10 @@ built.
 
 ## 1:10 · The loop
 
-Six days. A hundred and twenty-three commits. Fifty-seven reviewed pull requests.
-Thirty-three Claude Code sessions, three or four at a time. The loop was four
-steps and never changed.
+Six days to the POC, the fifth to the tenth of August. A hundred and fifty-two
+commits. Fifty-seven reviewed pull requests. Thirty-three Claude Code sessions,
+three or four at a time. Every number here belongs to those six days; the work
+has carried on since, and the loop was four steps that never changed.
 
 **One: I never asked what to build. I asked for a review.** *"Pull latest, and do
 a thorough UI/UX review. What should I change, what will help users use the app
