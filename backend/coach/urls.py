@@ -8,6 +8,8 @@ urlpatterns = [
     # PATCH only, and only the title — see GoalUpdateView.
     path("goals/<int:pk>/", views.GoalUpdateView.as_view(), name="coach_goal_update"),
     path("goals/<int:pk>/history/", views.GoalHistoryView.as_view(), name="coach_history"),
+    # The same record as history/, as a file the builder can keep.
+    path("goals/<int:pk>/export/", views.GoalExportView.as_view(), name="coach_export"),
     path("goals/<int:pk>/advance/", views.AdvanceView.as_view(), name="coach_advance"),
     path("goals/<int:pk>/retire/", views.RetireView.as_view(), name="coach_retire"),
     path("goals/<int:pk>/complete/", views.CompleteView.as_view(), name="coach_complete"),

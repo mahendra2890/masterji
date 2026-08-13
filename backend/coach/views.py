@@ -14,7 +14,7 @@ from datetime import date, timedelta
 from django.conf import settings
 from django.db import IntegrityError
 from django.db.models import Q
-from django.http import StreamingHttpResponse
+from django.http import HttpResponse, StreamingHttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from loguru import logger
@@ -24,7 +24,18 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from . import bar, gates, guidance, links, llm, prompts, storage, streaks, throttles
+from . import (
+    bar,
+    export,
+    gates,
+    guidance,
+    links,
+    llm,
+    prompts,
+    storage,
+    streaks,
+    throttles,
+)
 from .models import (
     ChangelogEntry,
     CheckIn,
@@ -463,25 +474,6 @@ def _client_day(request) -> date:
         return timezone.now().date()
 
 
-def _days_active(goal: Goal, today: date) -> int:
-    """The goal's span, counted on ONE calendar.
-
-    `goal.created_at` is a server UTC timestamp while every check-in date is
-    the browser's local date, so subtracting one from the other drops a day
-    for anyone whose clock is ahead of UTC — a builder who worked an evening
-    and then past midnight IST closed out to "1 day active · best streak 2",
-    which is not a thing that can be true. Widening the span to whatever the
-    check-ins already claim puts both numbers back on the same calendar
-    without trusting the client for anything it can't already write.
-    """
-    # Materialised once: a lazy values_list would re-run the query for each
-    # of the two bounds below.
-    dates = list(goal.checkins.values_list("date", flat=True))
-    start = min([goal.created_at.date(), *dates])
-    end = max([today, *dates])
-    return (end - start).days + 1
-
-
 def _today_state(checkin: CheckIn | None) -> str:
     """Where the day has got to, as a fact.
 
@@ -642,6 +634,13 @@ class StateView(APIView):
                     goal.checkins.prefetch_related("attempts")[:CHECKIN_HISTORY],
                     many=True,
                 ).data,
+                # How many days exist, next to how many travelled. The record
+                # card's "Show all N" counted the rows it had been handed, so on
+                # a goal past the cap it offered to show all ninety of ninety-five
+                # and the other five were gone with no sign they had ever been
+                # there. Same honesty as ChangelogView's `total`, and the client
+                # uses the difference to go and fetch the rest.
+                "checkins_total": goal.checkins.count(),
                 "transitions": PhaseTransitionSerializer(
                     goal.transitions.all(), many=True
                 ).data,
@@ -683,8 +682,16 @@ class GoalHistoryView(APIView):
                 "retirement": RetirementSerializer(retirement).data
                 if retirement
                 else None,
+                # Uncapped, unlike StateView. This endpoint exists precisely
+                # because the whole record is too much to send on every page
+                # load — it is the one a builder opens when they went looking for
+                # something, so applying the dashboard's budget here meant the
+                # panel that is supposed to be the product's memory forgot the
+                # first weeks of any goal that ran past three months. Bounded in
+                # practice by the altitude: this product's stretch is idea to
+                # first users, which is months rather than years.
                 "checkins": CheckInSerializer(
-                    goal.checkins.prefetch_related("attempts")[:CHECKIN_HISTORY],
+                    goal.checkins.prefetch_related("attempts").all(),
                     many=True,
                 ).data,
                 "transitions": PhaseTransitionSerializer(
@@ -693,6 +700,38 @@ class GoalHistoryView(APIView):
                 "streak": streaks.best_streak(goal),
             }
         )
+
+
+class GoalExportView(APIView):
+    """The same record as GoalHistoryView, rendered server-side as a file.
+
+    Read-only and tenancy-scoped for the same reason its neighbour is: a
+    pk-addressable endpoint that hands over a builder's whole diary is exactly
+    where a missing filter would matter. A foreign id 404s.
+
+    Rendered here rather than in the client because the file is the product's
+    argument about itself and its wording should not depend on which screen the
+    builder pressed. What it may and may not contain is `export`'s business —
+    notably no image links, which expire.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk: int):
+        goal = get_object_or_404(Goal.objects.filter(user=request.user), pk=pk)
+        today = _client_day(request)
+        # text/markdown with a filename, so `curl` and the browser's own "save
+        # as" both get something usable. The app doesn't navigate to this URL —
+        # it fetches through the same client that knows how to refresh an
+        # expired session — but a record the builder can only get by pressing a
+        # button in one app is a smaller promise than the one being made here.
+        response = HttpResponse(
+            export.render(goal, today), content_type="text/markdown; charset=utf-8"
+        )
+        response["Content-Disposition"] = (
+            f'attachment; filename="{export.filename(goal, today)}"'
+        )
+        return response
 
 
 class GoalsView(APIView):
@@ -854,7 +893,7 @@ class RetireView(APIView):
             phase_reached=goal.phase,
             accepted_proofs=gates.accepted_proofs_total(goal),
             contact_proofs=gates.contact_proofs(goal),
-            days_active=_days_active(goal, _client_day(request)),
+            days_active=streaks.days_active(goal, _client_day(request)),
             best_streak=streaks.best_streak(goal),
         )
         goal.status = (

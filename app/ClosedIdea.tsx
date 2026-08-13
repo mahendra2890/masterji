@@ -8,6 +8,7 @@
 import { useEffect, useRef, useState } from "react";
 import { getGoalHistory, type GoalHistory, type Retirement } from "@/lib/coach-api";
 import DayRecord from "@/components/DayRecord";
+import TakeTheRecord from "@/components/TakeTheRecord";
 import { useDialogFocus } from "@/lib/dialog-focus";
 import styles from "./masterji.module.css";
 
@@ -89,6 +90,11 @@ export default function ClosedIdea({
           </span>
           <span className={styles.metaBit}>best streak {closed.bestStreak}</span>
         </p>
+
+        {/* Offered here, at the top, rather than under the day list: this is
+            the screen where a closed idea stops being something the builder
+            uses and starts being something they show someone. */}
+        <TakeTheRecord goalId={closed.goalId} />
 
         <p className={styles.closedLabel}>What you said</p>
         <p className={styles.closedReason}>{closed.reason}</p>

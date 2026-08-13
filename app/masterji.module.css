@@ -852,6 +852,21 @@
   color: var(--text);
 }
 
+.moreDays:disabled {
+  cursor: default;
+  text-decoration: none;
+}
+
+/* The record came back short. Muted like the rest of the card's furniture, but
+   said in a full sentence — a count that quietly shrank is the failure this
+   line exists to prevent. */
+.recordShort {
+  margin: 8px 0 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
 .historyRow {
   width: 100%;
   display: flex;
