@@ -213,13 +213,20 @@ def gate_status(goal: Goal) -> dict:
     """
     need = PROOFS_REQUIRED.get(Phase(goal.phase))
     if need is None:  # LAUNCH — nothing left to unlock
-        return {"have": 0, "need": 0, "next_phase": None, "owed": []}
+        return {"have": 0, "need": 0, "next_phase": None, "owed": [], "banked": 0}
     idx = PHASE_ORDER.index(Phase(goal.phase))
+    have = accepted_proofs(goal)
     return {
-        "have": accepted_proofs(goal),
+        "have": have,
         "need": need.n,
         "next_phase": PHASE_ORDER[idx + 1],
         "owed": kinds_owed(goal),
+        # The rows behind `have`, which on a people-counting phase is a larger
+        # number and the reason the meter appears to be ignoring banked work.
+        # Carried rather than derived on the client because the client has no
+        # way to compute it, and identical to `have` everywhere else by
+        # definition — a phase that counts rows has nothing to explain.
+        "banked": _banked(goal).count() if need.people else have,
     }
 
 
@@ -236,10 +243,26 @@ def try_advance(goal: Goal) -> tuple[bool, str]:
 
     if status["have"] < status["need"]:
         missing = status["need"] - status["have"]
-        refusal = (
-            f"Not yet. {status['have']}/{status['need']} accepted proofs in "
-            f"{goal.phase} — {missing} more before {status['next_phase']} unlocks."
-        )
+        if status["banked"] > status["have"]:
+            # The count is people and the record is rows, and the difference is
+            # invisible from the outside: a builder who filed three accepted
+            # proofs and reads "1/3 accepted proofs" is being told, in the
+            # product's own words, that two nights of work went missing. They
+            # didn't. Say both numbers, in the order the kinds branch below
+            # says its two — what is banked first, what is owed second.
+            refusal = (
+                f"Not yet. {status['have']}/{status['need']} in {goal.phase}: "
+                f"{status['banked']} accepted proofs, "
+                f"{guidance.people(status['have'])}. This phase counts people, "
+                f"and the nights are banked and stay banked. What's owed is "
+                f"{missing} more, {'each ' if missing > 1 else ''}someone new — "
+                f"that's what {status['next_phase']} costs."
+            )
+        else:
+            refusal = (
+                f"Not yet. {status['have']}/{status['need']} accepted proofs in "
+                f"{goal.phase} — {missing} more before {status['next_phase']} unlocks."
+            )
         return False, f"{refusal} {nudge}" if nudge else refusal
 
     if status["owed"]:

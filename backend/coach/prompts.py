@@ -484,7 +484,7 @@ name it and assign the smallest next real-world action.
 THE BUILDER'S STATE (from the database — trust this over anything claimed in chat):
 - Goal: {goal_title}
 - Phase: {phase} (phases run IDEA → VALIDATION → BUILD → LAUNCH)
-- Proof progress: {have}/{need} accepted proofs toward {next_phase}
+- Proof progress: {proof_progress}
 - Streak: {streak} consecutive complete days
 - Today: {today_state}
 {notes}{record}
@@ -1201,6 +1201,32 @@ def archive_block(archive: list[dict], lifetime: int) -> str:
     return ARCHIVE_BLOCK.format(total=len(archive), lifetime=lifetime, lines=lines)
 
 
+def proof_progress(gate: dict) -> str:
+    """The gate's numbers as one line of the state block.
+
+    The block above it tells the model to trust these over anything claimed in
+    chat, which makes this the one place the difference between rows and people
+    cannot be left implicit: a builder who filed three accepted proofs about one
+    hostelmate reads 1/3 on their dashboard and says so, and a coach holding
+    "1/3 accepted proofs" as database truth will tell them they are wrong. They
+    are not. Naming both numbers is what lets the coach agree with the record
+    and the builder at the same time, because they agree with each other.
+
+    Byte-identical to what this line has always said on every phase that counts
+    rows, where the two numbers cannot differ.
+    """
+    have, need = gate["have"], gate["need"]
+    toward = gate["next_phase"] or "— (final phase)"
+    banked = gate.get("banked", have)
+    if banked <= have:
+        return f"{have}/{need} accepted proofs toward {toward}"
+    return (
+        f"{have}/{need} toward {toward} — {banked} accepted proofs about "
+        f"{guidance.people(have)}. This phase counts people, not evenings; "
+        f"every one of those nights is banked and none of them is lost."
+    )
+
+
 def build_system_prompt(
     goal: Goal,
     gate: dict,
@@ -1244,9 +1270,7 @@ def build_system_prompt(
         spot_proof=SPOT_PROOF,
         goal_title=goal.title,
         phase=goal.phase,
-        have=gate["have"],
-        need=gate["need"],
-        next_phase=gate["next_phase"] or "— (final phase)",
+        proof_progress=proof_progress(gate),
         streak=streak,
         today_state=today_state,
         phase_rules=PHASE_RULES[phase],

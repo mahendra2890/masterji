@@ -35,11 +35,15 @@ export type Goal = {
 // that only counts rows. It is separate from have/need because it is a different
 // shape of shortfall: a full count with something still owed is a real state,
 // and the meter must not read it as earned.
+// `banked` is the accepted rows behind `have`. On VALIDATION `have` counts
+// people, so three nights about one hostelmate read 1/3 — true, and unreadable
+// without the other number beside it.
 export type Gate = {
   have: number;
   need: number;
   nextPhase: Phase | null;
   owed: string[];
+  banked: number;
 };
 
 export type PhaseTransition = {
@@ -192,6 +196,7 @@ type ServerGate = {
   need: number;
   next_phase: Phase | null;
   owed?: string[];
+  banked?: number;
 };
 type ServerTransition = {
   from_phase: Phase;
@@ -279,6 +284,9 @@ const fromServerGate = (g: ServerGate | null): Gate | null =>
     // payload without it, and `owed` missing has to mean nothing is owed
     // rather than crashing the meter.
     owed: g.owed ?? [],
+    // Same rule, and the default has to be `have`: absent means there is no
+    // difference to explain, never a difference of `have` itself.
+    banked: g.banked ?? g.have,
   };
 
 const fromServerGoal = (g: ServerGoal): Goal => ({

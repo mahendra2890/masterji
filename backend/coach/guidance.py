@@ -171,6 +171,18 @@ OPENERS = {
 }
 
 
+def people(n: int) -> str:
+    """A person count as the builder reads it.
+
+    Here rather than at either call site because two of them say it — the gate's
+    refusal and the coach's state block — about the same number in the same
+    breath, and a count phrased two ways is how one product starts sounding like
+    two. The dashboard says it a third time in TSX and cannot import this; that
+    copy is the one to check when this wording changes.
+    """
+    return "1 person" if n == 1 else f"{n} people"
+
+
 def for_phase(phase: Phase) -> dict:
     """The whole builder-facing bundle for one phase, for the API payload."""
     return {

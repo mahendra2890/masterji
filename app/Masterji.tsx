@@ -134,9 +134,16 @@ const enterSends = () =>
  * takes the render down the no-goal branch without unmounting, so a refusal
  * left over from the last idea would match a brand-new goal standing in IDEA
  * at 0 proofs and greet it with a refusal it never earned.
+ *
+ * The row count is in it for the same reason on a phase that counts people: a
+ * second conversation with the same person moves `banked` and not `have`, and
+ * the refusal quotes both numbers. Keyed on `have` alone it would sit there
+ * saying "3 accepted proofs" over a record that now holds four.
  */
 const gateKey = (s: CoachState | null) =>
-  s?.goal ? `${s.goal.id}:${s.goal.phase}:${s.gate?.have ?? 0}` : "";
+  s?.goal
+    ? `${s.goal.id}:${s.goal.phase}:${s.gate?.have ?? 0}:${s.gate?.banked ?? 0}`
+    : "";
 
 /** The way out, with a press between the thumb and the door.
  *
@@ -1166,6 +1173,22 @@ export default function Masterji({ user }: { user: SessionUser }) {
                     {gate.have >= gate.need && gate.owed.length > 0 && (
                       <p className={styles.gateOwed}>
                         The count is there. Still needed: {gate.owed.join("; ")}.
+                      </p>
+                    )}
+                    {/* The other half of the same problem, and the worse half:
+                        VALIDATION's number counts people, so three accepted
+                        nights about one hostelmate read 1/3 with nothing on
+                        screen saying why. That is the meter appearing to have
+                        lost two nights of banked work — the one thing it must
+                        never look like. Says what is on the record first and
+                        what is missing second, the same order as the line
+                        above and as the refusal. */}
+                    {gate.banked > gate.have && (
+                      <p className={styles.gateOwed}>
+                        {gate.banked} proofs banked,{" "}
+                        {gate.have === 1 ? "1 person" : `${gate.have} people`}.{" "}
+                        {goal.phase}{" "}
+                        counts people — tonight&apos;s has to be someone new.
                       </p>
                     )}
                     {/* Still pressable below the bar, on purpose: Django counts
