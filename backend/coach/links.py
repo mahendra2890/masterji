@@ -27,9 +27,11 @@ read, and one bounded timeout applies to both requests. The residual hole is
 DNS rebinding: `_resolve` and the socket `requests` opens are two separate
 lookups, so a name that answers publicly on the first and privately on the
 second is not caught here. Closing it means pinning the connection to the
-validated address, which is a custom transport adapter — filed rather than done,
-because with redirects off and no body read the reachable payoff is a status
-code, and a status code is what this module returns to the judge as one clause.
+validated address, which is a custom transport adapter — filed as #136 rather
+than done, because with redirects off and no body read the reachable payoff is a
+status code, and a status code is what this module returns to the judge as one
+clause. Those two properties are what keep that hole cheap: adding a redirect
+follow or a body read here reopens it, so #136 comes first if either is wanted.
 """
 
 import ipaddress
