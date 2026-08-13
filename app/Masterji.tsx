@@ -15,6 +15,7 @@ import DayDetail from "./DayDetail";
 import { updatePrefs, type SessionUser } from "@/lib/auth-client";
 import { useDialogFocus } from "@/lib/dialog-focus";
 import { readDraft, writeDraft } from "@/lib/drafts";
+import { isEarned } from "@/lib/gate";
 import { pinLog } from "@/lib/log-pin";
 import {
   advanceGoal,
@@ -533,6 +534,31 @@ export default function Masterji({ user }: { user: SessionUser }) {
   const [gateNote, setGateNote] = useState<{ text: string; key: string } | null>(
     null
   );
+  // What the phase that was just cleared had banked, said on the empty bar of
+  // the phase it bought — and keyed exactly like gateNote, so it lasts as long
+  // as the situation it describes and no longer.
+  //
+  // The moment it exists for: pressing "Open BUILD" turns a full marigold bar
+  // and "Earned. BUILD is yours to open." into `0/2 proofs toward LAUNCH` over
+  // an empty one, with the advance button back. Three real conversations
+  // become a new debt, and nothing on the screen says the three are still on
+  // the record. They are — gates.accepted_proofs counted them, the record card
+  // still lists them, the retirement snapshot will count them again. The card
+  // just stopped mentioning it at the moment it mattered most. This is the same
+  // courtesy `· N more banked` already pays for surplus work, across a
+  // transition instead of within a phase.
+  //
+  // The number is the server's, captured from the gate for the phase being left
+  // BEFORE the refresh replaces it — not counted here over `checkins`, which is
+  // a capped payload and would quietly go short on a goal past ninety days.
+  //
+  // It does not survive a reload, and that is the right lifetime rather than a
+  // limitation: it answers the bar resetting under the builder's own press. A
+  // builder arriving tomorrow to a 0/2 is not in that moment, and the record
+  // card below is where the proofs themselves live.
+  const [carried, setCarried] = useState<{ text: string; key: string } | null>(
+    null
+  );
 
   // The stepper drill-in: which completed phase is being reviewed, if any.
   const [viewPhase, setViewPhase] = useState<Phase | null>(null);
@@ -849,6 +875,12 @@ export default function Masterji({ user }: { user: SessionUser }) {
     run(async () => {
       if (!state?.goal) return;
       setGateNote(null);
+      setCarried(null);
+      // The phase being left and what it had banked, read off the state that is
+      // about to be replaced. Both are the server's numbers for the phase they
+      // describe, which is what makes them still true after the refresh.
+      const leaving = state.goal.phase;
+      const banked = state.gate?.banked ?? 0;
       let detail: string;
       try {
         detail = (await advanceGoal(state.goal.id)).detail;
@@ -860,7 +892,19 @@ export default function Masterji({ user }: { user: SessionUser }) {
       // Stamped with the state AFTER the answer, not before it: an advance
       // moves the phase and a refusal doesn't, so this is the only stamp that
       // makes the note last exactly as long as what it describes.
-      setGateNote({ text: detail, key: gateKey(await refresh()) });
+      const after = await refresh();
+      const key = gateKey(after);
+      setGateNote({ text: detail, key });
+      // Only when the phase actually moved. A refusal leaves the bar exactly
+      // where it was, and telling a builder their proofs are still on the
+      // record while they are looking at the meter that still counts them
+      // would be an answer to a question nobody asked.
+      if (banked > 0 && after?.goal && after.goal.phase !== leaving) {
+        setCarried({
+          text: `${banked} proof${banked === 1 ? "" : "s"} from ${leaving} stay on the record.`,
+          key,
+        });
+      }
     });
 
   const onRetire = (outcome: "ABANDONED" | "COMPLETED") =>
@@ -1399,6 +1443,9 @@ export default function Masterji({ user }: { user: SessionUser }) {
   const daysMissing = daysHeld > days.length;
   void justRetired; // consumed by the no-goal branch above
   const doneIdx = phases.indexOf(goal.phase);
+  // Read twice below — once by the meter's colour and once by the branch that
+  // decides what the card says. One function so they cannot fork; see lib/gate.
+  const earned = isEarned(gate);
   // Today's loop is still open — worth a dot on the pane you can't see.
   const dayOpen =
     !today?.amDeclaration ||
@@ -1464,42 +1511,11 @@ export default function Masterji({ user }: { user: SessionUser }) {
               also on the no-goal screen now: the room before the goal speaks
               Hinglish too, and this was the only place to say so. */}
           <ToneSwitch tone={state.tone} busy={busy} onSet={onSetTone} />
-          {/* A run that is going, and a run that was. The zero on its own was
-              the whole message after a missed day — and a bare zero reads as
-              "none of it happened" at exactly the moment quitting looks
-              reasonable. The best run is already on the record; it just never
-              reached the screen where it would do some good.
-
-              And a builder with neither gets no badge at all. "no run yet"
-              used to sit here, which is a counter announcing that it has
-              nothing to count — on the first screen of the product, in the
-              corner a new builder scans for what to do, next to four other
-              words in the same grey. It cost attention and returned a fact
-              nobody needed: of course there is no run, nothing has happened
-              yet. The badge now appears the day it has something to say, and
-              the first thing it ever says is "1 day 🔥". */}
-          {streak > 0 ? (
-            <span
-              className={styles.streak}
-              title="Consecutive complete days on this goal"
-            >
-              {streak} day{streak === 1 ? "" : "s"} 🔥
-            </span>
-          ) : state.bestStreak > 0 ? (
-            <span
-              className={styles.streakCold}
-              title="Current run · longest run on this goal"
-            >
-              0 · best {state.bestStreak}
-            </span>
-          ) : null}
-          {/* Survives retiring a goal — the streak is about this idea, the
-              lifetime count is about the builder. */}
-          {state.lifetimeDays > streak && (
-            <span className={styles.lifetime} title="Days worked across every goal">
-              {state.lifetimeDays} total
-            </span>
-          )}
+          {/* The streak and the lifetime count used to sit here, between the
+              language switch and the username. They are on the goal card now,
+              beside the days-in-phase line — see the comment there. What is
+              left in this corner is account chrome, which is all this corner
+              was ever supposed to be. */}
           <span className={styles.who}>{user.username}</span>
           <TourLink />
           <Changelog />
@@ -1644,31 +1660,82 @@ export default function Masterji({ user }: { user: SessionUser }) {
                 </li>
               ))}
             </ol>
-            {/* How long this phase has been open, rendered from the number the
-                server sent — never counted here. The coach is handed the same
-                subtraction in its state block, so a builder reading this and a
-                coach answering them about it are quoting one measurement.
+            {/* Three facts of the same kind: how long this phase has been
+                open, the run going, and the days behind the builder. They are
+                all "how long has this been happening", they all move on the
+                same clock, and they now sit in one row against the stepper
+                they are facts about.
 
-                On the card rather than beside the streak, which is where the
-                issue asked for it: the header's right-hand group is pinned to
-                fixed slots precisely so its controls hold still (see .streak),
-                and a badge whose width moves with both the phase name and the
-                day count would shift "What's new" and "sign out" under the
-                thumb — worst on the morning a phase advances, which is the one
-                morning nothing should move. At 375px that row is already
-                documented as full. Here it costs no control any position, and
-                it sits against the stepper it is a fact about.
+                The days-in-phase line came here first, and the argument it was
+                given retires the other two. The header's right-hand group is
+                pinned to fixed slots precisely so its controls hold still, and
+                a badge whose width moves with the number in it would shift
+                "What's new" and "sign out" under the thumb — worst on the
+                morning a phase advances, which is the one morning nothing
+                should move. At 375px that row was already documented as full,
+                and with the badges in it the header ran to three rows and
+                150px at 360px: 23% of the viewport, on every screen, growing
+                with the streak. The account that had kept nothing got the
+                compact header, and the one that had kept the promise for five
+                weeks paid for it in chrome. Here the badges cost no control a
+                position and the header is two rows for everyone.
 
-                Hidden at zero, the same bargain the streak badge makes: on the
-                day a phase opens this has nothing to say, and a counter reading
-                nought is attention spent for no fact. It appears tomorrow.
+                Every number is the server's. days-in-phase is the same
+                subtraction the coach is handed in its state block, so a
+                builder reading this and a coach answering them about it are
+                quoting one measurement — it is never counted here.
 
-                No threshold at which it changes appearance — see .phaseDays. */}
-            {state.daysInPhase > 0 && (
-              <p className={styles.phaseDays}>
-                {state.daysInPhase} day{state.daysInPhase === 1 ? "" : "s"} in{" "}
-                {goal.phase}
-              </p>
+                All three are hidden at zero, which is why the row can be empty
+                and why it is not rendered when it is. On day one a phase has
+                been open for no days, there is no run, and there is nothing
+                behind the builder: three counters announcing they have nothing
+                to count, on the first screen of the product.
+
+                No threshold at which any of them changes appearance — see
+                .phaseDays. */}
+            {(state.daysInPhase > 0 ||
+              streak > 0 ||
+              state.bestStreak > 0 ||
+              state.lifetimeDays > streak) && (
+              <div className={styles.cardFacts}>
+                {state.daysInPhase > 0 && (
+                  <span className={styles.phaseDays}>
+                    {state.daysInPhase} day{state.daysInPhase === 1 ? "" : "s"} in{" "}
+                    {goal.phase}
+                  </span>
+                )}
+                {/* A run that is going, and a run that was. The zero on its own
+                    was the whole message after a missed day — and a bare zero
+                    reads as "none of it happened" at exactly the moment
+                    quitting looks reasonable. The best run is already on the
+                    record; it just never reached the screen where it would do
+                    some good. */}
+                {streak > 0 ? (
+                  <span
+                    className={styles.streak}
+                    title="Consecutive complete days on this goal"
+                  >
+                    {streak} day{streak === 1 ? "" : "s"} 🔥
+                  </span>
+                ) : state.bestStreak > 0 ? (
+                  <span
+                    className={styles.streakCold}
+                    title="Current run · longest run on this goal"
+                  >
+                    0 · best {state.bestStreak}
+                  </span>
+                ) : null}
+                {/* Survives retiring a goal — the streak is about this idea,
+                    the lifetime count is about the builder. */}
+                {state.lifetimeDays > streak && (
+                  <span
+                    className={styles.lifetime}
+                    title="Days worked across every goal"
+                  >
+                    {state.lifetimeDays} total
+                  </span>
+                )}
+              </div>
             )}
             <p className={styles.phaseHint}>{guidance?.phaseHint}</p>
 
@@ -1692,14 +1759,24 @@ export default function Masterji({ user }: { user: SessionUser }) {
                     )}
                   </span>
                 </div>
+                {/* Green only on the same condition the earned line is, which
+                    is why it is `earned` and not `have >= need`: a full count
+                    with a kind still owed is not a met bar, and a bar that
+                    went green there would be the lit door the paragraph below
+                    refuses to promise. */}
                 <div className={styles.gateBar}>
                   <div
-                    className={styles.gateFill}
+                    className={earned ? styles.gateFillFull : styles.gateFill}
                     style={{
                       width: `${Math.min(100, (gate.have / gate.need) * 100)}%`,
                     }}
                   />
                 </div>
+                {/* What the phase just cleared banked, on the empty bar of the
+                    phase it bought. See `carried`. */}
+                {carried && carried.key === gateKey(state) && (
+                  <p className={styles.gateCarried}>{carried.text}</p>
+                )}
                 {/* The bar being met is the one moment this whole product
                     exists to produce, and it used to look exactly like 0/3:
                     same outlined button, same words, nothing said. A builder
@@ -1713,7 +1790,7 @@ export default function Masterji({ user }: { user: SessionUser }) {
                     doesn't open, on the product's own word. The count still
                     reads 2/2, because it is: the nights are banked and stay
                     banked. What's left is named instead. */}
-                {gate.have >= gate.need && gate.owed.length === 0 ? (
+                {earned ? (
                   <>
                     <p className={styles.gateEarned}>
                       Earned. {gate.nextPhase} is yours to open.
@@ -1756,9 +1833,28 @@ export default function Masterji({ user }: { user: SessionUser }) {
                     )}
                     {/* Still pressable below the bar, on purpose: Django counts
                         the rows and answers, and being told exactly what is
-                        missing is the coaching. */}
+                        missing is the coaching.
+
+                        Emphasis is the part that moves. At `have === 0` this is
+                        the only button on the goal card, 34px tall and
+                        marigold-outlined — the loudest control on the product's
+                        main screen on a builder's first morning, and the only
+                        thing it can produce there is a refusal. There is also
+                        nothing for that refusal to add: the bar above already
+                        reads 0/1, the phase hint already says what the work is,
+                        and the gate's detail at zero can only restate them.
+
+                        So below anything at all it takes the weight `close this
+                        goal` has — available, not advertised — and it is a
+                        button again the moment one proof is banked. Deliberately
+                        `have === 0` rather than "below the bar": a builder at
+                        1/3 has evidence on the record and a real question about
+                        what is left, and the refusal at 2/3 names WHICH piece is
+                        missing, which is worth a button. */}
                     <button
-                      className={styles.secondaryBtn}
+                      className={
+                        gate.have === 0 ? styles.retireLink : styles.secondaryBtn
+                      }
                       disabled={busy}
                       onClick={onAdvance}
                     >
@@ -1831,9 +1927,30 @@ export default function Masterji({ user }: { user: SessionUser }) {
                 />
                 <div className={styles.retireActions}>
                   {/* Both exits, always. Achieving your goal from BUILD is not
-                      a thing the server gets to disallow. */}
+                      a thing the server gets to disallow.
+
+                      Neither of them is the default below the finish line. The
+                      filled marigold button, first in reading order, used to be
+                      "I achieved it" — on a goal whose own counter says the
+                      phase is unfinished and whose record holds no finish-line
+                      proof. The product already knows when achievement is the
+                      expected move and already says so one screen up:
+                      atFinishLine lights "Earned. Proof is on the record." and
+                      a real "Claim the win". Everywhere else this was a filled
+                      button inviting a claim the record will quietly contradict
+                      — at the one moment a builder is deciding how to describe
+                      a thing that did not work, in prose that goes on the
+                      record permanently and that the coach then reacts to.
+
+                      It stays first. It is not the shameful option and must not
+                      read as one; it just stops being the recommended one. The
+                      verdict was never the builder's anyway — gates.reads_as
+                      computes it from proofs they had to earn, so a flattering
+                      self-classification buys nothing on the record. */}
                   <button
-                    className={styles.primaryBtn}
+                    className={
+                      state.atFinishLine ? styles.primaryBtn : styles.secondaryBtn
+                    }
                     disabled={busy || !retireReason.trim()}
                     onClick={() => onRetire("COMPLETED")}
                   >

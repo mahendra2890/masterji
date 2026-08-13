@@ -223,26 +223,24 @@
   gap: 14px;
 }
 
-/* One slot, whatever number is in it.
+/* The run, on the goal card beside the days-in-phase line — see .cardFacts.
 
-   What this badge can say — "1 day 🔥" (82px) through "365 days 🔥" (106px), or
-   "0 · best 128" (94px) once a run has broken — and the header wraps on a
-   phone, so WHICH LINE "What's new" landed on was a function of how long the
-   builder's run is. The control moved because the streak grew: somebody who
-   learned where a thing was found it somewhere else the morning after a good
-   week.
+   It used to live in the header, where it was pinned to a 108px slot: the row
+   wraps on a phone, so WHICH LINE "What's new" landed on was a function of how
+   long the builder's run is, and somebody who learned where a control was
+   found it somewhere else the morning after a good week. The fixed slot bought
+   that stillness, and the badges cost the header a whole third row to do it.
 
-   108px covers every one of them with a little over, so the slot never changes
-   size and nothing after it ever moves. Both classes carry the same number —
-   a run breaking swaps one for the other, and that must not shift the row
-   either. The same bargain .signOut makes with its two labels. tabular-nums so
-   the digits don't shuffle inside the slot as the count rolls over.
+   Off the header, that bargain has nothing left to buy. Nothing after these
+   badges is a control — the phase hint runs full width underneath — so the
+   pill can be the width of the number in it. tabular-nums stays, and now earns
+   its keep on its own terms: the digits don't shuffle as the count rolls over.
 
-   This is about the controls holding still, not about the header shrinking.
-   The one time the header DOES change height is the badge arriving on the day
-   there is finally a run to report, which is deliberate and is
-   0040_changelog_the_zero_badge_goes_quiet's whole point — a once-ever change
-   on a good morning, not a thing that moves under the thumb. */
+   The badge still appears the day it has something to say. "no run yet" used
+   to sit in the header, a counter announcing that it has nothing to count on
+   the first screen of the product; the first thing this ever says is
+   "1 day 🔥", which is 0040_changelog_the_zero_badge_goes_quiet's whole
+   point and is unchanged by the move. */
 .streak {
   font-family: var(--font-mono), monospace;
   font-size: 13px;
@@ -253,8 +251,6 @@
   padding: 4px 10px;
   border-radius: 999px;
   white-space: nowrap;
-  min-width: 108px;
-  text-align: center;
 }
 
 .who {
@@ -271,10 +267,6 @@
   font-variant-numeric: tabular-nums;
   color: var(--muted);
   white-space: nowrap;
-  /* The same 108px slot the pill occupies — see .streak. This one has no
-     padding of its own, so the width is the whole of it. */
-  min-width: 108px;
-  text-align: center;
 }
 
 /* EN ⇄ हिं, as a segmented control — both options on screen with the live one
@@ -562,6 +554,22 @@
   color: var(--muted);
 }
 
+/* The three counters under the stepper: days in this phase, the run, and the
+   lifetime count. Wraps rather than shrinking anything — at 360px with a long
+   phase name and a four-digit total it takes two lines, which costs less than
+   any of the three going quiet or eliding.
+
+   Each of them is hidden at zero on its own, so the row can hold one badge, or
+   two, or none — and the TSX doesn't render it at all in the last case, since
+   an empty flex row still spends its margin. */
+.cardFacts {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 6px;
+}
+
 /* How long the current phase has been open, under the stepper it describes.
 
    Quieter than the hint below it and not italic: the hint is the coach's voice
@@ -579,7 +587,8 @@
   font-size: 11px;
   font-variant-numeric: tabular-nums;
   color: var(--muted);
-  margin: 0 0 6px;
+  /* The row owns the spacing now — see .cardFacts. */
+  margin: 0;
 }
 
 .phaseHint {
@@ -608,6 +617,32 @@
   height: 100%;
   background: var(--accent);
   transition: width 0.4s ease;
+}
+
+/* The bar met. At 3/3 the fill was the same marigold it was at 1/3, so the one
+   glanceable element on the card said nothing at the best moment in the
+   product — while .gateEarned right underneath had been spending var(--good)
+   on that exact state all along. This is the meter agreeing with the sentence.
+
+   Green on `earned`, not on have >= need: a full count with a kind still owed
+   is not a met bar. Transitions the colour as well as the width, because the
+   proof that fills the bar and the proof that meets it are the same press. */
+.gateFillFull {
+  height: 100%;
+  background: var(--good);
+  transition:
+    width 0.4s ease,
+    background 0.4s ease;
+}
+
+/* What the phase just cleared banked, on the empty bar of the phase it bought.
+   Muted and directly under the meter: it is the answer to "where did my three
+   go", which is a question about the number above it, not a new claim. The same
+   weight .gateExtra takes for the same job within a phase. */
+.gateCarried {
+  margin: -6px 0 12px;
+  font-size: 13px;
+  color: var(--muted);
 }
 
 /* The proofs banked past the requirement. Quieter than the fraction it
@@ -1543,17 +1578,15 @@
   flex-wrap: wrap;
 }
 
-/* Same fixed slot as the streak beside it, at its own worst case: four digits
-   and the word. See .streak for why the width is pinned rather than left to
-   the number. */
+/* Beside the streak, and quieter than it: the run is a thing you are carrying,
+   this is a fact about the record. Its fixed slot went the same way and for the
+   same reason — see .streak. */
 .lifetime {
   font-family: var(--font-mono), monospace;
   font-size: 12px;
   font-variant-numeric: tabular-nums;
   color: var(--muted);
   white-space: nowrap;
-  min-width: 72px;
-  text-align: center;
 }
 
 /* --- the record behind you (retired goals) ---------------------------------------------------- */
