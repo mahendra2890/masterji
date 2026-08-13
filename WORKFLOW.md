@@ -102,6 +102,31 @@ makes the second leaf visible. Without that setting the check still runs on
 `main` after every merge — it just reports the breakage instead of preventing
 it.
 
+And then the question the check never asked: why were two sessions writing
+migrations at the same time so *often*? Not because the schema was changing
+that much. **57 of `coach`'s 74 migrations were changelog data seeds** — and
+the house rule below, that every builder-visible change ships a changelog row
+in the same pull request, meant every substantive pull request wrote a
+migration whether or not it touched a model. The collision was self-inflicted,
+and the tool built to detect it was aimed at a wound the process was
+reopening on purpose.
+
+Changelog entries are files now —
+[backend/coach/changelog/](backend/coach/changelog/README.md), one markdown
+file per entry, loaded idempotently at boot. One file per entry is the whole
+mechanism: two sessions writing two entries write two different files and there
+is nothing to collide on. `0001`–`0070` stay where they are, because rewriting
+shipped migrations is not on the table, so this is the rule for new entries and
+the win accrues from the next pull request onward rather than retroactively.
+Migrations go back to meaning schema, and a session that changes no schema now
+writes no migration and needs no renumber.
+
+There is a lesson in the ordering that is worth more than the fix. The
+detection was built first, ran for weeks, and was genuinely useful — and it
+described the problem accurately enough, every single time, that nobody read
+the description. `check_migration_leaf` had been saying *57 of these are
+changelog seeds* in its own directory listing since the day it was written.
+
 ## Four times the model was wrong
 
 **It graded its own homework.** VALIDATION asks for three things a customer
@@ -222,7 +247,10 @@ Four other things carried weight:
   holding the line.
 - **A public changelog row for every builder-visible change**, written in the
   same pull request that ships it. The product asks builders for evidence
-  someone else can read; the repo owes them the same.
+  someone else can read; the repo owes them the same. One markdown file in
+  [backend/coach/changelog/](backend/coach/changelog/README.md) — *not* a data
+  migration, which is what this rule used to mean and what made it collide with
+  itself, above.
 
 ## The one thing a prompt couldn't do
 
