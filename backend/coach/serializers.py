@@ -1,3 +1,4 @@
+from django.utils import timezone
 from rest_framework import serializers
 
 from . import gates, storage
@@ -11,6 +12,14 @@ from .models import (
     ProofAttempt,
     WorkshopMessage,
 )
+
+# How long a hand-written brief may be. Generous next to the title's 200 — this
+# is a paragraph about a problem, not a headline — and short enough that the
+# block it lands in stays a paragraph in every prompt that carries it. An
+# accepted proof is not measured against it: that text cleared the bar and is
+# the record, and truncating it here would make the goal disagree with the row
+# it came from.
+BRIEF_CHARS = 2000
 
 
 class GoalSerializer(serializers.ModelSerializer):
@@ -26,15 +35,16 @@ class GoalSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "title",
+            "brief",
             "phase",
             "status",
             "phase_entered_at",
             "created_at",
             "title_locked",
         ]
-        # Everything except the title. `phase` and `status` being read-only here
-        # is what stops the update endpoint from being a road around the gate —
-        # a PATCH may reword a goal and may never advance one.
+        # Everything except the title and the brief. `phase` and `status` being
+        # read-only here is what stops the update endpoint from being a road
+        # around the gate — a PATCH may reword a goal and may never advance one.
         read_only_fields = [
             "id",
             "phase",
@@ -46,6 +56,34 @@ class GoalSerializer(serializers.ModelSerializer):
 
     def get_title_locked(self, obj: Goal) -> bool:
         return gates.accepted_proofs_total(obj) > 0
+
+    def validate_brief(self, value):
+        """The brief as the four documented keys, never as arbitrary JSON.
+
+        A JSONField on a writable serializer accepts whatever the client sends,
+        and this one is read into a prompt — so the shape is rebuilt here rather
+        than trusted. `text` is the only thing a client may set: `parts` is what
+        the gate saw and is not a client's to assert, and `source`/`written_at`
+        are stamped by the server that did the writing.
+        """
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Expected an object.")
+        text = " ".join(str(value.get("text") or "").split())
+        if not text:
+            raise serializers.ValidationError("A brief needs text.")
+        if len(text) > BRIEF_CHARS:
+            raise serializers.ValidationError(
+                f"Keep it under {BRIEF_CHARS} characters."
+            )
+        return {
+            "text": text,
+            # A hand-written brief makes no claim about the bar. The gate has
+            # not seen it, so it satisfies nothing until an accepted proof says
+            # otherwise, and an empty list is the honest version of that.
+            "parts": [],
+            "source": "BUILDER",
+            "written_at": timezone.now().isoformat(),
+        }
 
 
 class ProofAttemptSerializer(serializers.ModelSerializer):

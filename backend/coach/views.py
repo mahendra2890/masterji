@@ -851,9 +851,25 @@ class GoalUpdateView(APIView):
     those evenings were for.
 
     Not a road around the gate, and it cannot become one: the serializer holds
-    `phase` and `status` read-only, so the only thing a PATCH can reach is the
-    title. Nor can a rename distort a verdict — proofs are judged against the
-    declared task frozen on the check-in row, never against the goal's title.
+    `phase` and `status` read-only, so the only things a PATCH can reach are the
+    title and the brief. Nor can either distort a verdict — proofs are judged
+    against the declared task frozen on the check-in row, never against the
+    goal's title, and never against its brief.
+
+    The brief rides the same lock for the same reason, and the window is
+    narrower than it looks. `_brief_from_proof` fills it when IDEA's proof is
+    accepted, which is the same event that makes `accepted_proofs_total` true —
+    so a brief written by the server is locked from the moment it exists, and
+    what this endpoint can actually edit is a brief written *before* anything
+    banked: by the builder here, or by the workshop at commit once #163 lands.
+    That is the right shape rather than an accident of ordering — an idea is the
+    builder's to sharpen while it is still unproven, and becomes a record the
+    moment the gate accepts evidence for it.
+
+    Only a title change writes a transcript row. A brief edited before anything
+    is banked is the builder revising an idea nobody has been shown, and
+    narrating each pass would fill the log the coach reads with drafts of a
+    paragraph he is also sent whole.
 
     The remaining hole is deliberate: at zero proofs a builder can reword this
     into a different idea entirely. That is the same move retire-and-recreate
@@ -1380,12 +1396,20 @@ class ProveView(throttles.VoicedThrottleMixin, APIView):
             checkin.subject = labels.subject
             checkin.proof_parts = labels.parts
         checkin.coach_reaction = reaction
+        brief = _brief_from_proof(goal, checkin)
         # The refused try reaches the trail exactly when the row that replaces
         # it lands, so the record can never hold one without the other.
         with transaction.atomic():
             if archived_try is not None:
                 archived_try.save()
             checkin.save()
+            # In the same transaction as the proof it comes from: a goal
+            # carrying a brief whose source row never landed would describe an
+            # evening that did not happen.
+            if brief is not None:
+                goal.brief = brief
+                goal.save(update_fields=["brief", "updated_at"])
+                logger.info(f"Goal {goal.id} gained a brief from checkin {checkin.id}")
         # The row's own date, not the client's: after midnight they differ, and
         # the log should name the evening the proof landed on.
         logger.info(f"Proof {checkin.proof_status} for goal {goal.id} on {checkin.date}")
@@ -1399,6 +1423,57 @@ class ProveView(throttles.VoicedThrottleMixin, APIView):
                 "streak": streaks.current_streak(goal, day),
             }
         )
+
+
+def _brief_from_proof(goal: Goal, checkin: CheckIn) -> dict | None:
+    """The idea's body, written the one time IDEA's proof is accepted.
+
+    None means leave the goal's brief exactly as it is, and there are four ways
+    to get it. Three are "this is not that moment" — the verdict was not an
+    accept, the evening was earned in some later phase, the row carries no text.
+    The fourth is the one worth stating: **a brief already there is never
+    overwritten.** A builder (or the workshop, once #163 lands) may have written
+    the idea in their own words before anything banked, and the proof arriving
+    later does not get to replace what they said with what they filed.
+
+    Why this reads `pm_proof_text` rather than the four parts as fields: it
+    cannot read them, and the reason is a rule rather than an omission. Every
+    IDEA proof passes through `bar`, but `bar.labels()` returns which parts an
+    answer satisfied and never their values — see the comment on
+    `CheckIn.proof_parts`, which states the rule outright. The values are
+    structured for exactly one turn, inside the suggest_proof arguments, and
+    `bar.compose` turns them into prose before the row is written. So the whole
+    of the idea, in the builder's own words, is the proof text; `parts` records
+    which of the four the gate saw in it.
+
+    The point of copying it onto the goal at all — the text is already on the
+    check-in — is that the check-in's copy expires from the coach's view and
+    this one does not. `_banked` sends the ten newest accepted proofs, trimmed
+    to RECORD_CHARS; the IDEA proof is by construction the oldest row a goal has
+    and the only four-part answer the product ever asks for, so it is both the
+    first to fall off that list and the most likely to be cut in half while it
+    is on it. The founding statement of the idea is the one row that must not
+    age out of the prompt, and RECORD_LIMIT's own comment — "what falls off the
+    end is the oldest, which is also the least likely to be re-asked for
+    tonight" — is right about every row except this one.
+    """
+    if checkin.proof_status != CheckIn.ProofStatus.ACCEPTED:
+        return None
+    # The phase the evening was earned in, not the phase the goal is in now: a
+    # verdict that advances the goal must still attribute its proof to IDEA.
+    if (checkin.phase or goal.phase) != Phase.IDEA:
+        return None
+    if goal.brief:
+        return None
+    text = (checkin.pm_proof_text or "").strip()
+    if not text:
+        return None
+    return {
+        "text": text,
+        "parts": list(checkin.proof_parts or []),
+        "source": "PROOF",
+        "written_at": timezone.now().isoformat(),
+    }
 
 
 def _labels_from_verdict(phase: str, payload: dict) -> bar.Labels | None:

@@ -41,6 +41,11 @@ export type Goal = {
    * Defaulted true for a browser holding a payload older than the field: not
    * offering an edit is the safe half of that guess. */
   titleLocked: boolean;
+  /** The idea itself, as opposed to its headline — the builder's own words from
+   * the evening IDEA was cleared, or what they wrote before anything banked.
+   * Empty string until something has written one, which is every goal created
+   * before this field existed. */
+  brief: string;
 };
 
 // `owed` is the KINDS of evidence the phase still has none of, already worded
@@ -253,6 +258,7 @@ type ServerGoal = {
   status: string;
   created_at: string;
   title_locked?: boolean;
+  brief?: { text?: string } | null;
 };
 type ServerGate = {
   have: number;
@@ -391,6 +397,10 @@ const fromServerGoal = (g: ServerGoal): Goal => ({
   status: g.status,
   createdAt: g.created_at,
   titleLocked: g.title_locked ?? true,
+  // Flattened at the boundary: the server's shape carries provenance the screen
+  // has no use for (which parts the gate saw, who wrote it, when), and every
+  // reader here wants the words.
+  brief: g.brief?.text ?? "",
 });
 
 const fromServerRetirement = (r: ServerRetirement): Retirement => ({

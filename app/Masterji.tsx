@@ -1657,6 +1657,12 @@ export default function Masterji({ user }: { user: SessionUser }) {
               </div>
             )}
 
+            {/* The idea under its own headline. Absent on every goal committed
+                before the field existed, and on any goal still short of IDEA's
+                proof — so it appears the evening the idea is cleared rather
+                than sitting empty on the card asking to be filled in. */}
+            {goal.brief && <p className={styles.goalBrief}>{goal.brief}</p>}
+
             <ol className={styles.stepper}>
               {phases.map((p, i) => (
                 <li

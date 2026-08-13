@@ -457,6 +457,17 @@
   margin-bottom: 12px;
 }
 
+/* The idea under its own title. Quieter than the title and not as quiet as
+   .cardFacts: it is the only prose on this card, and the card's other rows are
+   counts. Line-height is the one thing it wants that the facts don't — this is
+   a paragraph a builder re-reads on a bad day, not a number they glance at. */
+.goalBrief {
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--muted);
+  margin: -4px 0 14px;
+}
+
 /* The title and the control that rewords it, on one line. `baseline` rather
    than `center` so the small word sits on the title's own line and reads as
    belonging to it; `flex-start` on the cross axis would ride up on a title that
