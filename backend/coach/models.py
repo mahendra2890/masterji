@@ -53,6 +53,22 @@ class Goal(SoftDeleteModel):
                 name="one_active_goal_per_user",
             )
         ]
+        indexes = [
+            # `views._active_goal` — filter(user, status=ACTIVE).first(), which
+            # runs before almost every authenticated request in the product.
+            #
+            # Partial on the soft-delete predicate rather than carrying
+            # `deleted_at` as a column: `SoftDeleteManager` adds
+            # `deleted_at IS NULL` to every query through the default manager,
+            # so the condition is free here and the index stays the size of the
+            # live table. See the note on CheckIn for why that beats indexing
+            # the column itself.
+            models.Index(
+                fields=["user", "status"],
+                condition=models.Q(deleted_at__isnull=True),
+                name="coach_goal_active_idx",
+            ),
+        ]
 
     def __str__(self):
         # Title only — deliberately no phase. This label renders wherever a
@@ -199,6 +215,26 @@ class CheckIn(SoftDeleteModel):
                 condition=models.Q(deleted_at__isnull=True, pm_proof_text=""),
                 name="one_open_checkin_per_goal_per_day",
             )
+        ]
+        indexes = [
+            # `gates._banked` — the hottest query in the product. It runs on
+            # every state load, every chat turn (prompt assembly) and every
+            # advance, and it is the query the gate's own refusal is computed
+            # from, so nothing a builder does gets far without it.
+            models.Index(
+                fields=["goal", "phase", "proof_status"],
+                condition=models.Q(deleted_at__isnull=True),
+                name="coach_checkin_gate_idx",
+            ),
+            # `_open_checkin`, `_latest_checkin`, `_carried_over`, `_offer_target`
+            # — all of them filter(goal, date) and then take the newest by
+            # `-created_at`, so the sort column belongs in the index or the
+            # ordering is a sort over the match set.
+            models.Index(
+                fields=["goal", "date", "-created_at"],
+                condition=models.Q(deleted_at__isnull=True),
+                name="coach_checkin_day_idx",
+            ),
         ]
 
     def __str__(self):
@@ -459,6 +495,27 @@ class ChangelogEntry(SoftDeleteModel):
         # order them.
         ordering = ["-shipped_on", "-id"]
         verbose_name_plural = "changelog entries"
+        indexes = [
+            # `ChangelogView` — filter(is_active=True), ordered by the Meta
+            # above and usually sliced to `?limit=N`. The only unauthenticated
+            # endpoint in the product, mounted by every screen including the
+            # signed-out landing page and the tour, on a table whose row count
+            # only goes one way: the house rule is a row per shipped change.
+            #
+            # `is_active` is a *condition*, not the leading column, and that
+            # distinction is the whole index. Practically every row is active
+            # — an entry is written when a change ships and retiring one is
+            # rare — so leading with it sorts nothing and skips nothing, and
+            # the planner correctly ignores such an index in favour of a scan.
+            # Pushed into the partial condition instead, the index holds only
+            # the rows this endpoint can return, in exactly the order it
+            # returns them: `?limit=N` becomes reading N entries, with no sort.
+            models.Index(
+                fields=["-shipped_on", "-id"],
+                condition=models.Q(deleted_at__isnull=True, is_active=True),
+                name="coach_changelog_live_idx",
+            ),
+        ]
 
     def __str__(self):
         return f"{self.shipped_on} {self.title}"

@@ -22,7 +22,7 @@ from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.core.management import call_command
 from django.core.management.base import CommandError
-from django.db import IntegrityError
+from django.db import IntegrityError, connection
 from django.db.migrations.loader import MigrationLoader
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import SimpleTestCase, TestCase, override_settings
@@ -5420,3 +5420,113 @@ class ChangelogFileTests(TestCase):
         price of this one, and fails in CI rather than at boot — which is the
         whole reason `start.sh` can afford to run the loader with `|| true`."""
         load_changelog.read_entries(load_changelog.ENTRIES_DIR)
+
+
+# --- the first indexes in the project ----------------------------------------
+
+
+class IndexTests(TestCase):
+    """The four hot queries reach the four indexes built for them.
+
+    Asserted through the query planner rather than by reading `Meta.indexes`
+    back, which would only prove the file says what the file says. What can
+    actually break here is the *match*: reorder the fields, drop the partial
+    condition so it stops lining up with `SoftDeleteManager`'s
+    `deleted_at IS NULL`, or add a filter that defeats the prefix, and the
+    index silently stops being used while every test still passes.
+
+    Honest about what this is: the suite runs on SQLite and production is
+    Postgres, so this pins that the index *fits* the query, not that Postgres
+    will choose it against real statistics. The regression it catches — an
+    index quietly orphaned by a change to the query it was built for — is the
+    same on both.
+
+    The record here is long on purpose, and `ANALYZE` is the reason it has to
+    be. On a one-row table the planner cannot tell `coach_checkin_gate_idx`
+    from `coach_checkin_day_idx` — both lead with `goal` — and it picks the
+    wrong one. That is not a flaw in the index; it is the issue's own argument
+    made visible. None of this matters at today's row counts, and the builder
+    who first makes it matter is the one with the longest record, which is to
+    say the product's best user.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = make_user("indexed")
+        cls.goal = Goal.objects.create(user=cls.user, title="Ship something")
+        # Other builders, each with the one active goal the constraint allows
+        # and a couple of retired ones. Without them `coach_goal` is a
+        # one-row table and scanning it is genuinely the right plan — the
+        # index is for the database this product wants to have.
+        for i in range(40):
+            other = make_user(f"builder{i}")
+            Goal.objects.create(user=other, title="Theirs")
+            for j in range(2):
+                Goal.objects.create(
+                    user=other, title=f"Closed {j}", status=Goal.Status.ABANDONED
+                )
+        # Four months of evenings, most of them stamped with phases the goal
+        # has already left — which is exactly the shape that makes filtering on
+        # (phase, proof_status) worth an index rather than a scan of the goal.
+        for i in range(120):
+            CheckIn.objects.create(
+                goal=cls.goal,
+                date=date.today() - timedelta(days=i),
+                phase=Phase.VALIDATION if i % 4 else cls.goal.phase,
+                am_declaration="talk to a customer",
+                pm_proof_text="notes",
+                proof_status=(
+                    CheckIn.ProofStatus.ACCEPTED
+                    if i % 3
+                    else CheckIn.ProofStatus.PUSHED_BACK
+                ),
+            )
+        with connection.cursor() as cursor:
+            cursor.execute("ANALYZE")
+
+    def test_the_gates_own_query_uses_the_gate_index(self):
+        """`gates._banked` runs on every state load, every chat turn and every
+        advance. It is the query a refusal is computed from, so it is the one
+        query in the product that is never not on the critical path."""
+        self.assertIn("coach_checkin_gate_idx", gates._banked(self.goal).explain())
+
+    def test_the_days_check_in_lookups_use_the_day_index(self):
+        """`_open_checkin`, `_latest_checkin`, `_carried_over` and
+        `_offer_target` all filter (goal, date) and take the newest by
+        `-created_at`. The sort column is in the index, so the newest is the
+        first row read rather than a sort over the matches."""
+        plan = (
+            CheckIn.objects.filter(goal=self.goal, date=date.today())
+            .order_by("-created_at")
+            .explain()
+        )
+        self.assertIn("coach_checkin_day_idx", plan)
+        # The point of carrying `-created_at`: no separate sort step.
+        self.assertNotIn("TEMP B-TREE", plan.upper())
+
+    def test_finding_the_active_goal_uses_the_active_goal_index(self):
+        """`views._active_goal` runs before almost every authenticated request
+        in the product."""
+        plan = Goal.objects.filter(
+            user=self.user, status=Goal.Status.ACTIVE
+        ).explain()
+        self.assertIn("coach_goal_active_idx", plan)
+
+    def test_the_public_changelog_uses_the_changelog_index(self):
+        """The only unauthenticated endpoint in the product, mounted by every
+        screen including the signed-out landing page and the tour, on a table
+        whose row count only goes one way."""
+        plan = ChangelogEntry.objects.filter(is_active=True).explain()
+        self.assertIn("coach_changelog_live_idx", plan)
+
+    def test_a_soft_deleted_row_is_outside_every_one_of_them(self):
+        """Why all four are partial. The condition is exactly the predicate
+        `SoftDeleteManager` puts on every query, so the index holds only rows
+        the product can ever read — and indexing `deleted_at` on its own would
+        not have done this job, because nearly every row is undeleted and an
+        index that matches nearly everything is not worth reading."""
+        banked = gates._banked(self.goal)
+        before = banked.count()
+        banked.first().delete()
+        self.assertEqual(gates._banked(self.goal).count(), before - 1)
+        self.assertEqual(CheckIn.all_objects.filter(goal=self.goal).count(), 120)
