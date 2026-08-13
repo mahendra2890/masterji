@@ -25,6 +25,7 @@ import {
   prove,
   retireGoal,
   streamChat,
+  updateGoalTitle,
   type ChatMessage,
   type CheckIn,
   type CoachState,
@@ -453,6 +454,11 @@ export default function Masterji({ user }: { user: SessionUser }) {
   const [goalTitle, setGoalTitle] = useState("");
   // The goal box, so the examples under it can put the caret in it.
   const goalBoxRef = useRef<HTMLInputElement>(null);
+  // Rewording the goal. Offered only while the server says nothing is banked
+  // against the current wording (goal.titleLocked), so the control is never on
+  // screen in a state where pressing it would be refused.
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleText, setTitleText] = useState("");
   const [amText, setAmText] = useState("");
   const [pmText, setPmText] = useState("");
   const [pmUrl, setPmUrl] = useState("");
@@ -672,6 +678,21 @@ export default function Masterji({ user }: { user: SessionUser }) {
       if (!goalTitle.trim()) return;
       await createGoal(goalTitle.trim());
       setGoalTitle("");
+      await refresh();
+    });
+
+  const onRenameGoal = () =>
+    run(async () => {
+      const next = titleText.trim();
+      // Nothing to say and nothing to write: closing the box IS the answer to
+      // an empty edit or the same words back, and a round-trip for either would
+      // put "Reworded: X → X" through a server that then declines to log it.
+      if (!state?.goal || !next || next === state.goal.title) {
+        setEditingTitle(false);
+        return;
+      }
+      await updateGoalTitle(state.goal.id, next);
+      setEditingTitle(false);
       await refresh();
     });
 
@@ -1209,7 +1230,49 @@ export default function Masterji({ user }: { user: SessionUser }) {
         <aside className={styles.side}>
           <section className={styles.card}>
             <p className={styles.cardLabel}>The goal</p>
-            <h2 className={styles.goalTitle}>{goal.title}</h2>
+            {editingTitle ? (
+              <div className={styles.renameBox}>
+                <input
+                  className={styles.input}
+                  value={titleText}
+                  autoFocus
+                  maxLength={200}
+                  onChange={(e) => setTitleText(e.target.value)}
+                />
+                <button
+                  className={styles.secondaryBtn}
+                  disabled={busy}
+                  onClick={onRenameGoal}
+                >
+                  Save wording
+                </button>
+                <button
+                  className={styles.linkBtn}
+                  onClick={() => setEditingTitle(false)}
+                >
+                  leave it
+                </button>
+              </div>
+            ) : (
+              <div className={styles.goalHead}>
+                <h2 className={styles.goalTitle}>{goal.title}</h2>
+                {/* A control, not an explanation — what it costs and why it
+                    stops being offered is the tour's job. Gone the moment the
+                    first proof is banked, which is also when the server starts
+                    refusing it. */}
+                {!goal.titleLocked && (
+                  <button
+                    className={styles.linkBtn}
+                    onClick={() => {
+                      setTitleText(goal.title);
+                      setEditingTitle(true);
+                    }}
+                  >
+                    reword
+                  </button>
+                )}
+              </div>
+            )}
 
             <ol className={styles.stepper}>
               {phases.map((p, i) => (

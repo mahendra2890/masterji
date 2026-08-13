@@ -33,6 +33,12 @@ export type Goal = {
   phase: Phase;
   status: string;
   createdAt: string;
+  /** Whether the record now points at this wording. Sharpening it is free until
+   * the first proof is banked and refused after — the same count the server
+   * checks, sent so the control appears exactly while it would be accepted.
+   * Defaulted true for a browser holding a payload older than the field: not
+   * offering an edit is the safe half of that guess. */
+  titleLocked: boolean;
 };
 
 // `owed` is the KINDS of evidence the phase still has none of, already worded
@@ -195,6 +201,7 @@ type ServerGoal = {
   phase: Phase;
   status: string;
   created_at: string;
+  title_locked?: boolean;
 };
 type ServerGate = {
   have: number;
@@ -300,6 +307,7 @@ const fromServerGoal = (g: ServerGoal): Goal => ({
   phase: g.phase,
   status: g.status,
   createdAt: g.created_at,
+  titleLocked: g.title_locked ?? true,
 });
 
 const fromServerRetirement = (r: ServerRetirement): Retirement => ({
@@ -621,6 +629,17 @@ export async function retireGoal(
 export async function createGoal(title: string): Promise<Goal> {
   const data = await request<ServerGoal>("goals/", {
     method: "POST",
+    body: JSON.stringify({ title }),
+  });
+  return fromServerGoal(data);
+}
+
+/** Sharpen the wording of a goal nothing has been banked against yet. 409 =
+ * the record already points at it (comes back as ApiError, and its message is
+ * the whole of what the builder needs to read). */
+export async function updateGoalTitle(id: number, title: string): Promise<Goal> {
+  const data = await request<ServerGoal>(`goals/${id}/`, {
+    method: "PATCH",
     body: JSON.stringify({ title }),
   });
   return fromServerGoal(data);

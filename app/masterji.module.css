@@ -377,6 +377,26 @@
   margin-bottom: 12px;
 }
 
+/* The title and the control that rewords it, on one line. `baseline` rather
+   than `center` so the small word sits on the title's own line and reads as
+   belonging to it; `flex-start` on the cross axis would ride up on a title that
+   wrapped to two lines. */
+.goalHead {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+/* The title's box while it is being reworded. Stacked rather than inline: the
+   goal is a sentence and the input needs the column's full width, which a row
+   with two buttons in it would take away. */
+.renameBox {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
 /* --- phase stepper ----------------------------------------------------------- */
 
 .stepper {
