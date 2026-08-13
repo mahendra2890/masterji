@@ -120,7 +120,7 @@ Then tap the same opener live. Current answer:
   cd backend && OPENAI_BASE_URL=http://127.0.0.1:1 .venv/bin/python manage.py test
   ```
 
-  All of them pass, in the same time as a normal run — 344 as of 13 August,
+  All of them pass, in the same time as a normal run — 345 as of 13 August,
   and don't quote a number you haven't just watched print. Worth showing
   rather than asserting: a suite that stubs its model calls is easy to claim
   and easy to be wrong about, and one unstubbed call is all it takes to start
@@ -170,4 +170,7 @@ argued against when it proposed the cap. *The enforcement is the product.*
 There were two. The other was a screenshot of your own Masterji record for the
 credibility paragraph in the README, and that one is carried now:
 `docs/run/the-record-at-launch.png` — reached LAUNCH, 7 proofs banked, 6 from
-real-world contact.
+real-world contact. Say "where the ladder ended then" over it, the way the README
+does: TRACTION was built after that run, and a shot captioned as the finish line
+now stops one rung short of it. No reshoot — the caveat is what makes the real
+screenshot honest.
