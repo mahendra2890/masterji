@@ -461,7 +461,16 @@ function usePersistedDraft(
       // write would delete the draft this line is putting back.
       if (saved) {
         setValue((current) => current || saved);
-        setRestoredKey(key);
+        // Claimed only when the box was empty to receive it. This flag draws
+        // "Your words came back — if you had a screenshot picked, pick it
+        // again", which on a box that already had words is false twice over.
+        // Nothing reaches that today: all four boxes start "" and the only
+        // things that fill one — the UNJUDGED re-seed below, a drafted proof —
+        // are declared after this hook, so they run after it and this pass
+        // always sees an empty box. That ordering is what makes the line above
+        // safe, it is one reordered hook away from not being true, and nothing
+        // else states it.
+        if (!value) setRestoredKey(key);
       }
       return;
     }

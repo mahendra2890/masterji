@@ -2,8 +2,9 @@
 //
 // Split from coach-api.ts and from the components for one reason: the naming
 // half is pure and worth a test, and the saving half is four lines of DOM that
-// no harness in this repo can exercise yet (#117). Keeping them apart means the
-// part that can be pinned is pinned.
+// no harness here will exercise — #117 decided against a rendering harness, so
+// that half is driven in a browser and said so in its pull request. Keeping
+// them apart means the part that can be pinned is pinned.
 
 const FILENAME = /filename\*?=(?:UTF-8''|")?([^";]+)"?/i;
 
