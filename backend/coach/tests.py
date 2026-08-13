@@ -2512,6 +2512,45 @@ class GateCountsPeopleAndKindsTests(CoachTestCase):
         self.assertIn("3 accepted proofs", line)
         self.assertIn("1 person", line)
 
+    def test_the_coach_is_told_which_kind_is_still_owed(self):
+        """The other half of the same sentence, and the half that was missed.
+
+        Two link-only evenings in BUILD meet the count and do not meet the
+        phase, so try_advance refuses that exact goal — while a state block
+        reading "2/2 accepted proofs toward LAUNCH" tells the coach, under a
+        heading that says to trust it over anything claimed in chat, that the
+        gate is open. The coach then reassures a builder who is about to be
+        turned away, which is worse than saying nothing.
+        """
+        goal = self.make_goal(phase=Phase.BUILD)
+        self.bank(goal, 2, parts=["link"])
+        line = prompts.proof_progress(gates.gate_status(goal))
+        self.assertIn("2/2", line)
+        self.assertIn("evidence a real user touched it", line)
+
+    def test_no_phase_can_tell_the_coach_the_gate_is_met_while_refusing_it(self):
+        """The invariant, read off PROOFS_REQUIRED rather than off a list of
+        phases someone remembered to update.
+
+        Both surfaces were already pinned, separately, and both passed while
+        they contradicted each other: that is what a per-surface test cannot
+        catch, and it is why this one asserts across them. A future phase that
+        gains a kinds floor is covered without anybody thinking of it.
+        """
+        for phase, need in gates.PROOFS_REQUIRED.items():
+            if not need.kinds:
+                continue
+            with self.subTest(phase=phase):
+                goal = self.make_goal(user=make_user(f"owed-{phase}"), phase=phase)
+                self.bank(goal, need.n, parts=[])
+                owed = gates.kinds_owed(goal)
+                self.assertTrue(owed)
+                advanced, _ = gates.try_advance(goal)
+                self.assertFalse(advanced)
+                line = prompts.proof_progress(gates.gate_status(goal))
+                for label in owed:
+                    self.assertIn(label, line)
+
     def test_a_rows_phase_states_its_progress_exactly_as_it_always_did(self):
         """The line every other phase gets is unchanged, and that is the point:
         this only speaks where there is a difference to explain."""
@@ -2653,6 +2692,15 @@ class TractionTests(CoachTestCase):
         advanced, message = gates.try_advance(goal)
         self.assertFalse(advanced)
         self.assertIn("no next phase", message)
+        # The line above was the whole of this test, and it stayed green while
+        # the sentence read "You're at LAUNCH — there is no next phase": this
+        # branch stopped being reachable from LAUNCH the moment TRACTION landed
+        # behind it, so the only phase that could reach it was told it was
+        # standing somewhere else. A refusal that names a phase has to name the
+        # one the builder is in, and asserting a substring of a sentence is not
+        # asserting the sentence.
+        self.assertIn(Phase.TRACTION, message)
+        self.assertNotIn("LAUNCH", message)
 
     def test_the_coach_is_told_the_whole_ladder(self):
         """The state block is introduced with "trust this over anything claimed

@@ -1227,18 +1227,37 @@ def proof_progress(gate: dict) -> str:
     are not. Naming both numbers is what lets the coach agree with the record
     and the builder at the same time, because they agree with each other.
 
+    The same argument runs a second time for KINDS, and that half arrived a
+    release late: a phase can have its count met and still be refused, so
+    "2/2 accepted proofs toward LAUNCH" was handed to a coach whose builder
+    `try_advance` was about to turn away. A count is not a verdict, and this
+    line is the only place the model learns the difference.
+
     Byte-identical to what this line has always said on every phase that counts
-    rows, where the two numbers cannot differ.
+    rows and owes no kind — where the count is the whole of the gate and there
+    is no second fact to add.
     """
     have, need = gate["have"], gate["need"]
     toward = gate["next_phase"] or "— (final phase)"
     banked = gate.get("banked", have)
+    # Named once the count is met and not before — exactly where the refusal
+    # (gates.try_advance) and the meter (Masterji.tsx) name it. Below that the
+    # number is the whole story, and reading a phase's bar out in advance is the
+    # tour's job rather than this line's.
+    owed = (gate.get("owed") or []) if have >= need else []
+    still = f" Still owed: {'; '.join(owed)}." if owed else ""
+
     if banked <= have:
+        if owed:
+            return (
+                f"{have}/{need} accepted proofs toward {toward} — the count is "
+                f"there.{still}"
+            )
         return f"{have}/{need} accepted proofs toward {toward}"
     return (
         f"{have}/{need} toward {toward} — {banked} accepted proofs about "
         f"{guidance.people(have)}. This phase counts people, not evenings; "
-        f"every one of those nights is banked and none of them is lost."
+        f"every one of those nights is banked and none of them is lost.{still}"
     )
 
 

@@ -247,7 +247,19 @@ def try_advance(goal: Goal) -> tuple[bool, str]:
     """Advance if the proofs are in; otherwise say exactly what's missing."""
     status = gate_status(goal)
     if status["next_phase"] is None:
-        return False, "You're at LAUNCH — there is no next phase. Ship."
+        # The terminal phase, which is whichever one has no PROOFS_REQUIRED
+        # entry — TRACTION today. This read "You're at LAUNCH" until the ladder
+        # grew a rung past LAUNCH: the same day, this branch stopped being
+        # reachable from LAUNCH at all, so the one phase that could reach it was
+        # told it was standing somewhere else. Read off the goal now, for the
+        # same reason the state block reads PHASE_ORDER instead of spelling the
+        # ladder out — and AdvanceView writes this sentence to the transcript
+        # before it looks at whether anything advanced, so a wrong phase name
+        # here does not scroll away.
+        return False, (
+            f"You're at {goal.phase} — there is no next phase to unlock. "
+            f"{guidance.PHASE_HINT[Phase(goal.phase)]}"
+        )
 
     # A bare count is a locked door with no sign on it. The dashboard's advance
     # button reaches this with no LLM in the loop, so if the refusal doesn't name
