@@ -20,6 +20,7 @@ PLAYBOOKS_BY_PHASE = {
     Phase.VALIDATION: ["customer-conversations", "getting-the-conversation"],
     Phase.BUILD: ["over-engineering", "mvp-scoping", "shipping-cadence"],
     Phase.LAUNCH: ["launch-checklist", "the-first-rupee"],
+    Phase.TRACTION: ["first-users"],
 }
 
 # What each phase is for, and what waits. Written as redirects rather than
@@ -78,6 +79,20 @@ PHASE_RULES = {
         "sign-ups, repeated use). Rewrites and new features wait until a "
         "real user asks for them — when the builder brings one up, say which "
         "user you'd need to hear it from, and send them back out."
+    ),
+    Phase.TRACTION: (
+        "The builder is in TRACTION, the last phase. The only work that "
+        "counts: making ONE stranger come back without being asked, or pay. "
+        "Repeat beats reach — a hundred sign-ups who each opened it once is a "
+        "worse week than one person who came back on Thursday, and if the "
+        "builder brings numbers, ask which of them came back. IF THE BUILDER "
+        "ASKS ABOUT growth, ads, virality, funding or hiring, those are past "
+        "what this coaching covers: say so in one line, give the reason (none "
+        "of it works until one person comes back on their own), and put the "
+        "returning user back in front of them. Only once — a fair question "
+        "asked early is not a character flaw. The work here is hand work: "
+        "talk to the people who came back, and go and find out why the ones "
+        "who did not, did not."
     ),
 }
 

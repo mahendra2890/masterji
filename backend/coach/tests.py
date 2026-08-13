@@ -915,7 +915,12 @@ class StateTests(CoachTestCase):
             response.data["gate"],
             {"have": 1, "need": 1, "next_phase": "VALIDATION", "owed": [], "banked": 1},
         )
-        self.assertEqual(response.data["phases"], ["IDEA", "VALIDATION", "BUILD", "LAUNCH"])
+        # The stepper is drawn from this and nothing else, so the ladder the
+        # dashboard shows is the ladder gates.py enforces.
+        self.assertEqual(
+            response.data["phases"],
+            ["IDEA", "VALIDATION", "BUILD", "LAUNCH", "TRACTION"],
+        )
 
     def test_state_carries_the_best_run_alongside_the_current_one(self):
         """A broken streak reports 0, and 0 on its own reads as "none of it
@@ -1436,10 +1441,11 @@ class RetireTests(CoachTestCase):
         goal = self.make_goal(phase="LAUNCH")
         self.assertEqual(self._retire(goal, reason="  ", path="complete").status_code, 400)
 
-    def test_launch_goal_state_does_not_500(self):
-        """A LAUNCH goal has no next phase — gate_status must not walk off the
-        end of PHASE_ORDER."""
-        goal = self.make_goal(phase="LAUNCH")
+    def test_terminal_goal_state_does_not_500(self):
+        """The last phase has no next phase — gate_status must not walk off the
+        end of PHASE_ORDER. The guard moved up the ladder with the ladder:
+        LAUNCH has somewhere to advance to now, and TRACTION is the end."""
+        goal = self.make_goal(phase="TRACTION")
         self.accept_proofs(goal, 1)
         response = self.client.get("/api/coach/state/")
         self.assertEqual(response.status_code, 200)
@@ -1475,11 +1481,18 @@ class RetireTests(CoachTestCase):
         self.assertTrue(gates.accepted_proofs_total(goal))  # the work is on the record
         self.assertFalse(self.client.get("/api/coach/state/").data["at_finish_line"])
 
-    def test_one_launch_proof_lights_the_finish_line(self):
-        """What the button was always meant to mean: the post went out, a
-        stranger acted, or somebody said no with a reason — bar.py's LAUNCH
-        parts. One is enough; LAUNCH has no count to finish."""
+    def test_the_finish_line_waits_for_the_phase_after_the_post(self):
+        """The button moved up with the ladder. A LAUNCH proof is the post
+        going out — the thing TRACTION exists to follow, not the end of the
+        arc — so a full LAUNCH shelf still leaves the win button dark, and the
+        phase that lights it is the one whose bar is somebody coming back or
+        paying. One TRACTION proof is enough; TRACTION has no count to finish.
+        """
         goal = self.make_goal(phase="LAUNCH")
+        self.accept_proofs(goal, gates.PROOFS_REQUIRED[Phase.LAUNCH].n)
+        self.assertFalse(self.client.get("/api/coach/state/").data["at_finish_line"])
+        goal.phase = Phase.TRACTION
+        goal.save(update_fields=["phase"])
         self.accept_proofs(goal, 1)
         self.assertTrue(self.client.get("/api/coach/state/").data["at_finish_line"])
 
@@ -2307,6 +2320,10 @@ class CorpusCurationTests(CoachTestCase):
         "choosing-an-idea": (Phase.IDEA, "Paul Graham"),
         "getting-the-conversation": (Phase.VALIDATION, "Giff Constable"),
         "the-first-rupee": (Phase.LAUNCH, "Rob Walling"),
+        # TRACTION arrived with the corpus's tenth file — the phase that opened
+        # the shelf and the playbook that fills it landed together, which is
+        # the one arrival order the curation policy has no answer for.
+        "first-users": (Phase.TRACTION, "Paul Graham"),
     }
 
     def test_each_new_playbook_is_wired_to_exactly_one_phase(self):
@@ -2544,14 +2561,88 @@ class GateCountsPeopleAndKindsTests(CoachTestCase):
     def test_a_phase_that_only_counts_rows_owes_no_kinds(self):
         """IDEA and VALIDATION must keep answering the empty list — the meter
         reads `owed` on every phase, and a stray label there would hold a gate
-        shut that nothing asked for."""
+        shut that nothing asked for. TRACTION answers it as the phase with no
+        exit to buy at all."""
         goal = self.make_goal()
-        for phase in (Phase.IDEA, Phase.VALIDATION, Phase.LAUNCH):
+        for phase in (Phase.IDEA, Phase.VALIDATION, Phase.TRACTION):
             with self.subTest(phase=phase):
                 goal.phase = phase
                 goal.save(update_fields=["phase"])
                 self.bank(goal, 3)
                 self.assertEqual(gates.kinds_owed(goal), [])
+
+
+class TractionTests(CoachTestCase):
+    """The phase after the post, and the gate that now stands in front of it.
+
+    LAUNCH was terminal, which ended the ladder at the moment the README's own
+    opening statistic says the hard part begins. Giving it somewhere to go
+    means LAUNCH finally has an exit to buy, and the exit is priced the way
+    BUILD's is: a count, plus one kind of evidence the count cannot fake.
+    """
+
+    def bank(self, goal, n, parts=None, start=0):
+        """n accepted proofs in the goal's current phase, labelled by kind.
+
+        CoachTestCase.accept_proofs labels rows with whatever the phase
+        requires, which is the right default everywhere else and the wrong one
+        here: half of these tests are about a shelf full of the WRONG kind.
+        """
+        for i in range(n):
+            CheckIn.objects.create(
+                goal=goal,
+                date=date.today() - timedelta(days=start + i),
+                phase=goal.phase,
+                am_declaration="put it in front of someone",
+                pm_proof_text=f"notes {start + i}",
+                proof_status=CheckIn.ProofStatus.ACCEPTED,
+                proof_parts=parts or [],
+            )
+
+    def test_three_posts_do_not_buy_traction_on_their_own(self):
+        """LAUNCH's own version of the failure BUILD's kinds floor catches: the
+        ladder in launch-checklist.md is one rung a day, and three rungs climbed
+        is three posts. Posting is not the same as somebody acting, and the
+        phase after this one is about people who acted."""
+        goal = self.make_goal(phase=Phase.LAUNCH)
+        self.bank(goal, 3, parts=["link"])
+        advanced, message = gates.try_advance(goal)
+        self.assertFalse(advanced)
+        # The count is met, so the refusal must name the kind rather than ask
+        # for more of the same — the same rule BUILD's refusal already follows.
+        self.assertIn("3/3", message)
+        self.assertIn(bar.label_for(Phase.LAUNCH, "action"), message)
+        self.assertIn(guidance.GATE_NUDGE[Phase.LAUNCH], message)
+
+    def test_a_stranger_acting_opens_traction(self):
+        goal = self.make_goal(phase=Phase.LAUNCH)
+        self.bank(goal, 2, parts=["link"])
+        self.bank(goal, 1, parts=["action"], start=2)
+        self.assertEqual(gates.kinds_owed(goal), [])
+        self.assertTrue(gates.try_advance(goal)[0])
+        goal.refresh_from_db()
+        self.assertEqual(goal.phase, Phase.TRACTION)
+
+    def test_traction_is_the_end_of_the_ladder(self):
+        """No PROOFS_REQUIRED entry, on purpose: an entry would give gate_status
+        a next_phase to look up past the end of PHASE_ORDER. The altitude ends
+        at first RETAINED users, and the ladder ends with it."""
+        goal = self.make_goal(phase=Phase.TRACTION)
+        self.bank(goal, 3, parts=["returned"])
+        status = gates.gate_status(goal)
+        self.assertIsNone(status["next_phase"])
+        advanced, message = gates.try_advance(goal)
+        self.assertFalse(advanced)
+        self.assertIn("no next phase", message)
+
+    def test_traction_proofs_count_as_real_world_contact(self):
+        """reads_as asks one question of CONTACT_PHASES — did real people get a
+        vote — and a stranger who came back or paid is the loudest yes in the
+        product. Leaving TRACTION out would read a goal that got further than
+        any other as UNTESTED."""
+        goal = self.make_goal(phase=Phase.TRACTION)
+        self.bank(goal, gates.INVALIDATED_AT, parts=["returned"])
+        self.assertEqual(gates.reads_as(goal), "INVALIDATED")
 
 
 class ProofLabelsTests(CoachTestCase):

@@ -173,6 +173,27 @@ BAR = {
         either_label="a link to your public post, a stranger's action or payment, "
         "or a real rejection with the reason they gave",
     ),
+    Phase.TRACTION: Bar(
+        parts=(
+            Part(
+                key="returned",
+                label="a stranger who came back on their own",
+                ask="The same stranger coming back: what they did the second "
+                "time, when, and that nobody asked them to. Two different "
+                "people using it once each is not this — the whole point is "
+                "the SAME person returning.",
+            ),
+            Part(
+                key="paid",
+                label="a payment — who, how much, what for",
+                ask="Who paid, how much in ₹, and what for. A promise to pay "
+                "is not a payment; the money has to have moved.",
+            ),
+        ),
+        every=False,
+        either_label="a stranger who came back on their own, or a payment — "
+        "who paid, how much, and what for",
+    ),
 }
 
 

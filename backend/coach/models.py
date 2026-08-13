@@ -18,6 +18,12 @@ class Phase(models.TextChoices):
     VALIDATION = "VALIDATION", "Validation"
     BUILD = "BUILD", "Build"
     LAUNCH = "LAUNCH", "Launch"
+    # The last one. LAUNCH used to end the ladder, which put the finish line at
+    # the moment the post goes out — and the statistic this product opens with
+    # is about the stretch that starts there. Retention and the first rupee are
+    # still inside the stated altitude (idea → first users); scaling,
+    # fundraising and exit talk are not, and the ladder stops here.
+    TRACTION = "TRACTION", "Traction"
 
 
 class Goal(SoftDeleteModel):
