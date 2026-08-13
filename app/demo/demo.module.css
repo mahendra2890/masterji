@@ -440,17 +440,22 @@
 
 /* The screen a builder meets before there is any product to show — the goal
    they commit on their first morning. Not app.onboarding: that one centres
-   itself in 100dvh, and a slide is not a viewport. */
+   itself in 100dvh, and a slide is not a viewport. Everything else about the
+   frame is copied from it, and that includes the axis: the real screen is one
+   left-aligned column, so a panel that centred its contents was a picture of
+   a screen the visitor is not about to be shown. Stretch rather than
+   flex-start, because the blocks inside take their width from the column now
+   instead of stating one each. */
 .onboardPanel {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: stretch;
   gap: 10px;
   padding: 26px 18px;
-  text-align: center;
+  text-align: left;
   min-width: 0;
 }
 

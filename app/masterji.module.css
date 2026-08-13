@@ -11,15 +11,37 @@
 
 /* --- onboarding ---------------------------------------------------------- */
 
+/* One column, one left edge, one width.
+ *
+ * This screen used to change axis half way down: centred from the wordmark to
+ * the examples, then left-aligned from the workshop's rule to the composer —
+ * and the blocks inside it asked for four different widths (440 for the sub,
+ * 460 for the archive and his closing words, 520 for the form and the
+ * workshop). Measured on a 1280px window there were eight distinct left edges
+ * between the title and the footer, most of them within a single 520px
+ * column. That is what made a screen this short read as crowded: there was no
+ * edge for the eye to follow down it, so every block looked placed by hand.
+ *
+ * So the column is the frame and everything in it stretches to the same 520.
+ * Left rather than centred because that is what the rest of the product
+ * already is — the landing page's hero, the dashboard's cards and this
+ * screen's own workshop are all left-aligned, and this was the one surface
+ * arguing with them.
+ */
 .onboarding {
   min-height: 100dvh;
+  /* 520 of content, plus the padding either side. Every block inside asks for
+     the column rather than restating a width of its own. */
+  max-width: 568px;
+  margin: 0 auto;
   display: flex;
   flex-direction: column;
-  align-items: center;
   justify-content: center;
+  /* The base step. Blocks that start a new group — the form, the workshop,
+     the footer — add to it, so the spacing says what belongs with what
+     instead of setting everything the same distance apart. */
   gap: 12px;
   padding: 24px;
-  text-align: center;
 }
 
 /* No tracking. Devanagari is not a series of separate letters the way Latin
@@ -35,31 +57,45 @@
   color: var(--accent);
 }
 
+/* Tightened to the landing page's hero, which is the screen most builders see
+   immediately before this one. At the default 1.55 a 46px line reserves 71px
+   for a word that is 46px tall, and the gap it opened under the wordmark was
+   read as a gap between two unrelated things. */
 .onboardTitle {
   font-size: 46px;
   font-style: italic;
+  line-height: 1.1;
 }
 
+/* Fills the column rather than holding a measure of its own. 440 centred
+   inside 520 gave this paragraph — the longest block on the screen — a left
+   edge shared with nothing above or below it. */
 .onboardSub {
-  max-width: 440px;
   color: var(--muted);
-  margin: 0 0 12px;
+  margin: 2px 0 0;
 }
 
+/* The one committed action, and the group starts here. */
 .onboardForm {
   display: flex;
   gap: 10px;
-  width: min(520px, 100%);
+  margin-top: 14px;
 }
 
+/* The shared .input carries a bottom margin for the stacked forms on the
+   dashboard. In a row that turned into a 10px shortfall: the box stopped 10px
+   short of the button beside it, so Commit — the only filled control on the
+   screen — hung below the thing it commits. */
 .onboardForm .input {
   flex: 1;
+  margin-bottom: 0;
 }
 
-/* Worked examples under the first-run box. Same width as the form they fill,
-   so they read as belonging to it rather than as a menu of their own. */
+/* Worked examples under the first-run box, in the same column and hard up
+   against the form, so they read as belonging to it rather than as a menu of
+   their own. */
 .examples {
-  width: min(520px, 100%);
+  margin-top: 2px;
 }
 
 .examplesLabel {
@@ -68,19 +104,27 @@
   font-size: 12.5px;
 }
 
+/* Wrapped from the left, not centred. Centred, three chips of three different
+   widths wrapped into a lopsided pyramid — two on a row and the third
+   floating under the gap between them, on three left edges none of which was
+   the column's. */
 .exampleList {
   list-style: none;
   margin: 0;
   padding: 0;
   display: flex;
   flex-wrap: wrap;
-  justify-content: center;
   gap: 7px;
 }
 
 /* Outlined rather than filled: these fill the box, they don't commit it, and
    the one filled control on this screen has to stay the one that does.
-   Left-aligned for the narrowest phones, where the longest of them wraps. */
+   Left-aligned for the narrowest phones, where the longest of them wraps.
+
+   These metrics are the screen's chip, not this block's — the workshop's
+   openers are scoped down to them further below. Two chips 200px apart doing
+   one job at two sizes read as two systems, and this is the size at which
+   both groups still wrap two-to-a-row in a 520px column. */
 .example {
   background: none;
   border: 1px solid var(--border);
@@ -112,6 +156,31 @@
   display: flex;
   align-items: center;
   gap: 16px;
+  margin-top: 16px;
+}
+
+/* Sign out is built for the header, where it is the last thing on the right.
+   There, a centred box wide enough for the longer label costs nothing and buys
+   the thing that matters: the second press lands where the first one did,
+   instead of chasing a control that moved under the finger.
+
+   Here it is the FIRST thing on the left, and both halves of that bargain
+   invert. The padding and the centring held the word 17px inside a column
+   everything else starts at, so the last row of the screen read as indented
+   from every row above it — and the reserved width showed up as a gap after
+   "sign out", making the footer's three items unevenly spaced.
+
+   Left-aligned and pulled back by its own padding, the word sits on the column
+   edge and the row spaces evenly. The reserve goes with it, and nothing is
+   lost by that here: this button is leftmost, so a label growing to "sign
+   out?" extends rightwards and the target under the thumb does not move at
+   all. What shifts is the two links beside it, by about 7px, and neither is
+   part of the press being confirmed. */
+.onboardFooter .signOut,
+.onboardFooter .signOutAsking {
+  margin-left: -10px;
+  min-width: 0;
+  text-align: left;
 }
 
 /* --- app shell ------------------------------------------------------------ */
@@ -1417,9 +1486,10 @@
   color: var(--muted);
 }
 
+/* The column, like everything else on that screen — 460 inside 520 was a
+   fifth width and a left edge of its own. */
 .closingWin,
 .closingPlain {
-  max-width: 460px;
   margin: 10px 0 0;
   font-size: 15px;
   line-height: 1.5;
@@ -1440,10 +1510,10 @@
   color: var(--muted);
 }
 
+/* Same treatment and the same rule as the workshop above it: the column, and
+   a border for the group break. */
 .archive {
-  width: min(460px, 100%);
   margin-top: 22px;
-  text-align: left;
   border-top: 1px solid var(--border);
   padding-top: 14px;
 }
@@ -1855,16 +1925,14 @@
 }
 
 /* --- the workshop --------------------------------------------------------
-   The room before the goal, under the commit box on the no-goal screen. Same
-   width as the form and the examples so the whole column reads as one thing,
-   and visibly quieter than the box above it: this is the way in for a builder
-   who cannot fill that box yet, never the main event. */
+   The room before the goal, under the commit box on the no-goal screen. It
+   takes the column like everything else on this screen, and stays visibly
+   quieter than the box above it: this is the way in for a builder who cannot
+   fill that box yet, never the main event. The rule is the group break. */
 .workshop {
-  width: min(520px, 100%);
   margin-top: 22px;
   padding-top: 18px;
   border-top: 1px solid var(--border);
-  text-align: left;
 }
 
 .workshopHead {
@@ -1987,10 +2055,55 @@
   white-space: nowrap;
 }
 
+/* The openers are the chat pane's block, reused here. Two things it brings
+   with it are wrong in this room, and both were visible:
+   the 38px indent, which exists in chat to clear the coach's avatar — there is
+   no avatar here, so the label and all three chips sat on a left edge 38px
+   inside the title above them and the composer below; and no bottom margin,
+   because in chat the composer band's own border and padding provide the gap.
+   This composer has neither, so the last chip was touching the box. */
+.workshop .openers {
+  margin-top: 0;
+  margin-bottom: 14px;
+  padding-left: 0;
+}
+
+/* Wrapped here, stacked in chat. The stacking rule upstream is about the chat
+   pane's width, where these full questions turn into ragged two-liners in a
+   row; this column is wider and they fit two to a row.
+
+   Wrapping — and the goal examples' metrics with it — makes them the same kind
+   of object as the examples further up this same screen. Both are chips you
+   tap to fill a box you then edit, they are about 200px apart, and having them
+   in two sizes and two layouts is most of what made this screen look
+   unplanned. Scoped rather than changed at the source: in the chat pane the
+   larger chip and the stack are both right. */
+.workshop .openerList {
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.workshop .opener {
+  padding: 6px 13px;
+  font-size: 13px;
+}
+
 .workshopComposer {
   display: flex;
   gap: 8px;
   align-items: flex-end;
+}
+
+/* Bottom-aligned against a two-row box, the shared secondary button was a
+   34px control parked beside a 61px one — small enough to read as floating
+   next to the box rather than belonging to it, and under the 40px this repo
+   gives everything else a thumb has to find. It keeps its own height rather
+   than stretching: the box is where the writing happens, and a Send that grew
+   with it would be the tallest thing in the room. */
+.workshopComposer .secondaryBtn {
+  min-height: 40px;
+  padding: 8px 18px;
 }
 
 .workshopInput {
