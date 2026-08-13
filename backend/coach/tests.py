@@ -14,10 +14,12 @@ from unittest import mock
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APITestCase
+from rest_framework.throttling import ScopedRateThrottle
 
 from . import bar, gates, guidance, prompts, views
 from .models import ChangelogEntry, CheckIn, Goal, Message, Phase, ProofAttempt
@@ -33,6 +35,13 @@ def make_user(name: str):
 
 class CoachTestCase(APITestCase):
     def setUp(self):
+        # Throttle counters live in the process cache, keyed by user pk — and
+        # every test here recreates alice as pk 1, so without this the suite
+        # accumulates one shared history and the tests that file several proofs
+        # start being refused by the tests that ran before them. Nothing about
+        # the throttle is per-test state; the cache is simply not part of what
+        # the test database rolls back.
+        cache.clear()
         self.alice = make_user("alice")
         self.bob = make_user("bob")
         self.client.force_authenticate(self.alice)
@@ -3947,3 +3956,112 @@ class ChangelogTests(APITestCase):
         self.assertIn(
             ("coach", "0011_seed_changelog"), MigrationLoader(None).graph.nodes
         )
+
+
+# --- what a paid endpoint will and won't take --------------------------------
+
+
+def boom(*args, **kwargs):
+    """A stream that dies before its first token. Enough for a test that only
+    cares whether the turn was reached at all."""
+    raise RuntimeError("provider hung up")
+    yield  # pragma: no cover — a generator that never gets that far
+
+
+class PaidEndpointLimitTests(CoachTestCase):
+    """Every chat turn, declaration reading and proof verdict is a paid model
+    call, and nothing capped their number or their size.
+
+    Rates are overridden to one per window rather than exercised at their real
+    values: the shipped numbers are generous multiples of real use, and a test
+    that sent thirty turns would be asserting arithmetic DRF already owns.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.addCleanup(cache.clear)
+        # The rates are patched on the dict the throttle actually consults, NOT
+        # with override_settings(REST_FRAMEWORK=...): DRF binds
+        # SimpleRateThrottle.THROTTLE_RATES to the dict it read at import, so a
+        # settings override reloads api_settings into a new dict the throttle
+        # never looks at again — and the test passes at the shipped rate, which
+        # is to say it asserts nothing.
+        rates = mock.patch.dict(
+            ScopedRateThrottle.THROTTLE_RATES,
+            {"chat": "1/hour", "prove": "1/day", "judge": "1/day"},
+        )
+        rates.start()
+        self.addCleanup(rates.stop)
+        self.goal = self.make_goal()
+
+    def declare(self, text="write the problem statement"):
+        return self.client.post(
+            "/api/coach/checkins/declare/", {"text": text, "date": str(date.today())}
+        )
+
+    def test_chat_stops_answering_past_its_rate(self):
+        with mock.patch("coach.views.llm.stream_chat", side_effect=boom):
+            first = self.client.post("/api/coach/chat/", {"content": "you there?"})
+            b"".join(first.streaming_content)
+            second = self.client.post("/api/coach/chat/", {"content": "and now?"})
+        self.assertEqual(second.status_code, 429)
+        # Refused in the product's register, not DRF's. A builder who hits this
+        # is being told to come back, not shown a rate-limiter's arithmetic.
+        self.assertNotIn("throttled", second.json()["detail"].lower())
+        # And the turn never happened: a refusal that still wrote the row would
+        # leave them talking to themselves, which is what STREAM_BROKE exists
+        # to prevent on the other failure path.
+        self.assertEqual(self.goal.messages.filter(role=Message.Role.USER).count(), 1)
+
+    def test_prove_stops_filing_past_its_rate(self):
+        self.declare()
+        first = self.client.post(
+            "/api/coach/checkins/prove/",
+            {"text": "wrote it up", "date": str(date.today())},
+        )
+        self.assertEqual(first.status_code, 200)
+        second = self.client.post(
+            "/api/coach/checkins/prove/",
+            {"text": "wrote it up again", "date": str(date.today())},
+        )
+        self.assertEqual(second.status_code, 429)
+
+    def test_a_throttled_reading_leaves_the_declaration_unjudged(self):
+        """The judge is the one throttle whose refusal must cost nothing: an
+        UNJUDGED check-in is a complete, usable state the proof form already
+        falls back for, so hitting this degrades to the documented outage path
+        rather than to a builder who cannot declare."""
+        checkin_id = self.declare().json()["id"]
+        self.client.post(f"/api/coach/checkins/{checkin_id}/judge/")
+        again = self.client.post(f"/api/coach/checkins/{checkin_id}/judge/")
+        self.assertEqual(again.status_code, 429)
+        self.assertEqual(
+            CheckIn.objects.get(pk=checkin_id).declaration_fit,
+            CheckIn.DeclarationFit.UNJUDGED,
+        )
+        # Declaring is not throttled with it: the morning write is free, and a
+        # builder who edits their task at nine must not be locked out of it.
+        self.assertEqual(self.declare("write it properly").status_code, 200)
+
+    def test_an_essay_is_not_a_task(self):
+        response = self.declare("x" * (settings.DECLARATION_MAX_CHARS + 1))
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(CheckIn.objects.count(), 0)
+
+    def test_a_wall_of_text_is_not_a_proof(self):
+        self.declare()
+        response = self.client.post(
+            "/api/coach/checkins/prove/",
+            {"text": "y" * (settings.PROOF_MAX_CHARS + 1), "date": str(date.today())},
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(CheckIn.objects.get().proof_status, CheckIn.ProofStatus.NONE)
+
+    def test_a_wall_of_text_is_not_a_turn(self):
+        """The judge and the coach both read builder text inside a fenced block.
+        An unbounded paste is a prompt-stuffing surface as well as a cost one."""
+        response = self.client.post(
+            "/api/coach/chat/", {"content": "z" * (settings.CHAT_MAX_CHARS + 1)}
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(self.goal.messages.count(), 0)

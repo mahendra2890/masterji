@@ -153,6 +153,25 @@ REST_FRAMEWORK = {
         # Authorization: Bearer header (curl, tests, other API clients).
         "accounts.authentication.CookieJWTAuthentication",
     ],
+    # Ceilings on the three endpoints that spend money, scoped per user (they
+    # all require auth, so there is no anonymous bucket to fill). Generous
+    # multiples of real use: an honest evening is a handful of turns, one proof
+    # and one or two readings of the morning's task. Nothing here is a coaching
+    # limit — it is the budget that every honest builder's verdict comes out of.
+    #
+    # No default rate: an endpoint that costs nothing should not be able to
+    # refuse anybody by inheriting one, and the three that do cost say so by
+    # name. Declaring is deliberately absent — see DeclareView.
+    #
+    # Counted in the default cache, which is LocMemCache until a shared one is
+    # configured: with more than one process serving, the ceiling is per
+    # process rather than per user. That is a weaker limit than it reads, not a
+    # broken one, and it wants a shared cache before it can be quoted exactly.
+    "DEFAULT_THROTTLE_RATES": {
+        "chat": "30/hour",
+        "prove": "20/day",
+        "judge": "40/day",
+    },
 }
 
 SIMPLE_JWT = {
@@ -256,6 +275,19 @@ R2_ENDPOINT = (
 # is not the evidence we asked for.
 PROOF_IMAGE_MAX_BYTES = 5 * 1024 * 1024
 PROOF_IMAGE_TYPES = ("image/png", "image/jpeg", "image/webp")
+
+# Bounds on the text a builder may send, for the same reason as the image cap
+# above and one more: every one of these lands inside a fenced block in a
+# prompt, so an unbounded paste is a prompt-stuffing surface as well as a bill.
+#
+# Sized to the writing each box is actually for, which is why they differ by an
+# order of magnitude. A night's proof can honestly be several paragraphs — the
+# conversation notes VALIDATION asks for are long — while a declaration is one
+# task in one sentence, and a cap that let it run to eight thousand characters
+# would be no cap at all on the one field the whole day is judged against.
+CHAT_MAX_CHARS = 8000
+PROOF_MAX_CHARS = 8000
+DECLARATION_MAX_CHARS = 1000
 
 # --- Observability (optional; no-op when the endpoint is unset) ------------
 

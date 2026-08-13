@@ -24,7 +24,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from . import bar, gates, guidance, llm, prompts, storage, streaks
+from . import bar, gates, guidance, llm, prompts, storage, streaks, throttles
 from .models import (
     ChangelogEntry,
     CheckIn,
@@ -802,6 +802,17 @@ def _react_to_declaration(goal: Goal, text: str, tone: str) -> tuple[str, str, s
 
 
 class DeclareView(APIView):
+    """The morning write. Deliberately NOT throttled.
+
+    It calls no model — JudgeDeclarationView is the half that does, and it
+    carries the ceiling — so the only budget this could protect is the
+    database's. Against that it would cost the one thing the product most wants
+    to stay free: a builder sharpening the wording of today's task, which
+    rewrites this same row and is encouraged everywhere else in the app. The
+    length cap below is the real surface here, because this text is what tonight's
+    proof gets judged against and it goes up inside the prompt.
+    """
+
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
@@ -814,6 +825,11 @@ class DeclareView(APIView):
         if not text:
             return Response(
                 {"detail": "Declare an actual task."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if len(text) > settings.DECLARATION_MAX_CHARS:
+            return Response(
+                {"detail": "That's an essay, not a task — one sentence."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         try:
@@ -861,7 +877,7 @@ class DeclareView(APIView):
         return Response(CheckInSerializer(checkin).data)
 
 
-class JudgeDeclarationView(APIView):
+class JudgeDeclarationView(throttles.VoicedThrottleMixin, APIView):
     """The half of declaring that needs a model, on its own round-trip.
 
     Split from DeclareView so the morning write returns instantly. Everything
@@ -872,6 +888,13 @@ class JudgeDeclarationView(APIView):
     """
 
     permission_classes = [IsAuthenticated]
+    throttle_classes = throttles.THROTTLES
+    throttle_scope = "judge"
+    # The one throttle whose refusal is meant to cost nothing. The client fires
+    # this outside the awaited path and swallows its failures, so a 429 lands
+    # exactly where an outage lands: the check-in stays UNJUDGED, which this
+    # class's own docstring already calls a complete, usable state.
+    throttle_message = "Not read this time — the task is declared and the day is yours."
 
     def post(self, request, pk: int):
         checkin = get_object_or_404(
@@ -904,8 +927,18 @@ class JudgeDeclarationView(APIView):
         return Response(CheckInSerializer(checkin).data)
 
 
-class ProveView(APIView):
+class ProveView(throttles.VoicedThrottleMixin, APIView):
     permission_classes = [IsAuthenticated]
+    throttle_classes = throttles.THROTTLES
+    throttle_scope = "prove"
+    # Per day rather than per hour, because the honest shape of this endpoint is
+    # one proof an evening plus answers to a push-back — and the refusal has to
+    # leave tonight's work somewhere to go, so it names the record rather than
+    # the clock.
+    throttle_message = (
+        "That's more filings than a day holds. Whatever you have written down "
+        "keeps — bring it back to tonight's box later."
+    )
 
     def post(self, request):
         goal = _active_goal(request.user)
@@ -917,6 +950,11 @@ class ProveView(APIView):
         if not text:
             return Response(
                 {"detail": "Proof means something to show."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if len(text) > settings.PROOF_MAX_CHARS:
+            return Response(
+                {"detail": "That's a lot to read. The evidence, not everything around it."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         try:
@@ -1183,8 +1221,14 @@ def _unjudged_reaction(tone: str) -> str:
     return prompts.STOCK_UNJUDGED.get(tone, prompts.STOCK_UNJUDGED["ENGLISH"])
 
 
-class ChatView(APIView):
+class ChatView(throttles.VoicedThrottleMixin, APIView):
     permission_classes = [IsAuthenticated]
+    throttle_classes = throttles.THROTTLES
+    throttle_scope = "chat"
+    throttle_message = (
+        "That's a lot of talking for one hour. The work is the part that counts "
+        "— go do some of it and come back."
+    )
 
     def post(self, request):
         goal = _active_goal(request.user)
@@ -1196,6 +1240,11 @@ class ChatView(APIView):
         if not content:
             return Response(
                 {"detail": "Say something."}, status=status.HTTP_400_BAD_REQUEST
+            )
+        if len(content) > settings.CHAT_MAX_CHARS:
+            return Response(
+                {"detail": "That's a lot at once. Say the part you want an answer to."},
+                status=status.HTTP_400_BAD_REQUEST,
             )
         Message.objects.create(
             goal=goal, role=Message.Role.USER, phase=goal.phase, content=content
