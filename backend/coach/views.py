@@ -114,6 +114,60 @@ WELCOME = (
     "you tell me here — but nothing counts until you file it there."
 )
 
+# What the phase a builder just EARNED is for, in the register WELCOME uses.
+#
+# The asymmetry this exists to close: signing up writes the 107 words above,
+# which brief IDEA completely, and earning a phase wrote five — gates.py's
+# "Phase unlocked: X → Y." — for the four transitions that are the bigger
+# context switch of the two. IDEA is desk work the builder was just briefed on;
+# BUILD arrives with a different count, a kind requirement the earlier phases
+# never had, and a nine-word PHASE_HINT that is the same for every builder
+# forever.
+#
+# Keyed by the phase moved INTO, so IDEA has no entry and cannot: nobody
+# advances into it, and WELCOME already briefs it at the only moment a goal is
+# ever there.
+#
+# Distilled from each phase's playbooks rather than written fresh. The corpus
+# already says what each phase is for, and a brief teaching something it does
+# not would be a second bar arriving by the back door — one the builder reads
+# once, at speed, and never sees again. What each one adds past the playbook is
+# the COUNT: it is the half PHASE_HINT has no room for, and without it the
+# first thing to name the new bar is a refusal.
+PHASE_BRIEF = {
+    Phase.VALIDATION: (
+        "VALIDATION is three conversations with three different people — the "
+        "same willing friend three times is one person, and it is the server "
+        "counting, not me. Ask what they did the last time this happened, not "
+        "whether they would use your app: people are honest about what they "
+        "did and fantasists about what they'll do. Each night is one "
+        "conversation — who, three things in their own words, what they last "
+        "did about it, and what you asked them to give up."
+    ),
+    Phase.BUILD: (
+        "BUILD wants two nights of evidence, and at least one has to be a real "
+        "person touching the thing — two links nobody opened is an artifact, "
+        "not this phase. Scope by subtraction: whatever the first ten users "
+        "could live without goes on the later list, and the later list is "
+        "where features go to be forgotten. If it can't be in front of "
+        "somebody within a week, it isn't the small version yet."
+    ),
+    Phase.LAUNCH: (
+        "LAUNCH is three nights in front of strangers, and one of them has to "
+        "be somebody acting — posting is not somebody acting. Climb one rung a "
+        "day: the people who already talked to you, the rooms they sit in, the "
+        "public ponds, then the ask. A no with the reason they gave is "
+        "evidence and counts; silence is not."
+    ),
+    Phase.TRACTION: (
+        "TRACTION is the last rung — there is no phase above it, and what it "
+        "asks for is one stranger who came back on their own, or who paid. Two "
+        "people using it once each is not that. Recruit one at a time, "
+        "over-serve the first ten embarrassingly, and watch returns rather "
+        "than signups: signups are the number that flatters."
+    ),
+}
+
 # Said when the builder sharpens the wording of a goal nothing has been banked
 # against yet. In the transcript rather than only in the response, because the
 # transcript is the memory: a title that changed with nothing said about it makes
@@ -845,8 +899,22 @@ class AdvanceView(APIView):
         advanced, detail = gates.try_advance(goal)
         # try_advance may have moved the goal on; the announcement of an
         # unlock belongs to the phase it unlocked INTO, which goal.phase now is.
+        #
+        # So does the brief, and only on an unlock: a refusal says exactly what
+        # it says today, because being told what is missing is the coaching and
+        # briefing a phase the builder has not earned would talk over it.
+        #
+        # One row rather than two — an advance is one thing the coach said —
+        # and the brief stays OUT of the response `detail`, which the dashboard
+        # stamps into gateNote. That note is keyed on the gate it describes and
+        # is discarded the moment the phase changes, so a brief sent through it
+        # would be written to a card already throwing it away.
+        brief = PHASE_BRIEF.get(Phase(goal.phase), "") if advanced else ""
         Message.objects.create(
-            goal=goal, role=Message.Role.COACH, phase=goal.phase, content=detail
+            goal=goal,
+            role=Message.Role.COACH,
+            phase=goal.phase,
+            content=f"{detail}\n\n{brief}" if brief else detail,
         )
         if not advanced:
             logger.info(f"Gate refused advance for goal {goal.id}: {detail}")

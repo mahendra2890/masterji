@@ -473,6 +473,65 @@ class GateTests(CoachTestCase):
         self.assertGreaterEqual(len(examples), 2)
 
 
+class PhaseBriefTests(CoachTestCase):
+    """An earned phase says what it is for, and a refused one still doesn't.
+
+    Signing up writes views.WELCOME's 107 words. Unlocking a phase wrote five,
+    and the phase being unlocked into is the one carrying a bar the builder has
+    never met. These pin the two halves that could quietly come apart: that the
+    brief rides the unlock, and that it never rides a refusal — where the
+    coaching is being told exactly what is missing, and a briefing for a phase
+    nobody has earned would talk straight over it.
+    """
+
+    def test_earned_phase_is_briefed(self):
+        goal = self.make_goal()
+        self.accept_proofs(goal, 1)  # IDEA needs 1
+        self.client.post(f"/api/coach/goals/{goal.pk}/advance/")
+        said = Message.objects.filter(goal=goal)
+        # One row, not two: an advance is one thing the coach said.
+        self.assertEqual(said.count(), 1)
+        self.assertIn("Phase unlocked: IDEA → VALIDATION.", said.first().content)
+        self.assertIn(views.PHASE_BRIEF[Phase.VALIDATION], said.first().content)
+
+    def test_refused_advance_is_not_briefed(self):
+        """Equality rather than a not-in: the refusal is the sentence this
+        product is built on, and the assertion should fail if anything at all
+        gets appended to it, not only if a brief does."""
+        goal = self.make_goal()
+        response = self.client.post(f"/api/coach/goals/{goal.pk}/advance/")
+        self.assertEqual(response.status_code, 409)
+        said = Message.objects.get(goal=goal)
+        self.assertEqual(said.content, response.data["detail"])
+
+    def test_the_brief_stays_out_of_the_response(self):
+        """The dashboard stamps `detail` into gateNote, which is keyed on the
+        gate it describes and discarded the moment the phase changes. A brief
+        sent through it would be written to a card already throwing it away —
+        and would swap a one-line note for a paragraph on the refusal path's
+        own control."""
+        goal = self.make_goal()
+        self.accept_proofs(goal, 1)
+        response = self.client.post(f"/api/coach/goals/{goal.pk}/advance/")
+        self.assertEqual(response.data["detail"], "Phase unlocked: IDEA → VALIDATION.")
+
+    def test_every_phase_you_can_earn_has_a_brief(self):
+        """Keyed by the phase moved INTO, so this is every phase but the first.
+        IDEA is excluded rather than missing: nobody advances into it, and
+        WELCOME briefs it at the only moment a goal is ever there."""
+        self.assertEqual(set(views.PHASE_BRIEF), set(gates.PHASE_ORDER[1:]))
+
+    def test_the_terminal_phase_is_briefed_too(self):
+        """TRACTION is the one the wiring is most likely to drop: it is the
+        only phase with no PROOFS_REQUIRED entry, so it is reached through a
+        gate that has nothing above it to look up."""
+        goal = self.make_goal(phase="LAUNCH")
+        self.accept_proofs(goal, 3)
+        self.client.post(f"/api/coach/goals/{goal.pk}/advance/")
+        said = Message.objects.filter(goal=goal).first().content
+        self.assertIn(views.PHASE_BRIEF[Phase.TRACTION], said)
+
+
 # --- daily loop ----------------------------------------------------------------
 
 
