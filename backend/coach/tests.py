@@ -2871,6 +2871,14 @@ class CorpusCurationTests(CoachTestCase):
         # the shelf and the playbook that fills it landed together, which is
         # the one arrival order the curation policy has no answer for.
         "first-users": (Phase.TRACTION, "Paul Graham"),
+        # The two gates that were standing on nothing. BUILD cannot be left
+        # without evidence a real user touched the thing, and all three of its
+        # playbooks taught building; VALIDATION started counting distinct
+        # people, which made WHO the first three are load-bearing, and nothing
+        # taught the case where the person across the table wants you to win.
+        "first-touch": (Phase.BUILD, "Steve Blank"),
+        "people-you-know": (Phase.VALIDATION, "Rob Fitzpatrick"),
+        "reading-the-nos": (Phase.VALIDATION, "Ash Maurya"),
     }
 
     def test_each_new_playbook_is_wired_to_exactly_one_phase(self):
