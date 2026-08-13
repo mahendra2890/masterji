@@ -29,7 +29,7 @@ That's my own product refusing me. Two of three customer conversations banked,
 and it will not open the next phase. Nothing I type talks it out of that, because
 the refusal isn't a personality — it's a `WHERE` clause in a Django query.
 
-Masterji is a tough-love execution coach for first-time builders. One goal, four
+Masterji is a tough-love execution coach for first-time builders. One goal, five
 phases: declare one task every morning, file proof every evening, and a phase
 does not open until the evidence is banked.
 
@@ -184,8 +184,9 @@ stubs the model, and the base case stubs it to *raise*, so the suite exercises
 the deterministic floor unless a test says otherwise. That's easy to claim and
 easy to be wrong about — one unstubbed call and it quietly starts costing money
 and failing on a train. So it's verified the only way it can be: the whole suite
-runs with the provider pointed at a dead port. **Two hundred and sixty tests, all
-passing, in the same time as a normal run.** A single real call would have hung.
+runs with the provider pointed at a dead port. **Three hundred and forty-four
+tests, all passing, in the same time as a normal run.** A single real call would
+have hung.
 
 `[10-MIN CUT: drop this paragraph]`
 Then the opposite check, because a stubbed suite proves the server and nothing

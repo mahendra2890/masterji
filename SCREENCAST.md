@@ -2,8 +2,8 @@
 
 The submission asks for a **10–30 minute** recording of the AI workflow. The
 spine of that recording is [WORKFLOW.md](WORKFLOW.md), read in its own order:
-the loop, the bill for running sessions in parallel, the three times the model
-was wrong, and what verification meant. Most of it is narration over an editor
+the loop, the bill for running sessions in parallel, the times the model was
+wrong, and what verification meant. Most of it is narration over an editor
 and a terminal, and it does not need a shot list.
 
 This file is the other four minutes — the moments that have to be *shown* on
@@ -47,8 +47,8 @@ User experience · use masterji with least friction"* — and say why the three
 named axes are there: an unranked list of twenty findings is a way of doing
 nothing.
 
-Say the number of parallel sessions here (33 sessions, three or four at once)
-and let it land before the next beat explains the bill.
+Say the number of parallel sessions here (33 sessions in those six days, three
+or four at once) and let it land before the next beat explains the bill.
 
 **0:50 · The bill for parallelism.** The migration graph. Show
 `backend/coach/migrations/` and count out loud: `0012` twice, `0015` **three
@@ -120,7 +120,7 @@ Then tap the same opener live. Current answer:
   cd backend && OPENAI_BASE_URL=http://127.0.0.1:1 .venv/bin/python manage.py test
   ```
 
-  All of them pass, in the same time as a normal run — 238 as of 10 August,
+  All of them pass, in the same time as a normal run — 344 as of 13 August,
   and don't quote a number you haven't just watched print. Worth showing
   rather than asserting: a suite that stubs its model calls is easy to claim
   and easy to be wrong about, and one unstubbed call is all it takes to start
@@ -161,11 +161,13 @@ argued against when it proposed the cap. *The enforcement is the product.*
 - Anything you have not personally seen happen. Every beat above was observed;
   keep that property.
 
-## The two things the video cannot carry
+## The one thing the video cannot carry
 
-- **A screenshot of your own Masterji record** — phase reached, proofs banked,
-  best streak — for the credibility paragraph in the README. That paragraph
-  currently promises a Masterji record and points at a GitHub one.
 - **`/demo/` first in the submission form**, ahead of the sign-in URL. Judges
   are time-boxed, and "see the real product, no account" removes the only
   friction between them and the gate refusing someone.
+
+There were two. The other was a screenshot of your own Masterji record for the
+credibility paragraph in the README, and that one is carried now:
+`docs/run/the-record-at-launch.png` — reached LAUNCH, 7 proofs banked, 6 from
+real-world contact.

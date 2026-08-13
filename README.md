@@ -45,18 +45,19 @@ things you can audit:
 - **The gates were pointed at me first.** I ran the rest of this
   hackathon through Masterji — one goal, declared each morning, proof
   each evening, phases I could not skip without editing my own database.
-  It ends where it is supposed to end: **reached LAUNCH, 7 proofs banked,
-  6 of them from real-world contact, 5 days of work on the record.**
+  It ends where the ladder ended then: **reached LAUNCH, 7 proofs banked,
+  6 of them from real-world contact, 5 days of work on the record.** LAUNCH
+  is no longer the last rung — TRACTION is, and that run predates it.
 
   ![The goal reaching LAUNCH: seven proofs banked, six from real-world
   contact, five days of work on the record.](docs/run/the-record-at-launch.png)
 
   Two of those days it refused me — the screenshots below are that run, not a
   storyboard. What the loop also produced is this repository: every
-  builder-visible change between 5 and 10 August 2026 arriving through a
-  reviewed pull request, and written to the product's own changelog on the way
-  in. How it was built, and the three times the model was wrong about its own
-  product, is in [WORKFLOW.md](WORKFLOW.md).
+  builder-visible change arriving through a reviewed pull request, and written
+  to the product's own changelog on the way in. How it was built, and the
+  times the model was wrong about its own product, is in
+  [WORKFLOW.md](WORKFLOW.md).
   That isn't a success story. It's a record, and it's the only kind of
   credibility a first build earns.
 
@@ -65,10 +66,18 @@ things you can audit:
 The product's spine is a **server-enforced state machine**, not a prompt:
 
 - **One active goal per user** — a database constraint, not a suggestion.
-- **Phases:** `IDEA → VALIDATION → BUILD → LAUNCH`. Advancing requires N
-  **accepted proofs** earned in the current phase (1 to leave IDEA, 3
-  conversations to leave VALIDATION, 2 artifacts to leave BUILD). The
-  check lives in [backend/coach/gates.py](backend/coach/gates.py) — the
+- **Phases:** `IDEA → VALIDATION → BUILD → LAUNCH → TRACTION`. Advancing
+  requires **accepted proofs** earned in the current phase — and a row count
+  is not the whole bar, because a row count is the one thing a bar is not:
+  three conversations can be three conversations with the same willing
+  friend, and two artifacts can both be links nobody ever opened. So a phase
+  may also require that its proofs be about *different people* (VALIDATION
+  counts people, not evenings) or include a *particular kind* of evidence (a
+  real user touching the thing to leave BUILD; a stranger acting on it to
+  leave LAUNCH). TRACTION is terminal and has no counter — one stranger
+  coming back on their own, or paying, is the finish line. The numbers are
+  deliberately not restated here; they live in
+  [backend/coach/gates.py](backend/coach/gates.py), where the check is — the
   LLM can *propose* an advance via a function call; Django verifies
   against the database and refuses. You cannot jailbreak a `WHERE` clause.
   What that sentence does **not** cover is the row it counts: whether a
@@ -332,10 +341,12 @@ Deployment (Vercel + Render + Neon + Namecheap DNS): see
 **Today:** the full coaching loop — goal, phases, gates, daily check-ins,
 streaks, grounded chat, Hinglish, thinking-partner mode, screenshot proofs
 graded by a vision model in the same call as the text (`LLM_VISION_MODEL`,
-inlined as a data URL so a private record never gets a fetchable link), and a
-four-step guided tour of the real screens that needs no sign-in — starting
-where a builder actually starts, on the goal-commit screen and the first
-morning in IDEA. What has moved since
+inlined as a data URL so a private record never gets a fetchable link), a
+turn-metered workshop under the commit box for a builder who does not have an
+idea yet — it banks nothing, and when its turns are spent the only door left
+is Commit — and a four-step guided tour of the real screens that needs no
+sign-in, starting where a builder actually starts, on the goal-commit screen
+and the first morning in IDEA. What has moved since
 the first build is in the product itself — **What's new** in the header opens
 the changelog, served from the `ChangelogEntry` table (public endpoint, so the
 tour reads it too) and written from the admin rather than from a deploy.
