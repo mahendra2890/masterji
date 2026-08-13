@@ -1,5 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Fraunces, Karla, JetBrains_Mono } from "next/font/google";
+import { Analytics } from "@vercel/analytics/next";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 import "./globals.css";
 
 const fraunces = Fraunces({
@@ -44,7 +46,21 @@ export default function RootLayout({
       lang="en"
       className={`${fraunces.variable} ${karla.variable} ${jetbrainsMono.variable}`}
     >
-      <body>{children}</body>
+      <body>
+        {children}
+        {/* Both were already switched on in the Vercel dashboard and reporting
+            nothing, because the numbers come from these scripts and not from
+            the platform — without them the pages read 0 visitors forever.
+            Cookieless and no cross-site identity, so neither needs a consent
+            banner, and this app has only three paths (/, /demo, /waking) with
+            no dynamic segments, so a pathname can't name a builder.
+
+            Page views only: custom events are a Pro feature, so the counts
+            that would actually be worth having — proofs filed, gates passed —
+            still have to come from the server's own rows. */}
+        <Analytics />
+        <SpeedInsights />
+      </body>
     </html>
   );
 }
