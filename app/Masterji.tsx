@@ -1153,16 +1153,18 @@ export default function Masterji({ user }: { user: SessionUser }) {
               <p className={styles.gateNote}>{gateNote.text}</p>
             )}
 
-            {/* At LAUNCH with proof on the record, finishing is the expected
-                move, so it gets a real button. Everywhere else it lives behind
-                the quiet link — available, just not advertised.
+            {/* At LAUNCH with LAUNCH's own proof on the record, finishing is
+                the expected move, so it gets a real button. Everywhere else it
+                lives behind the quiet link — available, just not advertised.
 
                 It used to read "Close this out", which is what you say about a
                 ticket. This button cannot appear unless at_finish_line is true,
-                and that means the record already holds accepted proof — so the
-                words are the database talking, not praise. Same earned line and
-                primary button as the gate one screen up, because it is the same
-                kind of moment.
+                and that means the record already holds accepted proof stamped
+                LAUNCH — the post, a stranger's action, or a real rejection — so
+                the words are the database talking, not praise, and talking
+                about this phase rather than the six proofs that paid to reach
+                it. Same earned line and primary button as the gate one screen
+                up, because it is the same kind of moment.
 
                 It invites the claim rather than declaring the win: the box it
                 opens still asks what happened and can still end in "I'm
