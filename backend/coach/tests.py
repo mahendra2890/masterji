@@ -5917,3 +5917,129 @@ class LoopReportTests(CoachTestCase):
         self.assertEqual(before, after)
         goal.refresh_from_db()
         self.assertEqual(goal.phase, Phase.IDEA)
+
+
+class GoalBriefTests(CoachTestCase):
+    """What the goal knows about the idea, as opposed to what it is called.
+
+    The issue that asked for this said the brief could be populated "through
+    bar.labels(), which already extracts exactly these". It does not: labels()
+    returns which parts an answer satisfied and never their values, which
+    CheckIn.proof_parts states as a rule — "the keys only, never the values,
+    because the values are the proof text and it is already on the row". That is
+    the same mistake ProofLabelsTests above documents one field over, so these
+    tests pin the shape that is actually available: the accepted IDEA proof's
+    own words, with the keys as provenance beside them.
+    """
+
+    ACCEPT = (
+        '{"verdict": "accept", "reaction": "That is the problem, named.", '
+        '"parts": ["problem", "place", "why_there", "first_conversation"], '
+        '"subject": ""}'
+    )
+    PUSH_BACK = '{"verdict": "push_back", "reaction": "Which room, exactly?"}'
+    IDEA_TEXT = (
+        "Hostellers at Ramaiah eat 20 meals a week they didn't choose. They "
+        "keep a WhatsApp group to swap plates, and it dies every month. "
+        "They're in the mess queue at 8pm. I'd stand in it on Thursday."
+    )
+
+    def prove(self, goal, text, reply):
+        self.client.post("/api/coach/checkins/declare/", {"text": "write it up"})
+        with mock.patch("coach.views.llm.complete", return_value=reply):
+            self.client.post("/api/coach/checkins/prove/", {"text": text})
+        goal.refresh_from_db()
+        return goal
+
+    def test_the_accepted_idea_proof_becomes_the_goals_body(self):
+        """The one write. Before it, `title` was the whole of what this row knew
+        about the thing being built."""
+        goal = self.prove(self.make_goal(), self.IDEA_TEXT, self.ACCEPT)
+        self.assertEqual(goal.brief["text"], self.IDEA_TEXT)
+        self.assertEqual(
+            goal.brief["parts"], ["problem", "place", "why_there", "first_conversation"]
+        )
+        self.assertEqual(goal.brief["source"], "PROOF")
+
+    def test_a_brief_the_builder_wrote_is_never_overwritten(self):
+        """Their words outrank the filing. A builder who wrote the idea down
+        before anything banked — or the workshop that wrote it for them at
+        commit — said what the idea is, and the proof arriving later is evidence
+        about it, not a replacement for it."""
+        goal = self.make_goal()
+        goal.brief = {"text": "mine", "parts": [], "source": "BUILDER"}
+        goal.save(update_fields=["brief"])
+        goal = self.prove(goal, self.IDEA_TEXT, self.ACCEPT)
+        self.assertEqual(goal.brief["text"], "mine")
+        self.assertEqual(goal.brief["source"], "BUILDER")
+
+    def test_a_refused_proof_is_not_the_idea(self):
+        """A pushed-back evening is text the gate declined. Writing it here
+        would put refused words into the prompt under a heading that calls them
+        what the builder is testing."""
+        goal = self.prove(self.make_goal(), self.IDEA_TEXT, self.PUSH_BACK)
+        self.assertEqual(goal.brief, {})
+
+    def test_a_later_phase_cannot_rewrite_the_idea(self):
+        """VALIDATION's evenings are evidence ABOUT the idea. One of them
+        landing in this field would silently replace the problem statement with
+        a conversation about it."""
+        goal = self.make_goal(phase=Phase.VALIDATION)
+        goal = self.prove(
+            goal,
+            "Spoke to Priya in the mess queue.",
+            '{"verdict": "accept", "reaction": "Counted.", '
+            '"parts": ["who"], "subject": "Priya"}',
+        )
+        self.assertEqual(goal.brief, {})
+
+    def test_the_brief_is_the_builders_to_sharpen_until_something_banks(self):
+        """The same window as the title (#114), and for the same reason: past
+        the first accepted proof the record points at this, and rewriting it
+        would rewrite what those evenings were for."""
+        goal = self.make_goal()
+        # json, not the suite's default multipart: `brief` is an object, and
+        # multipart cannot carry a nested one. The client sends JSON here.
+        response = self.client.patch(
+            f"/api/coach/goals/{goal.id}/",
+            {"brief": {"text": "  the  idea  "}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        goal.refresh_from_db()
+        self.assertEqual(goal.brief["text"], "the idea")
+        self.assertEqual(goal.brief["source"], "BUILDER")
+
+        CheckIn.objects.create(
+            goal=goal,
+            date=date.today(),
+            phase=goal.phase,
+            am_declaration="write it up",
+            pm_proof_text="notes",
+            proof_status=CheckIn.ProofStatus.ACCEPTED,
+        )
+        locked = self.client.patch(
+            f"/api/coach/goals/{goal.id}/",
+            {"brief": {"text": "second thoughts"}},
+            format="json",
+        )
+        self.assertEqual(locked.status_code, 409)
+        goal.refresh_from_db()
+        self.assertEqual(goal.brief["text"], "the idea")
+
+    def test_the_prompt_carries_the_idea_and_only_when_there_is_one(self):
+        """The point of copying the text onto the goal at all. `_banked` sends
+        the ten newest proofs trimmed to RECORD_CHARS, and the IDEA proof is by
+        construction the oldest row a goal has — so the founding statement is
+        the first thing to fall out of the record block, on the goal it founded.
+        """
+        goal = self.make_goal()
+        self.assertNotIn("WHAT THE IDEA IS", prompts.idea_block(goal.brief))
+        self.assertEqual(prompts.idea_block(goal.brief), "")
+
+        goal = self.prove(goal, self.IDEA_TEXT, self.ACCEPT)
+        prompt = prompts.build_system_prompt(
+            goal, gates.gate_status(goal), 0, "nothing yet", "PLAIN"
+        )
+        self.assertIn("WHAT THE IDEA IS", prompt)
+        self.assertIn("stand in it on Thursday", prompt)

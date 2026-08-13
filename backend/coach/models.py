@@ -36,6 +36,25 @@ class Goal(SoftDeleteModel):
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="goals"
     )
     title = models.CharField(max_length=200)
+    # The idea itself, as opposed to its headline. `title` is 200 characters and
+    # was the whole of what this row knew about the thing being built — so the
+    # coach's prompt sent a name, #63's pivot had nothing to hand the successor,
+    # and the only thing a builder could sharpen after committing was the
+    # wording (#114).
+    #
+    # {"text": str, "parts": [bar key, ...], "source": "PROOF"|"BUILDER",
+    #  "written_at": iso} — empty dict until something fills it.
+    #
+    # `text` is prose and not the four parts as fields, and that is a finding
+    # rather than a shortcut: bar.labels() returns which parts a proof
+    # satisfied, never their values ("the keys only, never the values, because
+    # the values are the proof text" — CheckIn.proof_parts). The values exist
+    # structured for exactly one turn, inside the suggest_proof arguments, and
+    # are composed to prose before anything is saved. So the honest body of the
+    # idea available today is the accepted IDEA proof's own words, and `parts`
+    # records which of the four it covered. The dict shape is what lets #163
+    # add per-part keys later without a second migration.
+    brief = models.JSONField(default=dict, blank=True)
     phase = models.CharField(max_length=12, choices=Phase.choices, default=Phase.IDEA)
     status = models.CharField(
         max_length=12, choices=Status.choices, default=Status.ACTIVE

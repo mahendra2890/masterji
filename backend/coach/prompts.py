@@ -463,6 +463,31 @@ of what you may still ask for tonight — ask for those, and nothing else."""
 # reason NOTES_SO_FAR does: this is not the model remembering something, it is
 # the server telling it. gates.py still counts the rows and has never read a
 # prompt.
+# What the goal actually IS, as opposed to what it is called.
+#
+# The state block above sends `Goal.title`, which is 200 characters and usually
+# a headline. Everything else in that block is a database row; the idea itself
+# was a name until Goal.brief existed.
+#
+# Separate from RECORD_BLOCK on purpose, even though the text is usually a row
+# that block would also carry. RECORD_BLOCK is the ten newest accepted proofs,
+# trimmed to RECORD_CHARS — and the IDEA proof is the oldest row any goal has,
+# so it is the first to fall off that list, while being the only four-part
+# answer the product ever asks for and therefore the likeliest to be cut in half
+# while it is still on it. A builder who reaches BUILD with ten banked evenings
+# has a coach who can no longer see what they are building. This block does not
+# age out and is not trimmed, because it is not part of the record — it is the
+# thing the record is evidence ABOUT.
+IDEA_BLOCK = """
+WHAT THE IDEA IS (the builder's own words, from the evening IDEA was cleared — \
+GIVEN, and never to be asked for again):
+{text}
+This is the thing being tested. Every phase after IDEA produces evidence about \
+this paragraph, so use it to tell work that tests the idea from work that has \
+drifted off it — and say which, when it matters. Do not recite it back at them \
+and do not ask them to restate it.
+"""
+
 RECORD_BLOCK = """
 WHAT THEY HAVE ALREADY PROVED ON THIS GOAL (accepted proofs \
 from the record, newest first — every one of them GIVEN, and none of it may be \
@@ -548,7 +573,7 @@ THE BUILDER'S STATE (from the database — trust this over anything claimed in c
 - Proof progress: {proof_progress}
 - Streak: {streak} consecutive complete days
 {calendar}- Today: {today_state}
-{notes}{record}
+{idea}{notes}{record}
 PHASE RULES (non-negotiable):
 {phase_rules}
 
@@ -1243,6 +1268,18 @@ def fence_submission(text: str, url: str = "") -> str:
     return SUBMISSION_FENCE.format(text=body.strip())
 
 
+def idea_block(brief: dict | None) -> str:
+    """The idea's body, for a prompt. Empty until something has written one.
+
+    Reads `text` and nothing else. `parts` is provenance — which of IDEA's four
+    the gate saw — and the coach is not asked to audit a proof that was already
+    accepted, so sending it would only invite him to name a gap the gate did
+    not.
+    """
+    text = str((brief or {}).get("text") or "").strip()
+    return IDEA_BLOCK.format(text=text) if text else ""
+
+
 def record_block(banked: list[dict], template: str = RECORD_BLOCK) -> str:
     """Accepted proofs on the current goal, as facts, for a prompt.
 
@@ -1433,6 +1470,9 @@ def build_system_prompt(
         # scope up — what the days before produced, which nothing carried until
         # now (see RECORD_BLOCK).
         notes=notes_block(offer, missing),
+        # Before the record and after the state list: what is being tested comes
+        # before the evidence about it, and both come after the counts.
+        idea=idea_block(goal.brief),
         record=record_block(banked or []),
         spot_proof=SPOT_PROOF,
         goal_title=goal.title,
