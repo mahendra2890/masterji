@@ -20,6 +20,7 @@ import {
   formatDayShort,
   judgeDeclaration,
   getState,
+  localDate,
   phaseWindow,
   prove,
   retireGoal,
@@ -331,6 +332,103 @@ function ProofAsk({
   );
 }
 
+/* --- drafts that survive the tab ------------------------------------------ */
+
+const DRAFT_PREFIX = "masterji.draft.";
+
+/** How long a saved draft stays worth putting back.
+ *
+ * Not a calendar-day comparison, on purpose. A proof typed at 23:55 and
+ * finished at 00:05 is one evening's work — the server already agrees, since
+ * the night-owl rule files it against the declaration's own day — and a rule
+ * that dropped it at midnight would fail the exact builder this app is for.
+ * Long enough to cover dinner, a lab, and a phone that discarded the tab in
+ * between; short enough that a paragraph from last week never reappears
+ * underneath tonight's task, which is worse than losing it. */
+const DRAFT_MAX_AGE_MS = 18 * 60 * 60 * 1000;
+
+/** A draft as it is stored: the words, and when they were last typed. */
+type StoredDraft = { v: string; at: number };
+
+/** Every read is wrapped, and a failure is always "no draft".
+ *
+ * localStorage is not a guarantee. Safari in private browsing throws on
+ * access, a full quota throws on write, and the value itself is a string a
+ * user can edit by hand. None of that may reach the builder: the worst this
+ * feature is allowed to do is what the product does today, which is forget. */
+function readDraft(key: string): string {
+  try {
+    const raw = window.localStorage.getItem(DRAFT_PREFIX + key);
+    if (!raw) return "";
+    const { v, at } = JSON.parse(raw) as Partial<StoredDraft>;
+    if (typeof v !== "string" || typeof at !== "number") return "";
+    if (Date.now() - at > DRAFT_MAX_AGE_MS) {
+      window.localStorage.removeItem(DRAFT_PREFIX + key);
+      return "";
+    }
+    return v;
+  } catch {
+    return "";
+  }
+}
+
+function writeDraft(key: string, value: string) {
+  try {
+    if (value) {
+      const stored: StoredDraft = { v: value, at: Date.now() };
+      window.localStorage.setItem(DRAFT_PREFIX + key, JSON.stringify(stored));
+    } else {
+      window.localStorage.removeItem(DRAFT_PREFIX + key);
+    }
+  } catch {
+    // A quota that's full costs the draft, never the evening.
+  }
+}
+
+/** Keeps one box's contents across a tab the phone decided to discard.
+ *
+ * Phone-first means Android reclaims background tabs constantly, and an
+ * evening's proof is a paragraph of real thinking typed on a phone keyboard: a
+ * WhatsApp notification mid-sentence costs the whole thing today, and "retype
+ * it" at ten at night is how an honest day silently becomes a missed one.
+ *
+ * Mirrors the value rather than hooking the submit paths, which is what makes
+ * it behaviour-neutral: every setter is covered, including the ones that are
+ * not typing at all (Masterji's own proof draft filling the evening box, an
+ * opener chip filling the composer), and clearing is not a code path of its own
+ * — the same `setPmText("")` that empties the box on a settled verdict empties
+ * the store, because the mirror follows the box wherever it goes.
+ *
+ * `key` is null when there is nothing to file the draft under yet — before the
+ * first state payload lands, or the evening box before a task exists. Nothing
+ * is read or written then.
+ */
+function usePersistedDraft(
+  key: string | null,
+  value: string,
+  setValue: (next: (current: string) => string) => void
+) {
+  // Which key this box has already been restored for. Same job as seededFrom
+  // below: restore once, so a refetch never refills a box the builder
+  // deliberately cleared.
+  const restored = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (key === null) return;
+    if (restored.current !== key) {
+      restored.current = key;
+      const saved = readDraft(key);
+      // Only into an empty box, the same precedence the UNJUDGED re-seed uses:
+      // anything already typed is newer than anything on disk. Returning here
+      // also keeps this pass from writing — on it the box is still empty, and a
+      // write would delete the draft this line is putting back.
+      if (saved) setValue((current) => current || saved);
+      return;
+    }
+    writeDraft(key, value);
+  }, [key, value, setValue]);
+}
+
 export default function Masterji({ user }: { user: SessionUser }) {
   const [state, setState] = useState<CoachState | null>(null);
   const [error, setError] = useState("");
@@ -412,9 +510,48 @@ export default function Masterji({ user }: { user: SessionUser }) {
     refresh();
   }, [refresh]);
 
+  // What each box's draft is filed under. Not one key shape for all of them,
+  // because the three boxes stop being worth restoring at different moments:
+  //
+  //   the morning's task  — a day. There is no check-in to hang it on yet; the
+  //                         row is created BY declaring, and this is the box
+  //                         that declares. Tomorrow is a different task.
+  //   the evening's proof — the check-in it is evidence for. The date would be
+  //                         wrong twice over: a second cycle on one day is a
+  //                         different task under the same date, and a proof
+  //                         filed at 00:30 belongs to the day before it.
+  //   the chat            — the goal. A half-typed sentence to Masterji is
+  //                         about the idea, not about a day; the age rule in
+  //                         readDraft is what keeps it from outliving its
+  //                         moment.
+  //
+  // Null until the state payload names a goal — and, for the evening, until
+  // there is a task to be evidence for.
+  const goalId = state?.goal?.id ?? null;
+  const todayId = state?.today?.id ?? null;
+  const amKey = goalId === null ? null : `${goalId}.am.${localDate()}`;
+  const pmKey = goalId === null || todayId === null ? null : `${goalId}.pm.${todayId}`;
+  const chatKey = goalId === null ? null : `${goalId}.chat`;
+  usePersistedDraft(amKey, amText, setAmText);
+  usePersistedDraft(pmKey, pmText, setPmText);
+  // The link belongs to the same form and is cleared on the same line as the
+  // text. Restoring one without the other is worse than restoring neither: the
+  // builder reads the box they left, presses Submit, and files a proof whose
+  // link quietly went missing.
+  usePersistedDraft(
+    pmKey === null ? null : `${pmKey}.url`,
+    pmUrl,
+    setPmUrl
+  );
+  usePersistedDraft(chatKey, draft, setDraft);
+
   // An unread proof puts its own words back in the box, so the only thing the
   // card asks for — the same proof, once the model is answering — costs one
   // press.
+  //
+  // Runs after the restore above, and both only ever fill an EMPTY box, so a
+  // draft the builder was still editing when the tab died wins over the copy
+  // the server holds — which is the older of the two by definition.
   //
   // onProve already keeps them there for a builder still on the page. This is
   // the one who closed the tab and came back: their text is on the server and
