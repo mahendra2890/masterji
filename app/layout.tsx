@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
 import { Analytics } from "@vercel/analytics/next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
+import { SITE_DESCRIPTION, SITE_TITLE, THEME_COLOR } from "@/lib/site";
 import "./globals.css";
 
 // These three were `next/font/google` until the fonts took a deploy down.
@@ -63,19 +64,25 @@ const jetbrainsMono = localFont({
   ],
 });
 
-const siteTitle = "Masterji — the coach who makes you ship";
-const siteDescription =
-  "A tough-love AI execution coach for first-time builders. One goal, " +
-  "earned phases, daily proof — no hiding in planning.";
-
+/* The title, the description and the theme colour moved to lib/site.ts when
+   the install manifest started needing the same three — see the note there. */
 export const metadata: Metadata = {
-  title: siteTitle,
-  description: siteDescription,
-  openGraph: { title: siteTitle, description: siteDescription, type: "website" },
+  title: SITE_TITLE,
+  description: SITE_DESCRIPTION,
+  openGraph: { title: SITE_TITLE, description: SITE_DESCRIPTION, type: "website" },
+  /* The manifest's own <link> is added by app/manifest.ts, Next's file
+     convention. These two are the copies a manifest cannot supply: the tab
+     icon, which this app has never had, and the apple-touch-icon, which is
+     what iOS puts on a home screen — Safari ignores manifest icons for that
+     and reads this tag instead. */
+  icons: {
+    icon: "/icon-192.png",
+    apple: "/apple-icon-180.png",
+  },
 };
 
 export const viewport: Viewport = {
-  themeColor: "#10151A",
+  themeColor: THEME_COLOR,
 };
 
 export default function RootLayout({
