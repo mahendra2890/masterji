@@ -452,8 +452,13 @@ async function request<T>(
 /** The browser's own date, YYYY-MM-DD. The server runs in UTC and a builder
  * does not, so which day the daily loop is on is the browser's to say. Sent
  * on every call that writes to a day OR reads one — a read that skipped it
- * looked for today's task under yesterday's date and found nothing. */
-const localDate = () => {
+ * looked for today's task under yesterday's date and found nothing.
+ *
+ * Exported because the morning's draft is filed under a day too, and the day
+ * it is filed under has to be the same one this module asks the server about.
+ * A second copy of this arithmetic in the component is the bug in the comment
+ * above, waiting to happen twice. */
+export const localDate = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
     d.getDate()
