@@ -4065,3 +4065,84 @@ class PaidEndpointLimitTests(CoachTestCase):
         )
         self.assertEqual(response.status_code, 400)
         self.assertEqual(self.goal.messages.count(), 0)
+
+
+# --- sharpening the wording, while nothing points at it ----------------------
+
+
+class GoalTitleEditTests(CoachTestCase):
+    """A mis-phrased goal used to cost retire-and-recreate, which zeroes
+    days_active and the streak — so builders pre-polished the title at the
+    commit box, which IS the freeze the product is trying to end.
+
+    The lock is a server count, checked in the view: gates.py gains nothing, and
+    "nothing is banked yet" is not a judgement call.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.goal = self.make_goal(title="tiffin app")
+
+    def patch(self, goal=None, **data):
+        return self.client.patch(
+            f"/api/coach/goals/{(goal or self.goal).pk}/", data, format="json"
+        )
+
+    def test_the_wording_can_be_sharpened_while_nothing_is_banked(self):
+        response = self.patch(title="mess-shut nights on the hostel floor")
+        self.assertEqual(response.status_code, 200)
+        self.goal.refresh_from_db()
+        self.assertEqual(self.goal.title, "mess-shut nights on the hostel floor")
+
+    def test_a_banked_proof_locks_the_title(self):
+        """Past the first accepted proof the record points at this wording, and
+        rewriting it would rewrite what those evenings were for. 409, the same
+        answer the gate gives when the record is what refuses."""
+        self.accept_proofs(self.goal, 1)
+        response = self.patch(title="something else entirely")
+        self.assertEqual(response.status_code, 409)
+        self.goal.refresh_from_db()
+        self.assertEqual(self.goal.title, "tiffin app")
+
+    def test_the_lock_counts_every_phase_not_just_this_one(self):
+        """accepted_proofs_total, not accepted_proofs: a proof banked in IDEA is
+        still a proof that points at this wording after the goal reaches
+        VALIDATION, and the phase-scoped count would read zero there and quietly
+        unlock the title again."""
+        self.accept_proofs(self.goal, 1)
+        self.goal.phase = Phase.VALIDATION
+        self.goal.save(update_fields=["phase"])
+        self.assertEqual(gates.accepted_proofs(self.goal), 0)
+        self.assertEqual(self.patch(title="new wording").status_code, 409)
+
+    def test_the_rename_is_on_the_record(self):
+        """The transcript is the memory. A title that changed with nothing said
+        about it makes every earlier message read as though it were always about
+        the new wording."""
+        self.patch(title="mess-shut nights")
+        message = self.goal.messages.latest("id")
+        self.assertEqual(message.role, Message.Role.COACH)
+        self.assertIn("mess-shut nights", message.content)
+
+    def test_the_phase_is_not_reachable_from_here(self):
+        """The one thing this endpoint must never be: a way past the gate."""
+        response = self.patch(title="fine", phase=Phase.LAUNCH, status="RETIRED")
+        self.assertEqual(response.status_code, 200)
+        self.goal.refresh_from_db()
+        self.assertEqual(self.goal.phase, Phase.IDEA)
+        self.assertEqual(self.goal.status, Goal.Status.ACTIVE)
+
+    def test_an_empty_title_is_not_a_sharpening(self):
+        self.assertEqual(self.patch(title="   ").status_code, 400)
+        self.goal.refresh_from_db()
+        self.assertEqual(self.goal.title, "tiffin app")
+
+    def test_a_foreign_goal_is_not_found(self):
+        self.assertEqual(self.patch(goal=self.make_goal(user=self.bob)).status_code, 404)
+
+    def test_a_closed_goal_keeps_its_wording(self):
+        """Retired goals are write-immutable through the API — the record has to
+        outlive the idea, and GoalHistoryView is read-only for the same reason."""
+        self.goal.status = Goal.Status.ABANDONED
+        self.goal.save(update_fields=["status"])
+        self.assertEqual(self.patch(title="rewriting history").status_code, 404)

@@ -13,10 +13,38 @@ from .models import (
 
 
 class GoalSerializer(serializers.ModelSerializer):
+    # Whether the wording is still the builder's to sharpen. The same count the
+    # view checks before allowing it (gates.accepted_proofs_total), sent so the
+    # dashboard offers the control exactly while it would be accepted — an edit
+    # affordance that appears and then 409s is worse than one that was never
+    # there.
+    title_locked = serializers.SerializerMethodField()
+
     class Meta:
         model = Goal
-        fields = ["id", "title", "phase", "status", "phase_entered_at", "created_at"]
-        read_only_fields = ["id", "phase", "status", "phase_entered_at", "created_at"]
+        fields = [
+            "id",
+            "title",
+            "phase",
+            "status",
+            "phase_entered_at",
+            "created_at",
+            "title_locked",
+        ]
+        # Everything except the title. `phase` and `status` being read-only here
+        # is what stops the update endpoint from being a road around the gate —
+        # a PATCH may reword a goal and may never advance one.
+        read_only_fields = [
+            "id",
+            "phase",
+            "status",
+            "phase_entered_at",
+            "created_at",
+            "title_locked",
+        ]
+
+    def get_title_locked(self, obj: Goal) -> bool:
+        return gates.accepted_proofs_total(obj) > 0
 
 
 class ProofAttemptSerializer(serializers.ModelSerializer):

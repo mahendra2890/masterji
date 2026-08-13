@@ -228,7 +228,10 @@ const SLIDES: Slide[] = [
       <>
         <strong>One goal, and that&apos;s the whole setup.</strong> A second one
         is refused by a database constraint, not by a nag. Closing this one is
-        always available — it just goes on the record.
+        always available — it just goes on the record. The wording isn&apos;t
+        final either: you can sharpen it from the dashboard right up until your
+        first proof is banked, which is the moment the record starts pointing at
+        it.
       </>,
       <>
         You start in <strong>IDEA</strong> at <strong>0/1</strong>, whatever

@@ -100,6 +100,30 @@ WELCOME = (
     "you tell me here — but nothing counts until you file it there."
 )
 
+# Said when the builder sharpens the wording of a goal nothing has been banked
+# against yet. In the transcript rather than only in the response, because the
+# transcript is the memory: a title that changed with nothing said about it makes
+# every message above it read as though it had always been about the new wording.
+#
+# Both wordings are named. WELCOME froze the original at the top of the log
+# already, so nothing is being hidden — this is the line that connects the two
+# without the builder having to scroll for it.
+TITLE_SHARPENED = (
+    'Reworded: "{before}" → "{after}". Nothing is banked against this goal yet, '
+    "so nothing moved — same goal, sharper sentence. The days and the streak are "
+    "where they were."
+)
+
+# And the refusal, once the record does point at the wording. Names the condition
+# rather than the rule, and leaves the honest door open: the sentence about a goal
+# kept out of guilt is the one the coach already uses in the personal register.
+TITLE_LOCKED = (
+    "There is proof on the record filed against this wording, so it stays as it "
+    "is — those evenings were for this goal, and renaming it now would quietly "
+    "rewrite what they were for. Keep it, or close it honestly and start the one "
+    "you'd choose now."
+)
+
 # A draft Masterji wrote out of the conversation with no check-in to pin it
 # to. It used to end at a server log: the builder had done the work, said it
 # out loud, and watched the reply go by with no sign that any of it had been
@@ -594,6 +618,58 @@ class GoalsView(APIView):
         )
         logger.info(f"Goal {goal.id} created for user {request.user.id}")
         return Response(GoalSerializer(goal).data, status=status.HTTP_201_CREATED)
+
+
+class GoalUpdateView(APIView):
+    """Sharpening the wording, while nothing on the record points at it.
+
+    The pain this ends: with no update route, a mis-phrased goal cost
+    retire-and-recreate, which zeroes days_active and the streak. So builders
+    pre-polished the title at the commit box — which is the freeze the product is
+    trying to end. "You can sharpen the wording once you're in" is now true.
+
+    The lock is a server count, checked here rather than in gates.py, which gains
+    nothing from this file: accepted_proofs_total, so a proof banked in IDEA still
+    holds the wording after the goal reaches VALIDATION. Past the first accepted
+    proof the record points at this sentence, and rewriting it would rewrite what
+    those evenings were for.
+
+    Not a road around the gate, and it cannot become one: the serializer holds
+    `phase` and `status` read-only, so the only thing a PATCH can reach is the
+    title. Nor can a rename distort a verdict — proofs are judged against the
+    declared task frozen on the check-in row, never against the goal's title.
+
+    The remaining hole is deliberate: at zero proofs a builder can reword this
+    into a different idea entirely. That is the same move retire-and-recreate
+    already allowed, now with a transcript trail instead of a lost streak.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request, pk: int):
+        goal = get_object_or_404(
+            Goal.objects.filter(user=request.user, status=Goal.Status.ACTIVE), pk=pk
+        )
+        if gates.accepted_proofs_total(goal):
+            return Response(
+                {"detail": TITLE_LOCKED}, status=status.HTTP_409_CONFLICT
+            )
+        before = goal.title
+        serializer = GoalSerializer(goal, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        goal = serializer.save()
+        # Only a real change is worth a row. A save that renamed nothing —
+        # the same words back, or a PATCH carrying only fields this endpoint
+        # ignores — would otherwise put "Reworded: X → X" in the transcript.
+        if goal.title != before:
+            Message.objects.create(
+                goal=goal,
+                role=Message.Role.COACH,
+                phase=goal.phase,
+                content=TITLE_SHARPENED.format(before=before, after=goal.title),
+            )
+            logger.info(f"Goal {goal.id} reworded before anything was banked")
+        return Response(GoalSerializer(goal).data)
 
 
 class AdvanceView(APIView):
