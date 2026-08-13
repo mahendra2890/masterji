@@ -9,7 +9,7 @@ then {"t":"done"}.
 """
 
 import json
-from datetime import date
+from datetime import date, timedelta
 
 from django.conf import settings
 from django.db import IntegrityError
@@ -189,10 +189,66 @@ def _open_checkin(goal: Goal, day: date) -> CheckIn | None:
     )
 
 
+def _carried_over(goal: Goal, day: date) -> CheckIn | None:
+    """Last night's cycle, still open, when the builder is filing in the small
+    hours.
+
+    Work finished at 00:30 is the evening's, not tomorrow's: the clock rolled
+    over while they were typing. Read against `day` alone it is a proof for a
+    morning that never happened — ProveView refused it, the dashboard put an
+    empty "Morning. One task" form where the open cycle had been, and
+    streaks.py (a date holding a declaration AND a proof) lost the day. The
+    product punishing precisely the evening it exists to capture, and the
+    first edge a real daily user hits.
+
+    The window is the one _client_day already reads: a client's date runs
+    AHEAD of the server's UTC date from local midnight until that client's own
+    UTC offset has elapsed. It shuts on its own, and once the two dates agree
+    it is daylight — yesterday's unproved cycle stays unproved, because a
+    missed day is a missed day.
+
+    Be honest about how long "on its own" is: the window IS the offset, so it
+    is 5h30 in IST (the users this is for) but 9h in JST and up to 14h at
+    UTC+14, where a proof filed at lunchtime would still land on yesterday and
+    repair the streak. Closing it tighter than the offset needs the client's
+    local TIME, which it does not send today — #81 scoped the frontend out.
+    Builders WEST of UTC get no carry-over at all, because their date never
+    runs ahead; that is the behaviour they already had, not a new refusal.
+
+    Reads UTC because USE_TZ is on, which is what makes timezone.now() the
+    server's UTC instant rather than its wall clock. NightOwlTests pins that
+    setting: with it off the comparison would silently never fire, and every
+    test here would still pass.
+
+    It cannot reach further back than one evening whatever the client claims:
+    _parse_date already caps `day` at the server's date plus one, and this
+    runs only when `day` is past that date, so the look-back lands on the
+    server's own today and nowhere else. No proof reaches an older row through
+    here (LoopholeTests).
+
+    Only last night's DECLARED cycle, and only while `day` holds nothing of
+    its own. Declaring after midnight opens the new day the ordinary way (see
+    DeclareView, which reads _open_checkin directly) and that cycle is then
+    the one a proof answers — the carry-over never overwrites a declaration.
+    """
+    if day <= timezone.now().date():
+        return None
+    if CheckIn.objects.filter(goal=goal, date=day).exists():
+        return None
+    last_night = _open_checkin(goal, day - timedelta(days=1))
+    return last_night if last_night and last_night.am_declaration else None
+
+
+def _on_the_hook(goal: Goal, day: date) -> CheckIn | None:
+    """The cycle a proof filed now answers: the one open on `day`, or last
+    night's if the clock has only just rolled over."""
+    return _open_checkin(goal, day) or _carried_over(goal, day)
+
+
 def _latest_checkin(goal: Goal, day: date) -> CheckIn | None:
-    """What the dashboard shows for `day`: the open cycle if there is one,
-    else the most recently completed one."""
-    return _open_checkin(goal, day) or (
+    """What the dashboard shows for `day`: the cycle on the hook if there is
+    one, else the most recently completed one."""
+    return _on_the_hook(goal, day) or (
         CheckIn.objects.filter(goal=goal, date=day).order_by("-created_at").first()
     )
 
@@ -206,8 +262,11 @@ def _offer_target(goal: Goal, day: date) -> CheckIn | None:
     draft the builder cannot act on is worse than none. A pushed-back cycle
     still counts as owing: that is exactly the evening where Masterji writing
     it up himself is worth the most.
+
+    Reads the same cycle ProveView will file against, carry-over included, so
+    a draft written at 00:30 lands on the row the dashboard is showing.
     """
-    checkin = _open_checkin(goal, day)
+    checkin = _on_the_hook(goal, day)
     return checkin if checkin and checkin.am_declaration else None
 
 
@@ -849,7 +908,7 @@ class ProveView(APIView):
             return Response(
                 {"detail": "Bad date."}, status=status.HTTP_400_BAD_REQUEST
             )
-        checkin = _open_checkin(goal, day)
+        checkin = _on_the_hook(goal, day)
         if checkin is None or not checkin.am_declaration:
             return Response(
                 {"detail": "No declaration this morning — proof of what, exactly?"},
@@ -915,7 +974,9 @@ class ProveView(APIView):
         )
         checkin.coach_reaction = reaction
         checkin.save()
-        logger.info(f"Proof {checkin.proof_status} for goal {goal.id} on {day}")
+        # The row's own date, not the client's: after midnight they differ, and
+        # the log should name the evening the proof landed on.
+        logger.info(f"Proof {checkin.proof_status} for goal {goal.id} on {checkin.date}")
         return Response(
             {
                 "checkin": CheckInSerializer(checkin).data,
