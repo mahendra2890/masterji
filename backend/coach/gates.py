@@ -225,7 +225,7 @@ def gate_status(goal: Goal) -> dict:
     about, because the builder pressed it on the product's own word.
     """
     need = PROOFS_REQUIRED.get(Phase(goal.phase))
-    if need is None:  # LAUNCH — nothing left to unlock
+    if need is None:  # TRACTION — nothing left to unlock
         return {"have": 0, "need": 0, "next_phase": None, "owed": [], "banked": 0}
     idx = PHASE_ORDER.index(Phase(goal.phase))
     have = accepted_proofs(goal)

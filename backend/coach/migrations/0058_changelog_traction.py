@@ -1,14 +1,20 @@
 """The changelog records the phase after the post, and the gate now in front of it.
 
 Same shape as 0011, 0012, 0016, 0020, 0022, 0025, 0026, 0035, 0036, 0037, 0038,
-0039, 0040, 0041, 0043, 0044, 0046, 0047, 0048, 0049, 0050, 0051, 0052, 0053 and
-0055: newest last, so the row created last leads its day under the model's
-("-shipped_on", "-id") ordering.
+0039, 0040, 0041, 0043, 0044, 0046, 0047, 0048, 0049, 0050, 0051, 0052, 0053,
+0055 and 0056: newest last, so the row created last leads its day under the
+model's ("-shipped_on", "-id") ordering.
 
-Depends on 0056, the schema half of the same change — the phase has to exist as
+Depends on 0057, the schema half of the same change — the phase has to exist as
 a column value before it can be described to builders. Two rows because two
 things moved for anyone already at LAUNCH: the phase gained an exit it never
 had, and the win button moved past it.
+
+Both files were renumbered one up when PR #111 landed 0056 under this branch
+mid-flight — the same thing 0055 records happening to it, and the reason the
+leaf check runs again immediately before the merge button rather than only
+before the tests. A rebase reporting success proves nothing here: git has no
+opinion about migration graphs.
 """
 
 from datetime import date
@@ -65,5 +71,5 @@ def unseed(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-    dependencies = [("coach", "0056_phase_traction")]
+    dependencies = [("coach", "0057_phase_traction")]
     operations = [migrations.RunPython(seed, unseed)]

@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('coach', '0055_changelog_people_and_kinds'),
+        ('coach', '0056_changelog_the_meter_says_why'),
     ]
 
     operations = [

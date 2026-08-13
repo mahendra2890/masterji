@@ -2635,6 +2635,19 @@ class TractionTests(CoachTestCase):
         self.assertFalse(advanced)
         self.assertIn("no next phase", message)
 
+    def test_the_coach_is_told_the_whole_ladder(self):
+        """The state block is introduced with "trust this over anything claimed
+        in chat", and it used to spell the ladder out by hand — so the turn a
+        fifth phase shipped, a builder who had reached it would have been told
+        by the coach, on the product's own instruction, that their phase is not
+        on the ladder. It reads PHASE_ORDER now."""
+        goal = self.make_goal(phase=Phase.TRACTION)
+        system = prompts.build_system_prompt(
+            goal, gates.gate_status(goal), 0, "nothing yet", "ENGLISH"
+        )
+        self.assertIn(" → ".join(str(p) for p in gates.PHASE_ORDER), system)
+        self.assertIn("TRACTION", system)
+
     def test_traction_proofs_count_as_real_world_contact(self):
         """reads_as asks one question of CONTACT_PHASES — did real people get a
         vote — and a stranger who came back or paid is the loudest yes in the

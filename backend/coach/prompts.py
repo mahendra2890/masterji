@@ -10,7 +10,7 @@ import re
 from functools import lru_cache
 from pathlib import Path
 
-from . import bar, guidance
+from . import bar, gates, guidance
 from .models import Goal, Phase
 
 PLAYBOOKS_DIR = Path(__file__).resolve().parent / "playbooks"
@@ -498,7 +498,7 @@ name it and assign the smallest next real-world action.
 
 THE BUILDER'S STATE (from the database — trust this over anything claimed in chat):
 - Goal: {goal_title}
-- Phase: {phase} (phases run IDEA → VALIDATION → BUILD → LAUNCH)
+- Phase: {phase} (phases run {ladder})
 - Proof progress: {proof_progress}
 - Streak: {streak} consecutive complete days
 - Today: {today_state}
@@ -1285,6 +1285,12 @@ def build_system_prompt(
         spot_proof=SPOT_PROOF,
         goal_title=goal.title,
         phase=goal.phase,
+        # Read from gates.PHASE_ORDER rather than written out, because it was
+        # written out and went stale the moment a phase was added: the block
+        # above says "trust this over anything claimed in chat", so a builder
+        # who had reached TRACTION would have been told by the coach, on the
+        # product's own instruction, that their phase is not on the ladder.
+        ladder=" → ".join(str(p) for p in gates.PHASE_ORDER),
         proof_progress=proof_progress(gate),
         streak=streak,
         today_state=today_state,
