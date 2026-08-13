@@ -324,6 +324,20 @@
   cursor: default;
 }
 
+/* 44px of thumb on a 13px word, at every width rather than in the mobile block
+   below — because `reword` is this class, and `reword` is the exact control
+   .signOut's comment was written about: a 16px-tall underlined link, inline
+   beside a two-line goal title, on the one screen a builder opens every day.
+   It is also the worst risk-adjusted target on that card. It is 40px from
+   nothing dangerous, but it replaces the goal title with an edit box, so a
+   mis-tap reads as the app having eaten the goal.
+
+   Height only, and no side padding. These sit inline beside a title, in a
+   wrapping row of exits (`keep going`), and stretched to full width inside the
+   rename box's column — horizontal padding would shift the word off the left
+   edge it shares in the first case and push past the box in the last. min-width
+   makes the claim true on the other axis without moving anything, since 40px is
+   already most of the way there. */
 .linkBtn {
   background: none;
   border: none;
@@ -332,6 +346,11 @@
   cursor: pointer;
   text-decoration: underline;
   padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  min-width: 44px;
 }
 
 /* The exit. Was .linkBtn — a 49x16 underlined word in the corner a thumb rests
@@ -495,6 +514,41 @@
 
 .stepDone:hover {
   background: var(--border);
+}
+
+/* The affordance, for the device that has none of the three this chip already
+   carries. `cursor: pointer`, `:hover` and the `title` are all pointer-only, so
+   on a phone the two chips that open the phase drill-in are indistinguishable
+   from the three that are inert — and the drill-in is the only route to the days
+   spent in a finished phase. Keyed on `hover: none` rather than on a width,
+   because the gap is the pointer's, not the viewport's: a 1280px touchscreen has
+   it and a narrow laptop window does not.
+
+   Under the word rather than after it, and this is the constraint that decided
+   it: the five chips are `flex: 1` with `flex-basis: 0`, so their widths are
+   already their longest word's min-content (measured at 360px: 48/64/48/48/55,
+   summing to exactly the 288px available). There is no horizontal slack for a
+   glyph — an inline one would shrink a sibling past its own word — and which
+   chips are `.stepDone` changes every time a phase is earned. Its own line
+   costs a row that the 44px rule below has already bought. */
+@media (hover: none) {
+  .stepDone::after {
+    /* Drawn, not typed. A `›` glyph here renders struck through: the chip's own
+       `line-through` is painted across an in-flow ::after as well, and
+       `text-decoration: none` on the pseudo-element does not lift it — verified
+       on the device emulation at 360px. A struck chevron reads as a disabled
+       control, which is the exact opposite of the affordance. Borders are never
+       decorated, so the marker is two of them rotated into a chevron.
+       `currentColor` keeps it on the chip's own green. */
+    content: "";
+    display: block;
+    width: 5px;
+    height: 5px;
+    margin: 3px auto 0;
+    border-right: 1.5px solid currentColor;
+    border-bottom: 1.5px solid currentColor;
+    transform: rotate(-45deg);
+  }
 }
 
 .stepNow {
@@ -1948,6 +2002,111 @@
   .openers {
     padding-left: 0;
   }
+
+  /* The two minutes a day, above the fold. Measured at 360×640 on a first
+     morning in IDEA: the goal card is 363px of a 640px viewport and
+     `Declare it` sat at y=750, 110px past the fold, on the pane named Today.
+     Nothing on the goal card is acted on today, and at 0/1 its one button can
+     only refuse. So the product that sells two minutes a day opened, on the
+     device it is for, with the two minutes off-screen.
+
+     `order` rather than a DOM move, so the desktop two-column grid is untouched.
+     The cost is worth stating: a keyboard on a phone still tabs the goal card
+     first and reaches Today second, the reverse of what is on screen. Accepted,
+     because the alternative — reorder the DOM and order the desktop instead —
+     moves that same mismatch onto the case where both cards are on screen
+     together and a keyboard is the likely way through them.
+
+     A class rather than `:nth-child`, so inserting a card cannot silently
+     reorder the pane. */
+  .todayCard {
+    order: -1;
+  }
+
+  /* The same 44px, on the controls the loop actually runs on. `.signOut` above
+     got there first and its comment makes the whole argument; this is that
+     argument applied consistently. A miss on `Declare it` is the morning's
+     declaration and a miss on `Submit proof` at eleven at night is the evening,
+     on a product whose premise is that the day counts.
+
+     min-height alone, no padding change: buttons and single-line inputs centre
+     their own content vertically, so nothing here gets wider and no row gains a
+     wrap — which is the failure the first attempt at `.signOut` caused, and it
+     cost the chat pane a header line. Measured at 360px after: the header still
+     holds three rows, the stepper still holds one, and the goal card is 27px
+     taller without anything on it having wrapped. */
+  .primaryBtn,
+  .secondaryBtn,
+  .input,
+  .example {
+    min-height: 44px;
+  }
+
+  /* More specific than the rule above, so it needs saying separately. The
+     workshop's openers are deliberately scoped to `.example`'s metrics — two
+     chips 200px apart doing one job — so they move with them rather than being
+     left as the one 32px chip on a screen where the others are 44.
+     (The workshop's `Send` is the same case and cannot be fixed from here: its
+     base rule is further down the file at the same specificity and wins on
+     order, so it is raised in the workshop's own media block instead.) */
+  .workshop .opener {
+    min-height: 44px;
+  }
+
+  /* The strip whose completed chips open the phase drill-in — the affordance for
+     which is the `hover: none` rule up at `.stepDone`. 44px clears both axes
+     without the row having to break, which was the issue's open question:
+     measured at 360px the chips are 48–64px wide, so only the height was ever
+     short. Centred rather than padded, so the marker under the word has room
+     without the word leaving the middle of its chip. */
+  .stepper li {
+    min-height: 44px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+  }
+}
+
+/* Narrower than the pane switch. Two things on the phone-sized end of the
+   product that a tablet and a narrow laptop window have no problem with, so
+   they are not worth spending the 820px breakpoint on: at 560px the goal box
+   still fits its own placeholder, and a log that tall can afford a caption. */
+@media (max-width: 420px) {
+  /* The goal box stops sharing a row with `Commit`. Measured at 390×844 in the
+     rendered font (15px karla): the placeholder
+     `e.g. Tiffin-delivery app for my college` needs 247px and the input's inner
+     width is 217px, so it rendered as `e.g. Tiffin-delivery app for my col` —
+     30px short, cut mid-word.
+
+     Which matters more here than a clipped placeholder normally would. This
+     screen's whole job is calibration — the example chips underneath exist
+     because the freeze is not "I have no ideas", it is not knowing how big the
+     box wants the answer to be — and the placeholder is that answer's one data
+     point. The half that carries the scale ("for my college": one campus, not a
+     market) is the half that was being cut.
+
+     Stacking also hands the screen's one committed action the full column
+     width. Nothing in TSX changes and Enter → onCreateGoal is untouched. */
+  .onboardForm {
+    flex-direction: column;
+  }
+
+  /* The switch is its own label. Measured at 360×640, the chat log has ~200px of
+     client height and this caption spends 17 of them — plus the bar's 9px gap —
+     restating which of two lit buttons is lit. The composer note below it stays:
+     it carries the only statement anywhere that this box is not the box that
+     counts, and it was moved out of a placeholder precisely because a
+     placeholder is clipped on a phone and vanishes when you type.
+
+     Not a reopening of the decision that this bar holds no help affordance. It
+     is that decision applied one step further: the bar is a control, and what
+     the other mode is FOR lives in the tour, which has room to say it properly.
+     Nothing is lost to a screen reader — the switch has its own group label and
+     both options carry `aria-pressed`. */
+  .modeCaption {
+    display: none;
+  }
 }
 
 /* --- the workshop --------------------------------------------------------
@@ -2169,5 +2328,17 @@
     flex-direction: column;
     align-items: flex-start;
     gap: 2px;
+  }
+
+  /* Send joins the 44px rule the rest of the loop's controls now follow. It has
+     to be said here rather than up in the responsive block: `.workshopComposer
+     .secondaryBtn` above is the same specificity and later in the file, so it
+     wins on source order and the phone kept the 40px.
+
+     40 stays the desktop number, and the comment above it still holds — it is
+     about this button not stretching to a two-row box, which a min-height does
+     not make it do. */
+  .workshopComposer .secondaryBtn {
+    min-height: 44px;
   }
 }
