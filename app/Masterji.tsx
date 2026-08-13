@@ -1537,6 +1537,35 @@ export default function Masterji({ user }: { user: SessionUser }) {
         <span className={styles.brand}>
           Masterji <span className={styles.brandHindi}>मास्टरजी</span>
         </span>
+        {/* Outside .headerRight, and that placement is the fix rather than an
+            accident of refactoring.
+
+            At 360px the four controls needed 322px of a 320px content box, so
+            "sign out" wrapped onto a third header line: 150px of header on the
+            smallest screen this runs on, against a chat pane that only had
+            230px to spend. #179 had already fought the same deficit down from
+            15px to 2px by tightening the gap, and stopped there correctly —
+            the next 2px would have come out of the 44px touch targets it was
+            buying, and this does not give those back.
+
+            So the room comes from the row above instead. The wordmark is 146px
+            of a 360px row and the rest of that row was doing nothing. Measured
+            at 360×640 with the switch up here, the control row went from 320px
+            of 320px — full, and overflowing onto a third line — to 239px, and
+            the header from 150px to 106px. That 81px of slack is the point: a
+            longer label, a wider Hindi string or a fifth control no longer puts
+            it back on three lines, which is exactly what shaving the gap to 8px
+            would not have survived.
+
+            One DOM node, moved — not a second copy behind a breakpoint. Desktop
+            is unchanged: `.header > .toneSwitch` takes `margin-left: auto`, so
+            it sits against the control group where it always has.
+
+            Both languages on screen with the live one lit, the same fix the
+            mode switch got for the same reason. The no-goal screen renders this
+            same control: the room before the goal speaks Hinglish too, and that
+            was the only place to say so. */}
+        <ToneSwitch tone={state.tone} busy={busy} onSet={onSetTone} />
         <div className={styles.headerRight}>
           {/* The mode used to sit here, next to the language toggle, on the
               grounds that both are "how Masterji talks to you". They aren't
@@ -1545,11 +1574,6 @@ export default function Masterji({ user }: { user: SessionUser }) {
               replies stop fitting the problem — so it now lives over the
               composer, with the conversation it governs. This corner is
               account chrome, and nobody looks for a way of talking in it. */}
-          {/* Both languages on screen, the live one lit — the same fix the
-              mode switch got, for the same reason. See ToneSwitch, which is
-              also on the no-goal screen now: the room before the goal speaks
-              Hinglish too, and this was the only place to say so. */}
-          <ToneSwitch tone={state.tone} busy={busy} onSet={onSetTone} />
           {/* The streak and the lifetime count used to sit here, between the
               language switch and the username. They are on the goal card now,
               beside the days-in-phase line — see the comment there. What is
