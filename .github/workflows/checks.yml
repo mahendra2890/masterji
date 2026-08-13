@@ -58,8 +58,19 @@ jobs:
       - name: One migration leaf per app
         run: uv run python manage.py check_migration_leaf
 
+      # Unqualified, and the label is the thing worth explaining. `coach.tests`
+      # hid the nine tests in `backend/accounts/tests.py` from every pull
+      # request this repo has ever had, and they are not incidental coverage:
+      # they pin a dead cookie returning 401 rather than 500, a token for an
+      # unknown user, an expired access cookie reading as *signed out* rather
+      # than *broken*. A regression in any of them signs every builder out and
+      # looks like an outage.
+      #
+      # Measured on d5caec9: 374 tests with the label, 383 without. The nine
+      # cost about three seconds, because the qualified run already pays for
+      # the same database.
       - name: Tests
-        run: uv run python manage.py test coach.tests
+        run: uv run python manage.py test
 
   frontend:
     runs-on: ubuntu-latest
