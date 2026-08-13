@@ -312,6 +312,102 @@ class PhaseTransition(SoftDeleteModel):
         return f"{self.goal_id}: {self.from_phase} → {self.to_phase}"
 
 
+class Workshop(SoftDeleteModel):
+    """The room before the goal — a metered vestibule, not a phase.
+
+    Every other row in this file is downstream of a Goal, which is exactly the
+    hole this fills: ChatView, DeclareView and ProveView all refuse with "Set a
+    goal first", so a builder's first contact with Masterji is the welcome
+    message written *after* the commit that frightened them. A workshop is where
+    the coach can speak before there is anything to declare.
+
+    What keeps it a vestibule rather than the hiding place this product exists
+    to refuse, all of it enforced in server code and none of it in a prompt:
+
+    - ONE open workshop per user, the conditional-unique pattern Goal already
+      uses for one_active_goal_per_user, and available only while no goal is
+      active — the exact inverse of the guard above.
+    - A hard turn cap (views.WORKSHOP_TURNS) counted off WorkshopMessage rows.
+      Turns spent means the only door left is Commit.
+    - At most three parked candidates. An unbounded backlog of ideas is a
+      content library growing, which is consumption dressed as progress; three
+      makes collecting impossible and choosing the only remaining move.
+
+    It banks nothing and advances nothing. gates.py never reads this table —
+    there is no CheckIn, no proof and no phase here to read — and committing a
+    goal spends the workshop, so the next one opens only after that goal closes.
+    """
+
+    #: The most candidates that may be parked before the room flips to a
+    #: forced choice. Lives here beside the field it bounds; the refusal is in
+    #: the view, where the count is a len() with no model in the loop.
+    MAX_CANDIDATES = 3
+
+    class Status(models.TextChoices):
+        OPEN = "OPEN", "Open"
+        SPENT = "SPENT", "Spent"
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="workshops"
+    )
+    status = models.CharField(
+        max_length=8, choices=Status.choices, default=Status.OPEN
+    )
+    # One-liners the builder parked, oldest first. Deliberately bare strings
+    # with no research, no links and no scores attached: a candidate that can
+    # carry a reading list is a candidate you can hide behind, and these die
+    # with the workshop rather than becoming a backlog to maintain.
+    candidates = models.JSONField(default=list, blank=True)
+    # The title the coach's tiebreak landed on, kept only so it survives a
+    # closed tab. It fills the commit box and never commits — the GOAL_EXAMPLES
+    # bargain: one tap from a suggestion to a database constraint is how a
+    # builder ends up coached on somebody else's idea. Same width as Goal.title
+    # because that is the box it is going into.
+    suggested_title = models.CharField(max_length=200, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta(SoftDeleteModel.Meta):
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user"],
+                condition=models.Q(status="OPEN", deleted_at__isnull=True),
+                name="one_open_workshop_per_user",
+            )
+        ]
+
+    def __str__(self):
+        return f"Workshop {self.pk} ({self.status})"
+
+
+class WorkshopMessage(SoftDeleteModel):
+    """A turn in the workshop. Separate from Message because Message hangs off a
+    Goal, and the whole point of this room is that there isn't one yet.
+
+    No phase stamp for the same reason: there is no phase here. USER rows are
+    what the turn cap counts, which is why the cap is a property of the
+    transcript rather than a counter anybody has to remember to increment.
+    """
+
+    class Role(models.TextChoices):
+        USER = "USER", "User"
+        COACH = "COACH", "Coach"
+        SYSTEM = "SYSTEM", "System"
+
+    workshop = models.ForeignKey(
+        Workshop, on_delete=models.CASCADE, related_name="messages"
+    )
+    role = models.CharField(max_length=8, choices=Role.choices)
+    content = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta(SoftDeleteModel.Meta):
+        ordering = ["created_at"]
+
+    def __str__(self):
+        return f"{self.role}: {self.content[:40]}"
+
+
 class ChangelogEntry(SoftDeleteModel):
     """What has changed in the product, in the builder's language.
 

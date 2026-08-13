@@ -15,14 +15,24 @@ from unittest import mock
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
+from django.db import IntegrityError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APITestCase
 from rest_framework.throttling import ScopedRateThrottle
 
-from . import bar, gates, guidance, prompts, views
-from .models import ChangelogEntry, CheckIn, Goal, Message, Phase, ProofAttempt
+from . import bar, gates, guidance, prompts, throttles, views
+from .models import (
+    ChangelogEntry,
+    CheckIn,
+    Goal,
+    Message,
+    Phase,
+    ProofAttempt,
+    Workshop,
+    WorkshopMessage,
+)
 
 User = get_user_model()
 
@@ -4146,3 +4156,324 @@ class GoalTitleEditTests(CoachTestCase):
         self.goal.status = Goal.Status.ABANDONED
         self.goal.save(update_fields=["status"])
         self.assertEqual(self.patch(title="rewriting history").status_code, 404)
+
+
+class WorkshopTests(CoachTestCase):
+    """The room before the goal. What is pinned here is every guard that keeps it
+    a vestibule rather than a place to live: the inverted availability, the turn
+    cap, the three-candidate ceiling, and the fact that nothing in it can reach
+    the gate."""
+
+    URL = "/api/coach/workshop/chat/"
+
+    def say(self, content="I have no idea what to build", stream=None):
+        """One turn, with the model stubbed. Default stream is plain words."""
+        stream = stream if stream is not None else [("delta", "What did you do Tuesday?")]
+        with mock.patch("coach.views.llm.stream_chat", return_value=iter(stream)):
+            response = self.client.post(self.URL, {"content": content})
+            # StreamingHttpResponse does the work while it is consumed, so the
+            # rows this view writes do not exist until the body is read.
+            body = b"".join(response.streaming_content) if response.streaming else b""
+        return response, [json.loads(line) for line in body.splitlines() if line.strip()]
+
+    def workshop(self) -> Workshop:
+        return Workshop.objects.get(user=self.alice)
+
+    # --- the guard, inverted -------------------------------------------------
+
+    def test_the_room_is_open_only_while_no_goal_is(self):
+        """The exact inverse of ChatView's "Set a goal first." — and the whole
+        reason the room exists, since that guard is why a builder's first contact
+        with Masterji arrives after the commit that frightened them."""
+        response, _ = self.say()
+        self.assertEqual(response.status_code, 200)
+
+        self.make_goal()
+        response, _ = self.say()
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("workshop is for before that", response.json()["detail"])
+
+    def test_chat_and_workshop_are_never_both_shut(self):
+        """Between the two endpoints there is no state a builder can be in where
+        Masterji cannot speak. That was the finding this issue answers."""
+        with mock.patch(
+            "coach.views.llm.stream_chat", return_value=iter([("delta", "ok")])
+        ):
+            no_goal = self.client.post(self.URL, {"content": "hi"})
+            list(no_goal.streaming_content)
+            self.assertEqual(no_goal.status_code, 200)
+            self.assertEqual(
+                self.client.post("/api/coach/chat/", {"content": "hi"}).status_code, 400
+            )
+
+            self.make_goal()
+            self.assertEqual(self.client.post(self.URL, {"content": "hi"}).status_code, 400)
+            with_goal = self.client.post("/api/coach/chat/", {"content": "hi"})
+            list(with_goal.streaming_content)
+            self.assertEqual(with_goal.status_code, 200)
+
+    def test_a_read_never_opens_a_room(self):
+        """A workshop is a turn budget. One exists because a builder started
+        talking, never because a dashboard polled."""
+        self.client.get("/api/coach/state/")
+        self.assertFalse(Workshop.objects.exists())
+        self.assertIsNone(self.client.get("/api/coach/state/").json()["workshop"])
+
+    def test_an_empty_turn_is_refused_before_it_costs_anything(self):
+        response = self.client.post(self.URL, {"content": "   "})
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(Workshop.objects.exists())
+
+    # --- the turn cap --------------------------------------------------------
+
+    def test_the_cap_is_enforced_in_code_and_names_the_exit(self):
+        for i in range(views.WORKSHOP_TURNS):
+            response, _ = self.say(f"turn {i}")
+            self.assertEqual(response.status_code, 200)
+        self.assertEqual(views._turns_used(self.workshop()), views.WORKSHOP_TURNS)
+
+        refused = self.client.post(self.URL, {"content": "one more"})
+        self.assertEqual(refused.status_code, 429)
+        detail = refused.json()["detail"]
+        self.assertIn("workshop done", detail)
+        # A refusal that doesn't name the door is a dead end, which is the
+        # failure this whole room was added to fix.
+        self.assertIn("commit", detail.lower())
+        # And it costs nothing: the refused turn is not a row.
+        self.assertEqual(views._turns_used(self.workshop()), views.WORKSHOP_TURNS)
+
+    def test_the_cap_counts_the_builders_turns_only(self):
+        """Coach rows are not turns. Counted off USER rows so the meter cannot
+        drift from the transcript the builder can see."""
+        self.say(stream=[("delta", "a long answer")])
+        workshop = self.workshop()
+        self.assertEqual(workshop.messages.count(), 2)
+        self.assertEqual(views._turns_used(workshop), 1)
+
+    def test_the_turns_left_the_client_shows_is_the_servers_own_count(self):
+        _, events = self.say()
+        done = events[-1]
+        self.assertEqual(done["t"], "done")
+        self.assertEqual(done["turns_used"], 1)
+        self.assertEqual(done["turns_left"], views.WORKSHOP_TURNS - 1)
+        payload = self.client.get("/api/coach/state/").json()["workshop"]
+        self.assertEqual(payload["turns_left"], views.WORKSHOP_TURNS - 1)
+
+    # --- the parking lot -----------------------------------------------------
+
+    def park(self, *one_liners):
+        return [
+            ("tool_call", {"name": "park_candidate", "arguments": {"one_liner": o}})
+            for o in one_liners
+        ]
+
+    def test_candidates_are_written_down_as_they_arrive(self):
+        _, events = self.say(stream=self.park("hostellers miss dinner"))
+        self.assertEqual(self.workshop().candidates, ["hostellers miss dinner"])
+        card = [e for e in events if e["t"] == "candidates"][0]
+        self.assertEqual(card["candidates"], ["hostellers miss dinner"])
+
+    def test_the_fourth_candidate_is_refused_in_server_code(self):
+        """The cap is a len() with no model in the loop — the _already_banked
+        division of labour. A limit that lives only in a prompt is a limit the
+        model can talk itself past."""
+        self.say(stream=self.park("one", "two", "three", "four"))
+        self.assertEqual(self.workshop().candidates, ["one", "two", "three"])
+
+    def test_a_refused_park_is_said_out_loud(self):
+        """The builder is watching a suggestion not appear, and silence there
+        reads as the app dropping their idea."""
+        self.say(stream=self.park("one", "two", "three"))
+        _, events = self.say(stream=self.park("four"))
+        card = [e for e in events if e["t"] == "candidates"][0]
+        self.assertTrue(card["refused"])
+        self.assertEqual(len(card["candidates"]), 3)
+
+    def test_the_prompt_flips_to_a_forced_choice_at_three(self):
+        full = prompts.parking_state(["one", "two", "three"], Workshop.MAX_CANDIDATES)
+        self.assertIn("FULL", full)
+        self.assertIn("Park nothing further", full)
+        room = prompts.parking_state(["one"], Workshop.MAX_CANDIDATES)
+        self.assertNotIn("FULL", room)
+        self.assertIn("one", room)
+
+    def test_a_blank_candidate_is_not_a_candidate(self):
+        self.say(stream=self.park("   "))
+        self.assertEqual(self.workshop().candidates, [])
+
+    # --- the suggested title -------------------------------------------------
+
+    def test_a_suggested_goal_fills_the_box_and_commits_nothing(self):
+        """The GOAL_EXAMPLES bargain: one tap from a suggestion to a database
+        constraint is how a builder ends up coached on somebody else's idea."""
+        _, events = self.say(
+            stream=[
+                (
+                    "tool_call",
+                    {"name": "suggest_goal", "arguments": {"title": "Tiffin for Block C"}},
+                )
+            ]
+        )
+        self.assertEqual(self.workshop().suggested_title, "Tiffin for Block C")
+        self.assertFalse(Goal.objects.exists())
+        card = [e for e in events if e["t"] == "candidates"][0]
+        self.assertEqual(card["suggested"], "Tiffin for Block C")
+        # And it survives the tab closing, which is the only reason it is stored.
+        payload = self.client.get("/api/coach/state/").json()["workshop"]
+        self.assertEqual(payload["suggested_title"], "Tiffin for Block C")
+
+    # --- nothing here reaches the gate ---------------------------------------
+
+    def test_no_checkin_or_proof_can_exist_without_a_goal(self):
+        """The room banks nothing and advances nothing. Every row a proof needs
+        hangs off a Goal, and there isn't one — so there is nothing here for
+        gates.py to read, which is what makes the room safe to give away."""
+        self.say(stream=self.park("one") + [("delta", "which of these can you ask about?")])
+        self.assertEqual(CheckIn.objects.count(), 0)
+        self.assertEqual(Message.objects.count(), 0)
+        self.assertEqual(WorkshopMessage.objects.count(), 2)
+
+    def test_committing_spends_the_workshop(self):
+        """The next room opens when this goal closes — which is what stops the
+        vestibule being somewhere to go back to instead of forward."""
+        self.say(stream=self.park("hostellers miss dinner"))
+        self.client.post("/api/coach/goals/", {"title": "Tiffin app"})
+        self.assertEqual(self.workshop().status, Workshop.Status.SPENT)
+        self.assertIsNone(views._open_workshop(self.alice))
+
+    def test_a_spent_workshop_does_not_come_back_with_its_turns(self):
+        """A commit-retire lap buys a fresh room, and it costs an UNTESTED row on
+        the archive the builder sees. What it must not buy is the old
+        conversation's remaining turns."""
+        for i in range(3):
+            self.say(f"turn {i}")
+        goal = self.client.post("/api/coach/goals/", {"title": "Tiffin app"}).json()
+        self.client.post(f"/api/coach/goals/{goal['id']}/retire/", {"reason": "no"})
+        self.say("starting again")
+        fresh = Workshop.objects.filter(
+            user=self.alice, status=Workshop.Status.OPEN
+        ).get()
+        self.assertEqual(views._turns_used(fresh), 1)
+        self.assertEqual(Workshop.objects.count(), 2)
+
+    def test_one_open_room_per_user(self):
+        self.say()
+        with self.assertRaises(IntegrityError):
+            Workshop.objects.create(user=self.alice)
+
+    def test_the_room_is_the_builders_own(self):
+        """Tenancy: bob's turn never lands in alice's room."""
+        self.say()
+        self.client.force_authenticate(self.bob)
+        self.say("mine")
+        self.assertEqual(Workshop.objects.filter(user=self.bob).count(), 1)
+        self.assertEqual(views._turns_used(self.workshop()), 1)
+
+    # --- the prompt ----------------------------------------------------------
+
+    def test_the_prompt_carries_the_playbook_and_the_counts(self):
+        text = prompts.build_workshop_prompt(
+            candidates=["one"],
+            turns_used=13,
+            turns_total=views.WORKSHOP_TURNS,
+            maximum=Workshop.MAX_CANDIDATES,
+            tone="ENGLISH",
+        )
+        # The authority is the credited corpus, not the model's pretraining —
+        # the reason a choosing-an-idea playbook was written at all (#74).
+        self.assertIn(prompts._playbook("choosing-an-idea"), text)
+        self.assertIn("2 of 15 left", text)
+        self.assertIn('"one"', text)
+
+    def test_the_week_walk_is_conditioned_not_mandated(self):
+        """The MODIFY on #78: ANSWER_WHAT_THEY_ASKED exists because the coach
+        once opened with a move for a question nobody asked, and two of the
+        three workshop openers arrive WITH ideas."""
+        text = prompts.build_workshop_prompt(
+            candidates=[],
+            turns_used=0,
+            turns_total=views.WORKSHOP_TURNS,
+            maximum=Workshop.MAX_CANDIDATES,
+            tone="ENGLISH",
+        )
+        self.assertIn("WHEN THEY ARRIVE EMPTY-HANDED", text)
+        self.assertIn("gets their actual question answered first", text)
+        self.assertIn("never your opening move", text)
+
+    def test_the_room_never_asks_for_proof(self):
+        text = prompts.build_workshop_prompt(
+            candidates=[],
+            turns_used=0,
+            turns_total=views.WORKSHOP_TURNS,
+            maximum=Workshop.MAX_CANDIDATES,
+            tone="ENGLISH",
+        )
+        self.assertIn("Never ask for proof", text)
+
+    def test_the_prompt_speaks_the_builders_language(self):
+        hinglish = prompts.build_workshop_prompt(
+            candidates=[],
+            turns_used=0,
+            turns_total=views.WORKSHOP_TURNS,
+            maximum=Workshop.MAX_CANDIDATES,
+            tone="HINGLISH",
+        )
+        self.assertIn(prompts.HINGLISH_RULE, hinglish)
+
+    def test_the_openers_are_the_three_actual_freezes(self):
+        payload = self.client.get("/api/coach/state/").json()
+        self.assertEqual(payload["workshop_openers"], guidance.WORKSHOP_OPENERS)
+        self.assertEqual(len(guidance.WORKSHOP_OPENERS), 3)
+
+    def test_an_outage_leaves_the_room_standing(self):
+        """The turn is spent and said so, the way a broken chat turn is: a model
+        that fell over must not also cost the builder the transcript."""
+        with mock.patch(
+            "coach.views.llm.stream_chat", side_effect=RuntimeError("down")
+        ):
+            response = self.client.post(self.URL, {"content": "hello"})
+            events = [
+                json.loads(line)
+                for line in b"".join(response.streaming_content).splitlines()
+                if line.strip()
+            ]
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(events[0]["t"], "error")
+        rows = self.workshop().messages.all()
+        self.assertEqual(rows[1].role, WorkshopMessage.Role.SYSTEM)
+        self.assertEqual(rows[1].content, views.STREAM_BROKE)
+
+    # --- the room costs money too --------------------------------------------
+
+    def test_the_room_draws_from_the_same_hourly_budget_as_chat(self):
+        """A turn in here is the same paid call a chat turn is, and the two
+        endpoints are mutually exclusive — so a second scope would have been a
+        second budget for the same spending, reachable by retiring a goal."""
+        self.assertEqual(views.WorkshopChatView.throttle_scope, "chat")
+        self.assertEqual(views.WorkshopChatView.throttle_classes, throttles.THROTTLES)
+
+    def test_the_refusal_is_voiced(self):
+        # Patched on the dict the throttle actually consults, and restored after
+        # — see PaidEndpointLimitTests.setUp for why override_settings does not
+        # reach it. An unrestored assignment here leaked 1/hour into every other
+        # test in this class and failed the guard test with a 429.
+        self.addCleanup(cache.clear)
+        cache.clear()
+        rates = mock.patch.dict(
+            ScopedRateThrottle.THROTTLE_RATES, {"chat": "1/hour"}
+        )
+        rates.start()
+        self.addCleanup(rates.stop)
+        self.say()
+        refused = self.client.post(self.URL, {"content": "again"})
+        self.assertEqual(refused.status_code, 429)
+        self.assertIn("thinking out loud", refused.json()["detail"])
+        # A throttle refuses a REQUEST, never a turn already taken.
+        self.assertEqual(views._turns_used(self.workshop()), 1)
+
+    def test_a_wall_of_text_is_not_a_turn(self):
+        response = self.client.post(
+            self.URL, {"content": "z" * (settings.CHAT_MAX_CHARS + 1)}
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(Workshop.objects.exists())

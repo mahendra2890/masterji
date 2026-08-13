@@ -25,6 +25,7 @@ import {
   prove,
   retireGoal,
   streamChat,
+  streamWorkshopChat,
   updateGoalTitle,
   type ChatMessage,
   type CheckIn,
@@ -33,6 +34,14 @@ import {
   type Retirement,
 } from "@/lib/coach-api";
 import styles from "./masterji.module.css";
+
+/** Said when the workshop turns away a fourth candidate. The cap is server
+ * code (Workshop.MAX_CANDIDATES), and this is the only thing the refetch after
+ * the turn cannot say: the builder watched a suggestion not appear, and silence
+ * there reads as the app having dropped their idea rather than having refused
+ * it on purpose. */
+const REFUSED_PARK =
+  "Three is the limit — nothing else got parked. Drop one of these or pick one.";
 
 /** How each closed idea reads, in one chip. The wording states what the record
  * shows, never a judgement of the person. */
@@ -450,6 +459,13 @@ export default function Masterji({ user }: { user: SessionUser }) {
   // Phone only: the dashboard and the chat take turns instead of stacking.
   const [pane, setPane] = useState<"today" | "chat">("today");
 
+  // the workshop — the room before the goal, live only on the no-goal screen
+  const [wsDraft, setWsDraft] = useState("");
+  const [wsStreaming, setWsStreaming] = useState<string | null>(null);
+  const [wsPending, setWsPending] = useState<string | null>(null);
+  const [wsError, setWsError] = useState("");
+  const wsBoxRef = useRef<HTMLTextAreaElement>(null);
+
   // forms
   const [goalTitle, setGoalTitle] = useState("");
   // The goal box, so the examples under it can put the caret in it.
@@ -851,6 +867,49 @@ export default function Masterji({ user }: { user: SessionUser }) {
     }
   };
 
+  /** Say something in the workshop — the room before the goal.
+   *
+   * Its own sender rather than a branch inside `send`: the two endpoints refuse
+   * each other by design (chat 400s without a goal, this one 400s with one), so
+   * a single function would spend its life deciding which product it is in. The
+   * cap's refusal arrives as a 429 whose detail is the coach's own sentence, and
+   * it is shown where a reply would have gone rather than as a red banner —
+   * running out of turns is the room working, not an error. */
+  const sendWorkshop = async (retryOf?: string) => {
+    const content = (retryOf ?? wsDraft).trim();
+    if (!content || wsStreaming !== null) return;
+    if (retryOf === undefined) setWsDraft("");
+    setWsError("");
+    setWsPending(content);
+    setWsStreaming("");
+    let spoke = false;
+    try {
+      await streamWorkshopChat(content, {
+        onDelta: (text) => {
+          spoke = true;
+          setWsStreaming((s) => (s ?? "") + text);
+        },
+        // The cards are read off the refetch that ends this turn, the same way
+        // the evening's draft is: one source of truth, and a card that only
+        // existed in the stream can't vanish under the builder's finger. What
+        // this handles is the one thing the refetch cannot say — that a fourth
+        // candidate was turned away.
+        onCandidates: ({ refused }) => {
+          if (refused) setWsError(REFUSED_PARK);
+        },
+        onError: (detail) => {
+          if (spoke) setWsError(detail);
+        },
+      });
+    } catch (e) {
+      setWsError(e instanceof Error ? e.message : "Something broke.");
+    } finally {
+      await refresh();
+      setWsPending(null);
+      setWsStreaming(null);
+    }
+  };
+
   if (!state) {
     return <main className={styles.loading}>Masterji is on his way…</main>;
   }
@@ -862,6 +921,8 @@ export default function Masterji({ user }: { user: SessionUser }) {
     // The box holds words that are theirs, not one of ours — see the buttons.
     const examplesSpent =
       goalTitle.trim() !== "" && !GOAL_EXAMPLES.includes(goalTitle);
+    // Null until the builder's first turn: reading state never opens a room.
+    const ws = state.workshop;
     return (
       <main className={styles.onboarding}>
         <p className={styles.wordmark}>मास्टरजी</p>
@@ -1005,6 +1066,180 @@ export default function Masterji({ user }: { user: SessionUser }) {
         )}
 
         {error && <p className={styles.error}>{error}</p>}
+
+        {/* --- the workshop ---------------------------------------------------
+            The room before the goal. It sits UNDER the commit box on purpose:
+            the box is the point of this screen and the workshop is the way in
+            for a builder who can't fill it yet. Reversing them would make
+            thinking the default and committing the thing you scroll past.
+
+            Everything here is a control. What the room is FOR is explained in
+            the tour, not in help text wedged between the buttons. */}
+        <section className={styles.workshop}>
+          <div className={styles.workshopHead}>
+            <p className={styles.workshopTitle}>
+              {ws && ws.turnsLeft === 0
+                ? "Workshop closed."
+                : "Not sure yet? Think it through with him."}
+            </p>
+            {/* The meter is the mechanism, so it is on screen BEFORE the first
+                turn, not from the second: a room whose hard end only announces
+                itself once you are near it is a trapdoor. Both numbers are the
+                server's — turnsLeft is computed there so this and the refusal
+                can never disagree, and the budget is sent even with no room
+                open precisely so this line can exist at rest. */}
+            {state.workshopTurns > 0 && (
+              <p className={styles.workshopTurns}>
+                {ws ? ws.turnsLeft : state.workshopTurns} of{" "}
+                {ws ? ws.turnsTotal : state.workshopTurns} turns left
+              </p>
+            )}
+          </div>
+
+          {(ws?.messages.length || wsPending !== null) && (
+            <div className={styles.workshopLog}>
+              {ws?.messages.map((m) => (
+                <p
+                  key={m.id}
+                  className={
+                    m.role === "USER" ? styles.wsMine : styles.wsTheirs
+                  }
+                >
+                  {m.content}
+                </p>
+              ))}
+              {wsPending !== null && (
+                <p className={styles.wsMine}>{wsPending}</p>
+              )}
+              {wsStreaming !== null && (
+                <p className={styles.wsTheirs}>
+                  {wsStreaming || <span className={styles.wsThinking}>…</span>}
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Parked candidates, and the one his tiebreak landed on. Both fill
+              the commit box and neither commits — the goal-examples bargain,
+              which exists because one tap from "his suggestion" to a database
+              constraint is how a builder ends up coached on somebody else's
+              idea. The pile is capped at three server-side; nothing here
+              enforces it, and nothing here needs to. */}
+          {ws && (ws.candidates.length > 0 || ws.suggestedTitle) && (
+            <div className={styles.parked}>
+              <p id="parked-label" className={styles.parkedLabel}>
+                {ws.candidates.length >= ws.maxCandidates
+                  ? `Three parked — that's the lot. Pick one:`
+                  : `Parked (${ws.candidates.length}/${ws.maxCandidates}) — tap to put it in the box:`}
+              </p>
+              <ul className={styles.parkedList} aria-labelledby="parked-label">
+                {ws.suggestedTitle && (
+                  <li key="suggested">
+                    <button
+                      type="button"
+                      className={styles.parkedPick}
+                      onClick={() => {
+                        setGoalTitle(ws.suggestedTitle);
+                        goalBoxRef.current?.focus();
+                      }}
+                    >
+                      {ws.suggestedTitle}
+                      <span className={styles.parkedPickNote}>his pick</span>
+                    </button>
+                  </li>
+                )}
+                {ws.candidates.map((c) => (
+                  <li key={c}>
+                    <button
+                      type="button"
+                      className={styles.parkedItem}
+                      onClick={() => {
+                        setGoalTitle(c);
+                        goalBoxRef.current?.focus();
+                      }}
+                    >
+                      {c}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Openers, while the room is still silent. Same bargain as the
+              phase openers in chat: tapping fills the box and leaves the
+              sending — and the editing — with the builder. Tapping the first
+              one is also how the coach learns they arrived empty-handed, which
+              is the one case his week-walk is the right opening move for. */}
+          {!ws?.messages.length &&
+            wsPending === null &&
+            state.workshopOpeners.length > 0 && (
+              <div className={styles.openers}>
+                <p id="ws-openers-label" className={styles.openersLabel}>
+                  Start with:
+                </p>
+                <ul
+                  className={styles.openerList}
+                  aria-labelledby="ws-openers-label"
+                >
+                  {state.workshopOpeners.map((opener) => (
+                    <li key={opener}>
+                      <button
+                        type="button"
+                        className={styles.opener}
+                        onClick={() => {
+                          setWsDraft(opener);
+                          wsBoxRef.current?.focus();
+                        }}
+                      >
+                        {opener}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+          {wsError && <p className={styles.error}>{wsError}</p>}
+
+          {/* No composer once the turns are gone. The refusal is already on
+              screen above as the coach's own words, and leaving a box there
+              that only ever answers 429 is the product pretending a door is
+              open. The commit box above it is the door. */}
+          {ws && ws.turnsLeft === 0 ? (
+            <p className={styles.workshopSpent}>
+              Fifteen turns, done. You don&apos;t need a better idea — you need
+              one you can test. Put it in the box above.
+            </p>
+          ) : (
+            <div className={styles.workshopComposer}>
+              <textarea
+                ref={wsBoxRef}
+                className={styles.workshopInput}
+                placeholder="I don't know what to build yet…"
+                value={wsDraft}
+                rows={2}
+                maxLength={2000}
+                disabled={wsStreaming !== null}
+                onChange={(e) => setWsDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    void sendWorkshop();
+                  }
+                }}
+              />
+              <button
+                type="button"
+                className={styles.secondaryBtn}
+                disabled={wsStreaming !== null || wsDraft.trim() === ""}
+                onClick={() => void sendWorkshop()}
+              >
+                Send
+              </button>
+            </div>
+          )}
+        </section>
 
         {state.archive.length > 0 && (
           <section className={styles.archive}>

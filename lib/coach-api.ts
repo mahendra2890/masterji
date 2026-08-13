@@ -161,6 +161,34 @@ export type Guidance = {
   openers: string[];
 };
 
+/** The room before the goal — a metered vestibule, never a phase.
+ *
+ * Present only on the no-goal screen, and only once the builder has said
+ * something: reading state never opens a room, because a workshop is a turn
+ * budget and one should exist because somebody started talking. */
+export type Workshop = {
+  id: number;
+  /** One-liners parked so far, oldest first. Capped server-side. */
+  candidates: string[];
+  maxCandidates: number;
+  /** What the coach's tiebreak landed on. Fills the commit box; commits
+   * nothing — the same bargain the goal examples make. */
+  suggestedTitle: string;
+  turnsUsed: number;
+  turnsTotal: number;
+  /** Computed by the server, not here, so the meter on screen and the
+   * refusal from the server can never disagree about what is left. */
+  turnsLeft: number;
+  messages: WorkshopMessage[];
+};
+
+export type WorkshopMessage = {
+  id: number;
+  role: "USER" | "COACH" | "SYSTEM";
+  content: string;
+  createdAt: string;
+};
+
 export type CoachState = {
   goal: Goal | null;
   gate: Gate | null;
@@ -191,6 +219,15 @@ export type CoachState = {
    * partner in chat — questions and options instead of assignments — and
    * changes nothing about the gate. */
   mode: "COACH" | "THINKING";
+  /** Null while a goal is active (the room is shut then, by design) and until
+   * the builder's first turn in it. */
+  workshop: Workshop | null;
+  /** Composer-fillers for the workshop, the server's to write for the same
+   * reason the phase openers are. */
+  workshopOpeners: string[];
+  /** The room's whole turn budget, sent even when no room is open yet so the
+   * meter can be read before the first turn is spent. */
+  workshopTurns: number;
 };
 
 /* --- server shapes ------------------------------------------------------ */
@@ -261,6 +298,38 @@ type ServerMessage = {
   phase?: Phase | "";
   created_at: string;
 };
+type ServerWorkshopMessage = {
+  id: number;
+  role: "USER" | "COACH" | "SYSTEM";
+  content: string;
+  created_at: string;
+};
+type ServerWorkshop = {
+  id: number;
+  candidates?: string[];
+  max_candidates?: number;
+  suggested_title?: string;
+  turns_used?: number;
+  turns_total?: number;
+  turns_left?: number;
+  messages?: ServerWorkshopMessage[];
+};
+
+const fromServerWorkshop = (w: ServerWorkshop): Workshop => ({
+  id: w.id,
+  candidates: w.candidates ?? [],
+  maxCandidates: w.max_candidates ?? 3,
+  suggestedTitle: w.suggested_title ?? "",
+  turnsUsed: w.turns_used ?? 0,
+  turnsTotal: w.turns_total ?? 0,
+  turnsLeft: w.turns_left ?? 0,
+  messages: (w.messages ?? []).map((m) => ({
+    id: m.id,
+    role: m.role,
+    content: m.content,
+    createdAt: m.created_at,
+  })),
+});
 
 const fromServerCheckIn = (c: ServerCheckIn): CheckIn => ({
   id: c.id,
@@ -496,6 +565,9 @@ export async function getState(): Promise<CoachState> {
     lifetime_days?: number;
     tone: CoachState["tone"];
     mode?: CoachState["mode"];
+    workshop?: ServerWorkshop | null;
+    workshop_openers?: string[];
+    workshop_turns?: number;
   }>(`state/?date=${localDate()}`);
   return {
     goal: data.goal ? fromServerGoal(data.goal) : null,
@@ -530,6 +602,9 @@ export async function getState(): Promise<CoachState> {
     lifetimeDays: data.lifetime_days ?? 0,
     tone: data.tone,
     mode: data.mode ?? "COACH",
+    workshop: data.workshop ? fromServerWorkshop(data.workshop) : null,
+    workshopOpeners: data.workshop_openers ?? [],
+    workshopTurns: data.workshop_turns ?? 0,
   };
 }
 
@@ -716,6 +791,20 @@ export type ChatEvents = {
   onError: (detail: string) => void;
 };
 
+export type WorkshopEvents = {
+  onDelta: (text: string) => void;
+  /** A candidate was parked, a title was suggested, or a fourth park was
+   * refused. `refused` is surfaced rather than swallowed: the builder is
+   * watching a suggestion not appear, and silence there reads as the app
+   * dropping their idea. */
+  onCandidates: (c: {
+    candidates: string[];
+    suggested: string;
+    refused: boolean;
+  }) => void;
+  onError: (detail: string) => void;
+};
+
 /** POST the message and consume the NDJSON stream. Resolves when done. */
 export async function streamChat(
   content: string,
@@ -751,6 +840,59 @@ export async function streamChat(
       const event = JSON.parse(raw);
       if (event.t === "delta") events.onDelta(event.text);
       else if (event.t === "gate") events.onGate(event);
+      else if (event.t === "error") events.onError(event.detail);
+    }
+  }
+}
+
+/** POST a workshop turn and consume the NDJSON stream. Resolves when done.
+ *
+ * Deliberately a sibling of streamChat rather than a flag on it: the two
+ * endpoints are mutually exclusive by design (one refuses while a goal exists,
+ * the other refuses while none does), and the events they carry are different.
+ * A 429 here is the turn cap, and its detail line is the coach's own words —
+ * surfaced as an ApiError so the pane can show it where the reply would have
+ * gone. */
+export async function streamWorkshopChat(
+  content: string,
+  events: WorkshopEvents,
+  retried = false
+): Promise<void> {
+  const res = await fetch(`${API_URL}/api/coach/workshop/chat/`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ content }),
+  });
+  if (res.status === 401) {
+    if (!retried && (await refreshSession()))
+      return streamWorkshopChat(content, events, true);
+    throw new ApiError("Your session expired — sign in again.", 401);
+  }
+  if (!res.ok || !res.body) {
+    // The cap's refusal is a sentence, not a status code — read it out rather
+    // than replacing it with "Masterji said no (429)".
+    const detail = await res
+      .json()
+      .then((d) => d?.detail as string | undefined)
+      .catch(() => undefined);
+    throw new ApiError(detail ?? `Masterji said no (${res.status}).`, res.status);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    for (const raw of lines) {
+      if (!raw.trim()) continue;
+      const event = JSON.parse(raw);
+      if (event.t === "delta") events.onDelta(event.text);
+      else if (event.t === "candidates") events.onCandidates(event);
       else if (event.t === "error") events.onError(event.detail);
     }
   }

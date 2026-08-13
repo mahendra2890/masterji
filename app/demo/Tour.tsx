@@ -165,6 +165,32 @@ const SLIDES: Slide[] = [
               </li>
             </ul>
           </div>
+          {/* Outside the ring too, and for the same reason as the examples: it
+              is on the screen, so a mock without it is a picture of a screen
+              that no longer exists. Head and box only — what the room is FOR
+              gets one sentence in the notes, and the rest is discovered by
+              typing in it. */}
+          <div className={app.workshop}>
+            <div className={app.workshopHead}>
+              <p className={app.workshopTitle}>
+                Not sure yet? Think it through with him.
+              </p>
+              <p className={app.workshopTurns}>15 of 15 turns left</p>
+            </div>
+            <div className={app.openers}>
+              <p className={app.openersLabel}>Start with:</p>
+              <ul className={app.openerList}>
+                <li>
+                  <span className={app.opener}>I don&apos;t have an idea yet.</span>
+                </li>
+                <li>
+                  <span className={app.opener}>
+                    I have three ideas and can&apos;t pick.
+                  </span>
+                </li>
+              </ul>
+            </div>
+          </div>
         </div>
 
         <p className={styles.bigArrow}>
@@ -232,6 +258,12 @@ const SLIDES: Slide[] = [
         final either: you can sharpen it from the dashboard right up until your
         first proof is banked, which is the moment the record starts pointing at
         it.
+      </>,
+      <>
+        <strong>No idea yet? The workshop is under the box.</strong> Fifteen
+        turns with him before you commit — he walks your own week for problems,
+        parks at most three, then makes you choose. It banks nothing, and when
+        the turns are gone the only door left is Commit.
       </>,
       <>
         You start in <strong>IDEA</strong> at <strong>0/1</strong>, whatever

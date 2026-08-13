@@ -19,6 +19,12 @@ urlpatterns = [
     ),
     path("checkins/prove/", views.ProveView.as_view(), name="coach_prove"),
     path("chat/", views.ChatView.as_view(), name="coach_chat"),
+    # The inverse of chat/: available only while there is no goal.
+    path(
+        "workshop/chat/",
+        views.WorkshopChatView.as_view(),
+        name="coach_workshop_chat",
+    ),
     # Public: no auth, no tenancy — the same list for every reader.
     path("changelog/", views.ChangelogView.as_view(), name="coach_changelog"),
 ]

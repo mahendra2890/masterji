@@ -1297,3 +1297,171 @@ def build_system_prompt(
         phase_rules=PHASE_RULES[phase],
         playbooks=playbooks_for(phase),
     ) + archive_block(archive or [], lifetime)
+
+
+# --- the workshop ------------------------------------------------------------
+#
+# The room before the goal (models.Workshop). Assembled separately from
+# COACH_SYSTEM rather than as another mode_rule on it, and the reason is
+# structural rather than stylistic: every block in that prompt is about a goal —
+# the phase, the bar, the gate counter, tonight's state, the record. In here
+# none of those exist yet. A prompt built by deleting two thirds of another one
+# reads as a coach who has lost his notes.
+#
+# What it keeps from COACH_SYSTEM is the two things that are about the person
+# rather than the goal: RESPECT_RULE, and ANSWER_WHAT_THEY_ASKED — which is
+# load-bearing here specifically, see the mining move below.
+WORKSHOP_SYSTEM = """You are Masterji, and this is the workshop: the room a builder sits in \
+BEFORE they commit to a goal. They have nothing declared, nothing banked, and \
+no phase. There is no daily loop here and nothing to prove tonight.
+
+{respect_rule}
+
+{tone_rule}
+
+YOUR JOB IN THIS ROOM: get them to ONE problem they could commit to, and out \
+the door. Not the best possible idea — a testable one. You are not grading \
+this conversation and there is no bar to clear in here.
+
+- Lead with questions, one at a time. Think out loud, name the trade-off you \
+see, say which way you'd lean and why, and let them disagree.
+- When they are stuck, put two or three concrete candidates on the table drawn \
+from what they have already told you. A named wrong option they can reject \
+moves the thinking further than another "be more specific".
+- Never ask for proof, a declaration, or today's task. None of those exist \
+here, and asking makes the room a phase it isn't.
+- Tarpits: campus food delivery, notes-sharing apps, event-discovery apps. \
+Every first-time college builder arrives with one. Say so plainly when you see \
+one, say why it eats a year, and ask what they have noticed that their \
+classmates haven't — do not simply refuse it.
+
+WHEN THEY ARRIVE EMPTY-HANDED — and only then:
+If they have no candidate at all (they say so, or they tap "I don't have an \
+idea yet"), walk the last seven days of their own life for problems they \
+already touched: a queue they stood in, money they lost, a workaround they \
+watched somebody else do. Their real ideas are in their own week, and a \
+problem they personally stood next to arrives with its room attached — which \
+is exactly what IDEA's bar will ask them for.
+
+A builder who arrives WITH ideas gets their actual question answered first. Do \
+not walk their week at them before that: the week-walk is your fallback when \
+the pile is empty or their candidates die in the tiebreak, never your opening \
+move on somebody who came in with something. Ask what they came to ask.
+
+PARKING CANDIDATES:
+When a real candidate surfaces — a problem, in one line, that somebody could \
+be found and asked about — call park_candidate with it. One line, no research, \
+no links. Call it as they arrive, not in a batch at the end.
+
+You may park at most {max_candidates}. That is a hard limit the server keeps, \
+not a target: three is the point at which collecting stops being thinking. \
+{parking_state}
+
+CHOOSING, AND THE DOOR:
+The tiebreak is the route, not the passion: which of these could you walk into \
+a room and ask somebody about THIS WEEK? Whose user can you name? Market size \
+does not appear in this conversation. When one of them wins, call suggest_goal \
+with a title in their words — it fills the commit box on their screen and \
+commits nothing, so keep talking to them about it if they want to.
+
+Committing is theirs. The box is on the screen the whole time; you never press \
+it and you never tell them they are not ready.
+
+TURNS: {turns_left} of {turns_total} left in this room. When two or fewer \
+remain, say so out loud and name the exit: the pile they have, the one you'd \
+take, and that the box is right there. The room ends; the commit box does not.
+
+--- CHOOSING AN IDEA (the playbook this room teaches from) ---
+{playbook}"""
+
+# Said in the prompt rather than left for the model to infer from the list,
+# because "you have three" and "you may not park a fourth" are different facts
+# and only the second one changes what it should do next.
+PARKING_OPEN = "Parked so far: {parked}."
+PARKING_EMPTY = "Nothing parked yet."
+PARKING_FULL = """The pile is FULL — {parked}. Park nothing further; the server will \
+refuse it. From here the only work left in this room is choosing between these \
+three, and then suggest_goal. If they bring a genuinely better one, say what it \
+would have to beat and make them drop one out loud first."""
+
+PARK_CANDIDATE_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "park_candidate",
+        "description": (
+            "Write down one candidate problem the builder could commit to, as "
+            "it surfaces. One line, in their words. No research, no links. At "
+            "most three per workshop — the server refuses the fourth."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "one_liner": {
+                    "type": "string",
+                    "description": (
+                        "The candidate in one line: who has the problem and "
+                        "what it costs them. Not a product name."
+                    ),
+                }
+            },
+            "required": ["one_liner"],
+        },
+    },
+}
+
+SUGGEST_GOAL_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "suggest_goal",
+        "description": (
+            "Offer a goal title for the candidate the tiebreak landed on. This "
+            "FILLS the commit box on the builder's screen; it does not commit "
+            "anything and never can. Call it once the choice is made, not to "
+            "float options — park_candidate is for those."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": "string",
+                    "description": (
+                        "The goal title, in the builder's own words, specific "
+                        "enough to name who it is for."
+                    ),
+                }
+            },
+            "required": ["title"],
+        },
+    },
+}
+
+
+def parking_state(candidates: list[str], maximum: int) -> str:
+    """What the pile looks like, and whether it is closed."""
+    if not candidates:
+        return PARKING_EMPTY
+    parked = "; ".join(f'"{c}"' for c in candidates)
+    template = PARKING_FULL if len(candidates) >= maximum else PARKING_OPEN
+    return template.format(parked=parked)
+
+
+def build_workshop_prompt(
+    candidates: list[str],
+    turns_used: int,
+    turns_total: int,
+    maximum: int,
+    tone: str,
+) -> str:
+    """The workshop's system prompt. Every number in it is a server count."""
+    return WORKSHOP_SYSTEM.format(
+        respect_rule=RESPECT_RULE,
+        tone_rule=HINGLISH_RULE if tone == "HINGLISH" else "",
+        max_candidates=maximum,
+        parking_state=parking_state(candidates, maximum),
+        # Clamped at zero: the view refuses the turn that would take it
+        # negative, but a prompt that says "-1 turns left" is the app talking
+        # nonsense to a builder in the one room where it has no other footing.
+        turns_left=max(turns_total - turns_used, 0),
+        turns_total=turns_total,
+        playbook=_playbook("choosing-an-idea"),
+    )

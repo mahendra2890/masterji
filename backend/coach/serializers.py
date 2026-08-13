@@ -9,6 +9,7 @@ from .models import (
     Message,
     PhaseTransition,
     ProofAttempt,
+    WorkshopMessage,
 )
 
 
@@ -105,6 +106,16 @@ class MessageSerializer(serializers.ModelSerializer):
         # which is what decides whether the phase's opening questions are worth
         # offering — see the openers in app/Masterji.tsx.
         fields = ["id", "role", "content", "phase", "created_at"]
+        read_only_fields = fields
+
+
+class WorkshopMessageSerializer(serializers.ModelSerializer):
+    """A workshop turn. No `phase` field, unlike MessageSerializer, because the
+    room exists precisely where there is no phase to stamp."""
+
+    class Meta:
+        model = WorkshopMessage
+        fields = ["id", "role", "content", "created_at"]
         read_only_fields = fields
 
 
