@@ -248,7 +248,12 @@ def _turns_used(workshop: Workshop) -> int:
 
 def _workshop_payload(workshop: Workshop | None) -> dict | None:
     """The room, for the no-goal screen. None means there is no room to show —
-    either a goal is active, or nothing has been said yet."""
+    either a goal is active, or nothing has been said yet.
+
+    The transcript goes whole rather than sliced, unlike every other list in
+    this file: WORKSHOP_TURNS bounds it at fifteen of the builder's turns and a
+    reply each, so the cap is already the limit a slice would be imposing.
+    """
     if workshop is None:
         return None
     used = _turns_used(workshop)
@@ -270,8 +275,13 @@ def _workshop_payload(workshop: Workshop | None) -> dict | None:
 
 # Said when the turns are gone. Names the exit, in the register of every other
 # refusal in this file: what they have, and the one door still open.
+#
+# The count is interpolated, never written out in words. WORKSHOP_TURNS owns the
+# number, and a refusal that spells it in prose is a second copy that goes stale
+# the first time the cap moves — the same drift the gate's three number-quoting
+# surfaces already cost this codebase once.
 WORKSHOP_SPENT = (
-    "That's the workshop done — fifteen turns, and thinking time is over. "
+    "That's the workshop done — {turns} turns, and thinking time is over. "
     "You don't need a better idea; you need one you can test. Pick the one you "
     "could ask somebody about this week, put it in the box, and commit. The "
     "first thing it asks for is one evening at your desk."
@@ -1718,7 +1728,8 @@ class WorkshopChatView(throttles.VoicedThrottleMixin, APIView):
         if _turns_used(workshop) >= WORKSHOP_TURNS:
             logger.info(f"Workshop {workshop.id} spent — turn refused")
             return Response(
-                {"detail": WORKSHOP_SPENT}, status=status.HTTP_429_TOO_MANY_REQUESTS
+                {"detail": WORKSHOP_SPENT.format(turns=WORKSHOP_TURNS)},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
             )
         WorkshopMessage.objects.create(
             workshop=workshop, role=WorkshopMessage.Role.USER, content=content
@@ -1810,7 +1821,8 @@ class WorkshopChatView(throttles.VoicedThrottleMixin, APIView):
             if suggested:
                 fields.append("suggested_title")
             if fields:
-                workshop.candidates = candidates
+                if parked:
+                    workshop.candidates = candidates
                 if suggested:
                     workshop.suggested_title = suggested
                 workshop.save(update_fields=[*fields, "updated_at"])

@@ -4236,6 +4236,10 @@ class WorkshopTests(CoachTestCase):
         self.assertEqual(refused.status_code, 429)
         detail = refused.json()["detail"]
         self.assertIn("workshop done", detail)
+        # The count comes from the constant, not from prose: a refusal that
+        # spells the number is a second copy of it that goes stale the first
+        # time the cap moves.
+        self.assertIn(str(views.WORKSHOP_TURNS), detail)
         # A refusal that doesn't name the door is a dead end, which is the
         # failure this whole room was added to fix.
         self.assertIn("commit", detail.lower())

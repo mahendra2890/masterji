@@ -873,8 +873,12 @@ export default function Masterji({ user }: { user: SessionUser }) {
    * each other by design (chat 400s without a goal, this one 400s with one), so
    * a single function would spend its life deciding which product it is in. The
    * cap's refusal arrives as a 429 whose detail is the coach's own sentence, and
-   * it is shown where a reply would have gone rather than as a red banner —
-   * running out of turns is the room working, not an error. */
+   * it goes in the same place as any other refusal here. It reads as a notice
+   * rather than a fault because the calm version is already under it: by the
+   * time this fires, the refetch has zeroed the meter and swapped the composer
+   * for the closed-room line. The banner stays because the hourly throttle
+   * arrives down this same path and is a genuinely different thing — one says
+   * the room is done, the other says come back in a bit. */
   const sendWorkshop = async (retryOf?: string) => {
     const content = (retryOf ?? wsDraft).trim();
     if (!content || wsStreaming !== null) return;
@@ -1208,8 +1212,8 @@ export default function Masterji({ user }: { user: SessionUser }) {
               open. The commit box above it is the door. */}
           {ws && ws.turnsLeft === 0 ? (
             <p className={styles.workshopSpent}>
-              Fifteen turns, done. You don&apos;t need a better idea — you need
-              one you can test. Put it in the box above.
+              {state.workshopTurns} turns, done. You don&apos;t need a better
+              idea — you need one you can test. Put it in the box above.
             </p>
           ) : (
             <div className={styles.workshopComposer}>
