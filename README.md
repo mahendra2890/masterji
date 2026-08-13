@@ -333,14 +333,26 @@ a **dev sign-in** button in development (the endpoint 404s in production),
 and a failed LLM call degrades gracefully. Tests: `.venv/bin/python
 manage.py test` for the backend, `npm run test:web` for the frontend.
 
-The frontend suite is deliberately tiny and stays that way unless
-[#117](https://github.com/mahendra2890/masterji/issues/117) decides otherwise:
-the Django suite is the product's real invariant surface, because the gate is
-server-side by design. What earns a place here is frontend logic that is pure,
-decidable, and costly to be wrong about — today that is the redirect guard on
-the cold-start page ([app/waking/dest.ts](app/waking/dest.ts)), whose input
-comes from the URL bar. Rendering and layout are still verified by driving the
-running app.
+The frontend suite is deliberately tiny, and that is settled rather than
+pending: the Django suite is the product's real invariant surface, because the
+gate is server-side by design. What earns a place here is frontend logic that
+is pure, decidable, and costly to be wrong about — the redirect guard on the
+cold-start page ([app/waking/dest.ts](app/waking/dest.ts)), whose input comes
+from the URL bar; the draft expiry ([lib/drafts.ts](lib/drafts.ts)); the focus
+target ([lib/dialog-focus.ts](lib/dialog-focus.ts)); the export filename
+([lib/download.ts](lib/download.ts)). Rendering and layout are still verified
+by driving the running app.
+
+**No DOM, and that is the decision, not a gap.** There is no `jsdom` and no
+`@testing-library/react`, so nothing here renders a component. What that costs
+is real and worth naming — a rule that lives in a `useEffect` or in JSX cannot
+be asserted at all — and the answer is to move the rule rather than to buy the
+environment: lift the decision out of the component into a function, keep it
+generic over whatever the DOM would have supplied (`trapTarget` takes strings
+in its test and `HTMLElement`s in the hook), and drive the thin remainder in a
+browser. Every module listed above got here that way. When the lift genuinely
+cannot reach something, the pull request says what was driven and what was
+seen.
 
 Deployment (Vercel + Render + Neon + Namecheap DNS): see
 [DEPLOY.md](DEPLOY.md).

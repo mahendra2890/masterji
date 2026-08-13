@@ -8,8 +8,9 @@
 // string, and they are what decides whether an evening's typing comes back.
 //
 // The hook that uses them stays in Masterji.tsx: its rules are about renders
-// (restore once per key, only into an empty box), and testing those needs a DOM
-// this repo has not decided to take on — see #117.
+// (restore once per key, only into an empty box), and asserting those would
+// need a DOM. #117 decided against having one, so those rules are verified by
+// driving the app rather than left waiting for a harness that is not coming.
 
 export const DRAFT_PREFIX = "masterji.draft.";
 

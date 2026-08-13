@@ -10,8 +10,9 @@ import { DRAFT_MAX_AGE_MS, DRAFT_PREFIX, readDraft, writeDraft } from "./drafts"
  *
  * No DOM: these two functions need `window.localStorage` and `Date.now()`, so a
  * stub supplies both. The parts of #82 that DO need rendering — restore once
- * per key, only into an empty box — stay uncovered, which is what is left of
- * #117. */
+ * per key, only into an empty box — are not covered here and will not be:
+ * #117 decided against a rendering harness, and those rules are driven in a
+ * browser instead. */
 
 /** localStorage as these functions use it, over a Map. `fails` is the Safari
  * private-mode case: the property access itself throws. */

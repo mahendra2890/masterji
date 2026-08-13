@@ -32,7 +32,10 @@ function focusable(dialog: HTMLElement | null): HTMLElement[] {
  *
  * Generic over the element type so the decision can be tested without a DOM —
  * the only thing this needs from an element is identity, and `npm run test:web`
- * has no browser to give it (see #117). The two wraps are the trap; `null` in
+ * has no browser to give it, by decision rather than by omission (#117). This
+ * is the pattern that decision leans on: lift the rule out, keep it generic
+ * over whatever the DOM would have supplied, drive the thin remainder in a
+ * browser. The two wraps are the trap; `null` in
  * the middle is what keeps the trap from breaking ordinary tabbing inside the
  * dialog, which is the failure mode of every over-eager version of this.
  */
