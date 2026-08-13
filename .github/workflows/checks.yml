@@ -1,0 +1,82 @@
+# The checks this repo already ran by hand, run by something that cannot forget.
+#
+# Nothing here is a new rule. Every command below is one a session is already
+# instructed to run before it pushes; what changes is that forgetting is no
+# longer possible, and `main` is checked after a merge as well as before one.
+#
+# On `push: main` as well as on pull requests, and that second trigger is the
+# load-bearing one — see the note on the leaf check below.
+name: checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.ref }}
+  # Superseded pull-request runs are wasted minutes; a run on main is a record
+  # of whether main is deployable and is never worth throwing away.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v7
+
+      # 3.13 to match backend/Dockerfile, which is what production runs.
+      # Sessions locally resolve to whatever `requires-python = ">=3.13"`
+      # allows — this tree's .venv is on 3.14 — so this is also the step that
+      # would notice code that only works on the newer one.
+      # Exact version, not a floating major: setup-uv stopped publishing the
+      # `vN` alias after v7, so `@v10` does not resolve to anything.
+      - uses: astral-sh/setup-uv@v10.0.0
+        with:
+          python-version: "3.13"
+          enable-cache: true
+          working-directory: backend
+
+      # First, because it takes under a second and the tests take ninety —
+      # and because a second leaf is the failure that stops main deploying
+      # rather than merely failing.
+      #
+      # Worth being honest about what this catches on a pull request: two
+      # sessions branching from the same main each hold exactly one leaf in
+      # their own graph, so both pass here and collide only once both are
+      # merged. The run on `push: main` is what sees that, after the fact.
+      # Turning it into prevention needs "Require branches to be up to date
+      # before merging" in branch protection, which forces the rebase that
+      # makes the collision visible while it is still a pull request.
+      - name: One migration leaf per app
+        run: uv run python manage.py check_migration_leaf
+
+      - name: Tests
+        run: uv run python manage.py test coach.tests
+
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run test:web
+
+      # Runs TypeScript itself, which is why there is no separate tsc step:
+      # it is the thing that catches a TSX break, and a second type pass would
+      # be the same check billed twice.
+      - run: npm run build
