@@ -26,7 +26,7 @@ from django.utils import timezone
 from rest_framework.test import APITestCase
 from rest_framework.throttling import ScopedRateThrottle
 
-from . import bar, gates, guidance, prompts, throttles, views
+from . import bar, gates, guidance, links, prompts, throttles, views
 from .management.commands import check_migration_leaf
 from .models import (
     ChangelogEntry,
@@ -69,6 +69,16 @@ class CoachTestCase(APITestCase):
         )
         patcher.start()
         self.addCleanup(patcher.stop)
+        # The same rule for the second thing that reaches out of the process.
+        # A proof can carry a link and the prove path opens it, so without this
+        # the suite would make real requests to whatever a test happened to
+        # type. Raising rather than returning None keeps coach.links' own
+        # degrade-to-unchecked path under test on every proof that has a URL.
+        no_net = mock.patch(
+            "coach.links._fetch", side_effect=RuntimeError("no network in tests")
+        )
+        no_net.start()
+        self.addCleanup(no_net.stop)
 
     def make_goal(self, user=None, **kwargs) -> Goal:
         kwargs.setdefault("title", "Tiffin app")
@@ -828,6 +838,191 @@ class ProofImageTests(CoachTestCase):
         self.assertEqual(response.data["today"]["proof_image_url"], "https://signed")
         signer.assert_called_with(key)
         self.assertNotIn(key, str(response.data["today"]))
+
+
+class LinkCheckTests(SimpleTestCase):
+    """What one HTTP answer is taken to mean, and which targets are never asked.
+
+    The mapping is the product decision in this module, so it is pinned as a
+    table rather than one case at a time.
+    """
+
+    # Scoped to the two tests below rather than a setUp, because the third one
+    # needs the real resolver: `localhost` answering with 127.0.0.1 is the
+    # case it exists to pin. A test host deliberately does not resolve —
+    # `tiffin.example.com` is NXDOMAIN, which `check` reads as unchecked — so
+    # these two stub one public address and assert on the mapping.
+    def public_name(self):
+        return mock.patch("coach.links._resolve", return_value=["93.184.216.34"])
+
+    def test_only_gone_means_gone(self):
+        """A server that answers at all is a server that exists.
+
+        401 and 403 are the ones worth being deliberate about: a Figma board, a
+        private repo and a password-protected Vercel deployment all answer that
+        way, and every one of them is a real thing running at a real address. A
+        500 is a deploy that is broken rather than absent, which is not this
+        check's business either. Only 404 and 410 are the server saying there is
+        nothing here — the one shape a fabricated link reliably has, because
+        wildcard DNS means the host usually resolves.
+        """
+        for status_code, alive in (
+            (200, True),
+            (204, True),
+            (301, True),
+            (302, True),
+            (401, True),
+            (403, True),
+            (500, True),
+            (503, True),
+            (404, False),
+            (410, False),
+        ):
+            with self.subTest(status=status_code):
+                with (
+                    self.public_name(),
+                    mock.patch("coach.links._fetch", return_value=status_code),
+                ):
+                    self.assertIs(links.check("https://tiffin.example.com/"), alive)
+
+    def test_head_that_is_not_allowed_is_asked_again_with_get(self):
+        """Some hosts refuse HEAD outright. Two requests at most, and the second
+        one streams so no body is ever read."""
+        with (
+            self.public_name(),
+            mock.patch("coach.links._fetch", side_effect=[405, 200]) as fetch,
+        ):
+            self.assertIs(links.check("https://tiffin.example.com/"), True)
+        self.assertEqual([call.args[1] for call in fetch.call_args_list], ["HEAD", "GET"])
+
+    def test_targets_that_are_never_asked(self):
+        """The whole SSRF surface: this is a URL a stranger typed, fetched by a
+        server that sits inside a private network with a cloud metadata endpoint
+        on it. Anything that is not a public http(s) address is refused before a
+        socket is opened, and refusing is silent — `None`, not `False`, because
+        the builder's link was never actually tried.
+        """
+        for url in (
+            "http://127.0.0.1:8000/health",
+            "http://localhost/admin",
+            "http://169.254.169.254/latest/meta-data/",
+            "http://10.0.0.5/internal",
+            "http://192.168.1.1/",
+            "http://[::1]/",
+            "file:///etc/passwd",
+            "ftp://example.com/x",
+            "not a url at all",
+            "https://",
+        ):
+            with self.subTest(url=url):
+                with mock.patch("coach.links._fetch") as fetch:
+                    self.assertIsNone(links.check(url))
+                fetch.assert_not_called()
+
+    def test_a_public_name_that_resolves_inward_is_refused(self):
+        """The interesting half of the same attack: the host is public, its DNS
+        answer is not. Resolution happens here so the decision is made on the
+        address rather than on the spelling."""
+        with (
+            mock.patch("coach.links._resolve", return_value=["169.254.169.254"]),
+            mock.patch("coach.links._fetch") as fetch,
+        ):
+            self.assertIsNone(links.check("https://harmless.example.com/"))
+        fetch.assert_not_called()
+
+
+class ProofLinkTests(CoachTestCase):
+    """The link is checked by the server and the answer is a fact for the judge.
+
+    Corroboration, never a verdict — the same contract `proof_image_key` has.
+    The reason it matters is the reverse of the obvious one: a first deploy
+    often sits behind a sleeping free tier or a password, so the cost of a
+    wrong "dead" is paid by exactly the builder this product is for.
+    """
+
+    ACCEPT = '{"verdict": "accept", "reaction": "Counted."}'
+
+    def declare_today(self):
+        self.make_goal(phase=Phase.BUILD)
+        self.client.post("/api/coach/checkins/declare/", {"text": "deploy the form"})
+
+    def prove(self, url="https://tiffin.example.com/", verdict=None):
+        with mock.patch(
+            "coach.views.llm.complete", return_value=verdict or self.ACCEPT
+        ) as judge:
+            body = {"text": "it's live"}
+            if url:
+                body["url"] = url
+            response = self.client.post("/api/coach/checkins/prove/", body)
+        self.assertEqual(response.status_code, 200)
+        return judge
+
+    def test_a_link_that_answers_becomes_a_fact_the_judge_is_given(self):
+        self.declare_today()
+        with mock.patch("coach.links.check", return_value=True):
+            judge = self.prove()
+        checkin = CheckIn.objects.get()
+        self.assertIs(checkin.url_alive, True)
+        self.assertIsNotNone(checkin.url_checked_at)
+        system = judge.call_args.args[0]
+        self.assertIn(prompts.URL_ANSWERED, system)
+        self.assertNotIn(prompts.URL_NOT_THERE, system)
+
+    def test_a_dead_link_is_a_fact_and_costs_the_proof_nothing(self):
+        """The line this feature must not cross. The check contributes a fact;
+        the verdict is still the model's and the gate still counts ACCEPTED
+        rows. A link that did not answer is not evidence of anything about the
+        person — same rule as a failed screenshot upload."""
+        self.declare_today()
+        with mock.patch("coach.links.check", return_value=False):
+            judge = self.prove()
+        checkin = CheckIn.objects.get()
+        self.assertIs(checkin.url_alive, False)
+        self.assertEqual(checkin.proof_status, CheckIn.ProofStatus.ACCEPTED)
+        self.assertEqual(gates.accepted_proofs(Goal.objects.get()), 1)
+        system = judge.call_args.args[0]
+        self.assertIn(prompts.URL_NOT_THERE, system)
+
+    def test_a_check_that_never_happened_claims_nothing(self):
+        """Timeout, blocked target, our own network down — all the same state of
+        knowledge, and it is not "dead". The judge is told nothing, which is the
+        LLM-down floor applied to a second optional signal."""
+        self.declare_today()
+        with mock.patch("coach.links.check", return_value=None):
+            judge = self.prove()
+        checkin = CheckIn.objects.get()
+        self.assertIsNone(checkin.url_alive)
+        self.assertEqual(checkin.proof_status, CheckIn.ProofStatus.ACCEPTED)
+        system = judge.call_args.args[0]
+        self.assertNotIn(prompts.URL_ANSWERED, system)
+        self.assertNotIn(prompts.URL_NOT_THERE, system)
+
+    def test_a_proof_with_no_link_is_never_checked(self):
+        self.declare_today()
+        with mock.patch("coach.links.check") as check:
+            judge = self.prove(url=None)
+        check.assert_not_called()
+        system = judge.call_args.args[0]
+        self.assertNotIn(prompts.URL_ANSWERED, system)
+        self.assertNotIn(prompts.URL_NOT_THERE, system)
+
+    def test_a_pushed_back_try_keeps_the_verdict_its_own_link_earned(self):
+        """The bug ProofAttempt exists to prevent, in its URL form: without
+        this, a retry with a live link would leave the trail's dead-link try
+        wearing the live answer."""
+        self.declare_today()
+        with mock.patch("coach.links.check", return_value=False):
+            self.prove(
+                url="https://typo.example.com/",
+                verdict='{"verdict": "push_back", "reaction": "Nothing at that link."}',
+            )
+        with mock.patch("coach.links.check", return_value=True):
+            self.prove(url="https://tiffin.example.com/")
+        checkin = CheckIn.objects.get()
+        self.assertIs(checkin.url_alive, True)
+        attempt = ProofAttempt.objects.get()
+        self.assertEqual(attempt.url, "https://typo.example.com/")
+        self.assertIs(attempt.url_alive, False)
 
 
 @override_settings(

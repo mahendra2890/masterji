@@ -24,7 +24,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from . import bar, gates, guidance, llm, prompts, storage, streaks, throttles
+from . import bar, gates, guidance, links, llm, prompts, storage, streaks, throttles
 from .models import (
     ChangelogEntry,
     CheckIn,
@@ -1192,6 +1192,7 @@ class ProveView(throttles.VoicedThrottleMixin, APIView):
                 checkin=checkin,
                 text=checkin.pm_proof_text,
                 url=checkin.proof_url,
+                url_alive=checkin.url_alive,
                 image_key=checkin.proof_image_key,
                 reaction=checkin.coach_reaction,
             )
@@ -1199,6 +1200,20 @@ class ProveView(throttles.VoicedThrottleMixin, APIView):
 
         checkin.pm_proof_text = text
         checkin.proof_url = (request.data.get("url") or "").strip()
+        # Does the link answer? One bounded request, before the judge reads
+        # anything, because what comes back is a fact the server owns and the
+        # judge is given facts in the system half — the builder's URL itself
+        # stays inside the fence where all their own words are.
+        #
+        # Recomputed on every submission rather than carried: a resubmission is
+        # a different link as often as it is different words, and the answer the
+        # last try got has already been archived onto its ProofAttempt above.
+        checkin.url_alive = links.check(checkin.proof_url) if checkin.proof_url else None
+        # Only stamped when there is an answer to stamp. A check that never
+        # happened leaves both fields NULL, and the row makes no claim.
+        checkin.url_checked_at = (
+            timezone.now() if checkin.url_alive is not None else None
+        )
         # Rows created before the phase field existed (or by an older client)
         # get stamped on their first proof rather than staying unattributed.
         if not checkin.phase:
@@ -1370,6 +1385,8 @@ def _react_to_proof(
         )
         if image:
             system += prompts.PROOF_IMAGE_RULE
+        # Empty unless the server actually got an answer from the link.
+        system += prompts.url_fact(checkin.url_alive)
         user_text = prompts.fence_submission(
             checkin.pm_proof_text, checkin.proof_url
         )

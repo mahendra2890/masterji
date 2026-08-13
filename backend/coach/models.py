@@ -167,6 +167,16 @@ class CheckIn(SoftDeleteModel):
     proof_parts = models.JSONField(default=list, blank=True)
     pm_proof_text = models.TextField(blank=True)
     proof_url = models.URLField(blank=True)
+    # Whether that link answered when the server checked it (coach.links).
+    # NULL is a third state and the important one: it means no answer was
+    # obtained — timeout, a target we declined to fetch, no link at all — and it
+    # must never read as "dead", because a builder whose campus wifi ate the
+    # request has done nothing wrong. Same contract as proof_image_key:
+    # corroboration, never the proof itself, and nothing the gate reads.
+    url_alive = models.BooleanField(null=True, default=None)
+    # When that answer came back. Only set when there is an answer to timestamp,
+    # so a row with url_alive NULL never claims a check happened.
+    url_checked_at = models.DateTimeField(null=True, blank=True)
     # Opaque object-storage key for a screenshot backing tonight's proof.
     # Corroboration, never the proof itself: a failed upload must not cost the
     # builder their check-in, so this stays blank and the text still counts.
@@ -286,6 +296,9 @@ class ProofAttempt(SoftDeleteModel):
     )
     text = models.TextField()
     url = models.URLField(blank=True)
+    # The answer THIS try's link got, for the same reason image_key is here: a
+    # retry with a working link must not leave the refused try wearing it.
+    url_alive = models.BooleanField(null=True, default=None)
     image_key = models.CharField(max_length=200, blank=True)
     reaction = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
