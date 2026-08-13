@@ -23,7 +23,9 @@ PROOFS_REQUIRED = {
 
 
 def accepted_proofs(goal: Goal) -> int:
-    """Proofs banked toward leaving the CURRENT phase.
+    """Proofs banked in the CURRENT phase — what it takes to leave, and at
+    LAUNCH, which has no exit to buy, whether the phase has produced anything
+    at all (at_finish_line).
 
     Attribution is the check-in's stamped phase, written once when the row
     is created and never rewritten. It used to be `updated_at >=
@@ -64,7 +66,9 @@ def contact_proofs(goal: Goal) -> int:
     claim means real people said no, so it needs proofs from the phase whose
     entire job is talking to them. Counting IDEA write-ups here would hand a
     win label to a builder who never spoke to anyone — flattery, not accuracy.
-    Everywhere else, use accepted_proofs_total.
+    Nothing else asks this question: for work done, whatever the phase, use
+    accepted_proofs_total; for what the phase in front of the builder has
+    produced, accepted_proofs.
     """
     return CheckIn.objects.filter(
         goal=goal,
@@ -101,8 +105,16 @@ def at_finish_line(goal: Goal) -> bool:
     Deliberately not a PROOFS_REQUIRED[LAUNCH] entry either — that would give
     gate_status a next_phase to look up past the end of PHASE_ORDER and 500
     the dashboard for exactly the builders who got furthest.
+
+    Counts LAUNCH's own proofs, not the goal's whole record. This read
+    accepted_proofs_total until it was noticed that no goal can arrive at
+    LAUNCH without having banked the six proofs the earlier gates cost — so
+    the win button lit on the first morning of the phase, before the post went
+    out, and offered the exit immediately ahead of the one piece of work the
+    phase exists for. Same count the gate uses everywhere else; the difference
+    is only that LAUNCH has no next phase to spend it on.
     """
-    return Phase(goal.phase) is Phase.LAUNCH and bool(accepted_proofs_total(goal))
+    return Phase(goal.phase) is Phase.LAUNCH and bool(accepted_proofs(goal))
 
 
 def gate_status(goal: Goal) -> dict:

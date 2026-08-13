@@ -1334,6 +1334,56 @@ class RetireTests(CoachTestCase):
             self._retire(goal, reason="Done and used", path="complete").status_code, 200
         )
 
+    def test_arriving_at_launch_does_not_light_the_finish_line(self):
+        """The proofs that paid for the BUILD exit are not evidence about
+        LAUNCH. A goal cannot reach LAUNCH without banking proof — that is what
+        the gate is for — so counting every proof ever banked lit "Claim the
+        win" on the first morning of the phase whose own bar had seen nothing,
+        offering the exit right before the public post.
+
+        Advanced through the real endpoint: the stamp on a check-in is written
+        when the row is created and never rewritten, so proofs earned in BUILD
+        stay BUILD's however far the goal travels afterwards.
+        """
+        goal = self.make_goal(phase="BUILD")
+        self.accept_proofs(goal, gates.PROOFS_REQUIRED[Phase.BUILD])
+        self.assertEqual(
+            self.client.post(f"/api/coach/goals/{goal.pk}/advance/").status_code, 200
+        )
+        goal.refresh_from_db()
+        self.assertEqual(goal.phase, "LAUNCH")
+        self.assertTrue(gates.accepted_proofs_total(goal))  # the work is on the record
+        self.assertFalse(self.client.get("/api/coach/state/").data["at_finish_line"])
+
+    def test_one_launch_proof_lights_the_finish_line(self):
+        """What the button was always meant to mean: the post went out, a
+        stranger acted, or somebody said no with a reason — bar.py's LAUNCH
+        parts. One is enough; LAUNCH has no count to finish."""
+        goal = self.make_goal(phase="LAUNCH")
+        self.accept_proofs(goal, 1)
+        self.assertTrue(self.client.get("/api/coach/state/").data["at_finish_line"])
+
+    def test_a_dark_finish_line_still_closes_as_achieved(self):
+        """Prominence, never permission — the half this change must not break.
+        A builder who launched before they found the app, or who is simply
+        done, keeps the quiet link and the honest reading: reads_as still
+        counts every proof ever banked, so the BUILD work behind them is what
+        makes it ACHIEVED rather than UNVERIFIED.
+        """
+        goal = self.make_goal(phase="LAUNCH")
+        CheckIn.objects.create(
+            goal=goal,
+            date=date.today(),
+            phase="BUILD",
+            am_declaration="ship the form",
+            pm_proof_text="link to the live form",
+            proof_status=CheckIn.ProofStatus.ACCEPTED,
+        )
+        self.assertFalse(self.client.get("/api/coach/state/").data["at_finish_line"])
+        response = self._retire(goal, reason="It's live and in use", path="complete")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["reads_as"], "ACHIEVED")
+
     def test_archive_visible_while_a_new_goal_runs(self):
         """The record can't do its work if it only exists between goals."""
         old = self.make_goal(phase="VALIDATION")
