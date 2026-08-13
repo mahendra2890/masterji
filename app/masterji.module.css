@@ -1116,6 +1116,22 @@
   min-width: 6ch;
 }
 
+/* The repeat marker, for a day that holds more than one declare→prove cycle.
+   Its own column rather than more characters inside .historyDate: that column
+   is a fixed 6ch precisely so every declaration starts at one left edge, and
+   widening it to fit "· 2nd" would move forty rows to accommodate two. Five
+   characters of the same mono font, so the marker sets its own column and the
+   rows without one still line up. Rendered at all only when the list being
+   shown holds a repeat — on a phone this is 5ch of a narrow row, and most
+   records never have one. */
+.historyCycle {
+  font-family: var(--font-mono), monospace;
+  color: var(--muted);
+  font-size: 12px;
+  flex-shrink: 0;
+  min-width: 5ch;
+}
+
 .historyPhase {
   font-family: var(--font-mono), monospace;
   font-size: 10px;
