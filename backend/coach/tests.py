@@ -911,7 +911,10 @@ class StateTests(CoachTestCase):
             "phases",
         ]:
             self.assertIn(key, response.data)
-        self.assertEqual(response.data["gate"], {"have": 1, "need": 1, "next_phase": "VALIDATION", "owed": []})
+        self.assertEqual(
+            response.data["gate"],
+            {"have": 1, "need": 1, "next_phase": "VALIDATION", "owed": [], "banked": 1},
+        )
         self.assertEqual(response.data["phases"], ["IDEA", "VALIDATION", "BUILD", "LAUNCH"])
 
     def test_state_carries_the_best_run_alongside_the_current_one(self):
@@ -1560,7 +1563,10 @@ class RetireTests(CoachTestCase):
         self._retire(old)
         self.client.post("/api/coach/goals/", {"title": "Next idea"})
         response = self.client.get("/api/coach/state/")
-        self.assertEqual(response.data["gate"], {"have": 0, "need": 1, "next_phase": "VALIDATION", "owed": []})
+        self.assertEqual(
+            response.data["gate"],
+            {"have": 0, "need": 1, "next_phase": "VALIDATION", "owed": [], "banked": 0},
+        )
         self.assertEqual(response.data["streak"], 0)  # per-goal: this idea is new
         self.assertEqual(response.data["lifetime_days"], 2)  # per-user: work remembered
         self.assertEqual(len(response.data["archive"]), 1)
@@ -2440,6 +2446,70 @@ class GateCountsPeopleAndKindsTests(CoachTestCase):
         self.bank(goal, 3)
         self.assertEqual(gates.accepted_proofs(goal), 3)
         self.assertTrue(gates.try_advance(goal)[0])
+
+    def test_the_refusal_says_why_three_proofs_read_as_one(self):
+        """The number on screen is people and the record is rows, and a refusal
+        that names only the first reads as the gate having lost two nights of
+        accepted work — the one reading that is not true."""
+        goal = self.make_goal(phase=Phase.VALIDATION)
+        self.bank(goal, 3, subject="priya")
+        advanced, message = gates.try_advance(goal)
+        self.assertFalse(advanced)
+        self.assertIn("1/3", message)
+        self.assertIn("3 accepted proofs", message)
+        self.assertIn("1 person", message)
+        self.assertIn("2 more", message)
+        # The other two branches of this refusal both name the phase being
+        # bought. Dropping it here would make the one refusal a builder gets
+        # in chat, away from the meter, the only one that doesn't say what
+        # the work is for.
+        self.assertIn("BUILD", message)
+
+    def test_the_coach_is_told_both_numbers_not_just_the_gate_count(self):
+        """THE BUILDER'S STATE says "trust this over anything claimed in chat".
+        A builder who filed three proofs about one person will say so, and a
+        coach holding "1/3 accepted proofs" as database truth would tell them
+        they are wrong about their own record."""
+        goal = self.make_goal(phase=Phase.VALIDATION)
+        self.bank(goal, 3, subject="priya")
+        line = prompts.proof_progress(gates.gate_status(goal))
+        self.assertIn("3 accepted proofs", line)
+        self.assertIn("1 person", line)
+
+    def test_a_rows_phase_states_its_progress_exactly_as_it_always_did(self):
+        """The line every other phase gets is unchanged, and that is the point:
+        this only speaks where there is a difference to explain."""
+        goal = self.make_goal(phase=Phase.BUILD)
+        self.bank(goal, 1, parts=["link"])
+        self.assertEqual(
+            prompts.proof_progress(gates.gate_status(goal)),
+            "1/2 accepted proofs toward LAUNCH",
+        )
+
+    def test_the_meter_carries_the_rows_beside_the_people(self):
+        """What the dashboard needs to say the same thing without the builder
+        having to press a button to hear it."""
+        goal = self.make_goal(phase=Phase.VALIDATION)
+        self.bank(goal, 3, subject="priya")
+        status = gates.gate_status(goal)
+        self.assertEqual((status["have"], status["banked"]), (1, 3))
+
+    def test_a_phase_that_counts_rows_reads_them_the_same(self):
+        """The dashboard shows the difference, so on a phase that never counts
+        people there must not be one to show."""
+        goal = self.make_goal(phase=Phase.BUILD)
+        self.bank(goal, 2, parts=["link"])
+        status = gates.gate_status(goal)
+        self.assertEqual(status["banked"], status["have"])
+
+    def test_unlabelled_proofs_leave_no_gap_to_explain(self):
+        """Every row banked before the subject field existed is blank and each
+        counts as its own person. The false-refusal rule has a screen half: those
+        builders must not be told their nights stopped counting either."""
+        goal = self.make_goal(phase=Phase.VALIDATION)
+        self.bank(goal, 2)
+        status = gates.gate_status(goal)
+        self.assertEqual(status["banked"], status["have"])
 
     def test_build_needs_one_proof_a_real_user_touched(self):
         goal = self.make_goal(phase=Phase.BUILD)
