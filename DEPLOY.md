@@ -92,7 +92,9 @@ is no signup form.
 
 ## 6. Keep-alive — don't, unless this is your only free service
 
-Render free sleeps after 15 idle minutes and takes ~1 minute to wake. The
+Render free sleeps after 15 idle minutes. Waking costs more here than
+Render's own "about one minute": §2 measures about two, because the first
+request pays `migrate` on 0.1 CPU as well as the container start. The
 obvious fix is a 5-minute pinger on `/api/health/`, and that is a trap once
 you have more than one free service:
 
@@ -108,7 +110,9 @@ every other free service down with it until the 1st. Sleeping services cost
 nothing, so on-demand wake-ups for several apps are far cheaper than keeping
 one warm.
 
-The recommendation: **run no pinger.** Accept the ~1 minute first-hit wait.
+The recommendation: **run no pinger.** Take the cold start and let the note
+§2 describes stand in front of it — that note exists precisely so the wait
+reads as a wait rather than as a broken site.
 Add one only if this is the single free web service in the workspace, or
 window it to the hours you actually demo (cron-job.org supports schedules;
 UptimeRobot's free tier doesn't).
