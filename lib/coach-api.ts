@@ -30,7 +30,17 @@ export type Goal = {
   createdAt: string;
 };
 
-export type Gate = { have: number; need: number; nextPhase: Phase | null };
+// `owed` is the KINDS of evidence the phase still has none of, already worded
+// for the builder (the server reads bar.py's own labels). Empty on every phase
+// that only counts rows. It is separate from have/need because it is a different
+// shape of shortfall: a full count with something still owed is a real state,
+// and the meter must not read it as earned.
+export type Gate = {
+  have: number;
+  need: number;
+  nextPhase: Phase | null;
+  owed: string[];
+};
 
 export type PhaseTransition = {
   fromPhase: Phase;
@@ -177,7 +187,12 @@ type ServerGoal = {
   status: string;
   created_at: string;
 };
-type ServerGate = { have: number; need: number; next_phase: Phase | null };
+type ServerGate = {
+  have: number;
+  need: number;
+  next_phase: Phase | null;
+  owed?: string[];
+};
 type ServerTransition = {
   from_phase: Phase;
   to_phase: Phase;
@@ -256,7 +271,15 @@ const fromServerCheckIn = (c: ServerCheckIn): CheckIn => ({
 });
 
 const fromServerGate = (g: ServerGate | null): Gate | null =>
-  g && { have: g.have, need: g.need, nextPhase: g.next_phase };
+  g && {
+    have: g.have,
+    need: g.need,
+    nextPhase: g.next_phase,
+    // Defaulted, not required: a client that outlives a rollback reads a
+    // payload without it, and `owed` missing has to mean nothing is owed
+    // rather than crashing the meter.
+    owed: g.owed ?? [],
+  };
 
 const fromServerGoal = (g: ServerGoal): Goal => ({
   id: g.id,

@@ -6,26 +6,60 @@ advance (a function call from chat) and the dashboard has a button, but
 both roads lead here, and here only the database counts.
 """
 
+from typing import NamedTuple
+
 from django.utils import timezone
 from loguru import logger
 
-from . import guidance
+from . import bar, guidance
 from .models import CheckIn, Goal, Phase, PhaseTransition
 
 PHASE_ORDER = [Phase.IDEA, Phase.VALIDATION, Phase.BUILD, Phase.LAUNCH]
 
+
+class Need(NamedTuple):
+    """What it takes to leave a phase, in the terms the database can check.
+
+    `n` was the whole of this once, and a row count is the one thing a phase bar
+    is not: VALIDATION's three conversations can be three conversations with the
+    same willing friend, and BUILD's two artifacts can both be links nobody ever
+    opened. Both are real work and neither is the evidence the phase exists to
+    collect, and until the row carried WHO and WHICH PART, the only thing that
+    could tell the difference was the judge prompt — which is precisely what
+    this product says cannot be trusted with a gate.
+    """
+
+    n: int
+    # Count distinct people rather than rows (CheckIn.subject).
+    people: bool = False
+    # part key -> how many of the n must carry it (CheckIn.proof_parts). Shared
+    # and never mutated; a phase with no kinds requirement gets the same empty
+    # mapping every time.
+    kinds: dict[str, int] = {}
+
+
 # Accepted proofs required to LEAVE each phase.
+#
+# LAUNCH deliberately has no entry — see at_finish_line. When TRACTION lands
+# (#60) and LAUNCH gains one, its shape is Need(n=3, kinds={"action": 1}): the
+# same argument as BUILD's, one phase further up.
 PROOFS_REQUIRED = {
-    Phase.IDEA: 1,  # a written problem statement + who has it
-    Phase.VALIDATION: 3,  # three real customer conversations
-    Phase.BUILD: 2,  # a working demo + evidence someone used it
+    Phase.IDEA: Need(n=1),  # a written problem statement + who has it
+    # Three real customer conversations — with three people. The README's own
+    # caption says "the person already counted cannot be counted again", and
+    # this is the line that makes it true rather than hoped for.
+    Phase.VALIDATION: Need(n=3, people=True),
+    # A working demo + evidence someone used it. Two evenings, at least one of
+    # them a real user touching the thing: the bar is any-of by design, and
+    # without the kinds floor the any-of lets a builder leave BUILD having
+    # shipped an artifact at a people-shaped problem, which gates.py's own
+    # docstring for this phase says is the failure it is here to catch.
+    Phase.BUILD: Need(n=2, kinds={"touched": 1}),
 }
 
 
-def accepted_proofs(goal: Goal) -> int:
-    """Proofs banked in the CURRENT phase — what it takes to leave, and at
-    LAUNCH, which has no exit to buy, whether the phase has produced anything
-    at all (at_finish_line).
+def _banked(goal: Goal):
+    """Accepted proofs stamped with the goal's CURRENT phase.
 
     Attribution is the check-in's stamped phase, written once when the row
     is created and never rewritten. It used to be `updated_at >=
@@ -38,7 +72,58 @@ def accepted_proofs(goal: Goal) -> int:
         goal=goal,
         phase=goal.phase,
         proof_status=CheckIn.ProofStatus.ACCEPTED,
-    ).count()
+    )
+
+
+def accepted_proofs(goal: Goal) -> int:
+    """What the CURRENT phase has banked, counted the way this phase counts —
+    what it takes to leave, and at LAUNCH, which has no exit to buy, whether the
+    phase has produced anything at all (at_finish_line).
+
+    Rows everywhere except VALIDATION, where it is people: three nights of notes
+    about one hostelmate are three days of honest work and one person's word, and
+    the phase exists to establish that more than one person has the problem.
+
+    A BLANK subject counts as its own person. The label is the model's
+    contribution and the evening's work is the builder's, so an extraction that
+    came back empty must never quietly un-bank a proof that was accepted on its
+    merits — the same rule proof_image_key follows, and the same rule the whole
+    prompt history of this file defends.
+    """
+    rows = _banked(goal)
+    need = PROOFS_REQUIRED.get(Phase(goal.phase))
+    if need is None or not need.people:
+        return rows.count()
+    return (
+        rows.exclude(subject="").values("subject").distinct().count()
+        + rows.filter(subject="").count()
+    )
+
+
+def kinds_owed(goal: Goal) -> list[str]:
+    """Which KINDS of evidence the current phase still has none of, named the
+    way the builder was asked for them (bar.Part.label).
+
+    Separate from accepted_proofs because it is a different question and has a
+    different answer shape: "how many nights" is a number the meter can fill,
+    "and one of them has to be a real user" is a sentence. Rolling the second
+    into the first would show a builder 1/2 for two banked evenings, which is
+    the gate lying about work that is on the record.
+    """
+    need = PROOFS_REQUIRED.get(Phase(goal.phase))
+    if need is None or not need.kinds:
+        return []
+    # Counted in Python, unlike every other count in this module, and not by
+    # preference: Django's JSON `contains` lookup is unsupported on SQLite, which
+    # is what the tests and a local checkout run on. A gate whose arithmetic only
+    # works on the production backend is a gate nobody can test, and this one is
+    # bounded by the current phase's accepted check-ins — single digits, always.
+    banked = list(_banked(goal).values_list("proof_parts", flat=True))
+    return [
+        bar.label_for(goal.phase, key)
+        for key, count in need.kinds.items()
+        if sum(1 for parts in banked if key in (parts or [])) < count
+    ]
 
 
 CONTACT_PHASES = [Phase.VALIDATION, Phase.BUILD, Phase.LAUNCH]
@@ -118,15 +203,23 @@ def at_finish_line(goal: Goal) -> bool:
 
 
 def gate_status(goal: Goal) -> dict:
-    """How far the builder is from unlocking the next phase."""
+    """How far the builder is from unlocking the next phase.
+
+    `owed` is the second half of that distance and it is carried separately on
+    purpose: the dashboard promises "Earned. VALIDATION is yours to open." off
+    have >= need, and a phase that then refused would be a lit door that doesn't
+    open — worse than the locked door with no sign this file already worried
+    about, because the builder pressed it on the product's own word.
+    """
     need = PROOFS_REQUIRED.get(Phase(goal.phase))
     if need is None:  # LAUNCH — nothing left to unlock
-        return {"have": 0, "need": 0, "next_phase": None}
+        return {"have": 0, "need": 0, "next_phase": None, "owed": []}
     idx = PHASE_ORDER.index(Phase(goal.phase))
     return {
         "have": accepted_proofs(goal),
-        "need": need,
+        "need": need.n,
         "next_phase": PHASE_ORDER[idx + 1],
+        "owed": kinds_owed(goal),
     }
 
 
@@ -136,16 +229,29 @@ def try_advance(goal: Goal) -> tuple[bool, str]:
     if status["next_phase"] is None:
         return False, "You're at LAUNCH — there is no next phase. Ship."
 
+    # A bare count is a locked door with no sign on it. The dashboard's advance
+    # button reaches this with no LLM in the loop, so if the refusal doesn't name
+    # the next action, nothing does.
+    nudge = guidance.GATE_NUDGE.get(Phase(goal.phase))
+
     if status["have"] < status["need"]:
         missing = status["need"] - status["have"]
         refusal = (
             f"Not yet. {status['have']}/{status['need']} accepted proofs in "
             f"{goal.phase} — {missing} more before {status['next_phase']} unlocks."
         )
-        # A bare count is a locked door with no sign on it. The dashboard's
-        # advance button reaches this with no LLM in the loop, so if the
-        # refusal doesn't name the next action, nothing does.
-        nudge = guidance.GATE_NUDGE.get(Phase(goal.phase))
+        return False, f"{refusal} {nudge}" if nudge else refusal
+
+    if status["owed"]:
+        # The count is met and the kind is not. Say both, in that order: the
+        # nights are banked and stay banked, and what is left is one specific
+        # piece of evidence rather than more of the same.
+        owed = "; ".join(status["owed"])
+        refusal = (
+            f"{status['have']}/{status['need']} accepted proofs in {goal.phase} "
+            f"— the count is there. What isn't: {owed}. That's what "
+            f"{status['next_phase']} costs."
+        )
         return False, f"{refusal} {nudge}" if nudge else refusal
 
     from_phase = goal.phase

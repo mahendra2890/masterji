@@ -124,7 +124,9 @@ GATE_NUDGE = {
     ),
     Phase.BUILD: (
         "Put the smallest working piece in front of one person who already "
-        "talked to you. A link that loads is enough."
+        "talked to you. A link that loads is a night's proof — but one of the "
+        "two has to be somebody actually using it, so send it to one of your "
+        "VALIDATION people tonight and write down what they did with it."
     ),
 }
 

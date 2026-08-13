@@ -672,11 +672,45 @@ isn't enough" is a wasted evening.
 
 {evidence_rule}
 
+{label_rule}
+
 Reply with STRICT JSON only, no markdown fences:
-{{"verdict": "accept" | "push_back", "reaction": "<2-3 sentences in Masterji's voice>"}}
+{{"verdict": "accept" | "push_back", "reaction": "<2-3 sentences in Masterji's \
+voice>", "parts": [<part keys>], "subject": "<the person, or \\"\\">"}}
 
 The builder's phase: {phase}. Their declared task this morning: "{declared}".
 {asked_for}{prior_try}{from_offer}{banked}"""
+
+# The labels the gate counts, asked for in the same call that already decides
+# the verdict — the suggest_proof bargain (the model extracts, the server
+# counts) applied to the evening's judgement.
+#
+# Two things are load-bearing in the wording. The keys are LISTED, because a
+# gate that counts kinds has to count names bar.py chose and an invented key is
+# dropped on arrival (views._labels_from_verdict). And the labels are explicitly
+# not part of the verdict: a model that thinks a missing label might cost the
+# builder their evening has a reason to shade the accept, and this is the one
+# call in the product whose output is a decision about a person.
+LABEL_RULE = """LABEL WHAT YOU ACCEPTED. Two extra fields, and neither one \
+changes the verdict you just reached — they are how the record knows what this \
+evening was, and getting them wrong or leaving them empty never costs the \
+builder the proof.
+
+- "parts": which of this phase's pieces the evidence actually contains, using \
+EXACTLY these keys: {keys}. Only the ones that are really there. On a push-back, \
+send [].
+- "subject": the person this evidence is about — the name or the role they gave, \
+as they gave it, nothing added. Empty string when the evening is not about one \
+person (an artifact, a link, a post), and empty when you cannot tell. Never \
+guess, and never write "a user" or "someone": an invented name is a person on \
+the record who does not exist."""
+
+
+def label_rule_for(phase) -> str:
+    """LABEL_RULE with this phase's own part keys in it — the same
+    build-it-from-bar.py move suggest_proof_tool makes, so a bar that gains a
+    part cannot leave the judge asking for the old set."""
+    return LABEL_RULE.format(keys=", ".join(f'"{k}"' for k in bar.known_parts(phase)))
 
 # Only present when the morning judgement produced a tailored ask. Without it
 # the evening review grades against the phase in general, which is how a

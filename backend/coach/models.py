@@ -134,6 +134,31 @@ class CheckIn(SoftDeleteModel):
     # what the builder said, never a verdict — a partial draft that gets filed
     # is judged like any other proof.
     proof_missing = models.TextField(blank=True)
+    # WHO this evening's proof is about, as a counting key — normalised (folded
+    # and whitespace-collapsed) so "Priya " and "priya" are one person, and read
+    # by nothing that displays anything. gates.accepted_proofs counts distinct
+    # values of it at VALIDATION, which is the phase whose whole point is that
+    # more than one person has the problem. Three real conversations with the
+    # same hostelmate are three days of real work and one person's word.
+    #
+    # BLANK IS NOT A FAILURE. An unlabelled proof counts as its own person, the
+    # same way a missing screenshot costs the day nothing: the label is the
+    # model's contribution and the work is the builder's, so a proof that was
+    # accepted on its merits must never be un-banked because the extraction
+    # came back empty.
+    subject = models.CharField(max_length=120, blank=True)
+    # Which parts of the phase's bar (bar.BAR) this evening's evidence actually
+    # satisfied — the keys only, never the values, because the values are the
+    # proof text and it is already on the row.
+    #
+    # This is what lets a gate count KINDS rather than rows. BUILD's bar is
+    # any-of — a link that loads, OR evidence a real user touched it — so two
+    # link evenings could leave BUILD with nobody having touched the thing,
+    # which is the one outcome the phase exists to prevent. Written once when
+    # the proof is judged, and never rewritten afterwards: same discipline as
+    # `phase`, and for the same reason — a banked proof whose label can move is
+    # a gate that can be re-argued.
+    proof_parts = models.JSONField(default=list, blank=True)
     pm_proof_text = models.TextField(blank=True)
     proof_url = models.URLField(blank=True)
     # Opaque object-storage key for a screenshot backing tonight's proof.

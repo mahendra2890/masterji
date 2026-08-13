@@ -234,8 +234,9 @@ const SLIDES: Slide[] = [
         stage you think you&apos;re at. The line under the stepper is what this
         phase is for; the counter is what gets you out of it —{" "}
         <strong>1</strong> accepted proof to leave IDEA, <strong>3</strong>{" "}
-        conversations to leave VALIDATION, <strong>2</strong> working artifacts
-        to leave BUILD.
+        conversations with <strong>3 different people</strong> to leave
+        VALIDATION, <strong>2</strong> working artifacts to leave BUILD, one of
+        them a real user actually touching it.
       </>,
       <>
         The surprising half is the last line of what he asks for:{" "}

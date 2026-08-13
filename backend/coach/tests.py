@@ -52,7 +52,18 @@ class CoachTestCase(APITestCase):
 
     def accept_proofs(self, goal: Goal, n: int):
         """Bank n accepted proofs in the goal's CURRENT phase — the gate
-        attributes by the stamped phase, exactly as the views write it."""
+        attributes by the stamped phase, exactly as the views write it.
+
+        Rows are labelled with whatever KINDS of evidence the phase requires
+        (gates.Need.kinds), because that is what "n accepted proofs" means to
+        every caller here: the builder did the work this phase asks for. A
+        deliberately unlabelled row is a different scenario and the tests that
+        want one say so — see GateCountsPeopleAndKindsTests. Subjects stay blank:
+        an unlabelled proof counts as its own person by design, so a caller
+        banking three of them still gets three.
+        """
+        need = gates.PROOFS_REQUIRED.get(Phase(goal.phase))
+        kinds = list(need.kinds) if need else []
         for i in range(n):
             CheckIn.objects.create(
                 goal=goal,
@@ -61,6 +72,7 @@ class CoachTestCase(APITestCase):
                 am_declaration="talk to a customer",
                 pm_proof_text="notes from the talk",
                 proof_status=CheckIn.ProofStatus.ACCEPTED,
+                proof_parts=kinds,
             )
 
 
@@ -899,7 +911,7 @@ class StateTests(CoachTestCase):
             "phases",
         ]:
             self.assertIn(key, response.data)
-        self.assertEqual(response.data["gate"], {"have": 1, "need": 1, "next_phase": "VALIDATION"})
+        self.assertEqual(response.data["gate"], {"have": 1, "need": 1, "next_phase": "VALIDATION", "owed": []})
         self.assertEqual(response.data["phases"], ["IDEA", "VALIDATION", "BUILD", "LAUNCH"])
 
     def test_state_carries_the_best_run_alongside_the_current_one(self):
@@ -1451,7 +1463,7 @@ class RetireTests(CoachTestCase):
         stay BUILD's however far the goal travels afterwards.
         """
         goal = self.make_goal(phase="BUILD")
-        self.accept_proofs(goal, gates.PROOFS_REQUIRED[Phase.BUILD])
+        self.accept_proofs(goal, gates.PROOFS_REQUIRED[Phase.BUILD].n)
         self.assertEqual(
             self.client.post(f"/api/coach/goals/{goal.pk}/advance/").status_code, 200
         )
@@ -1548,7 +1560,7 @@ class RetireTests(CoachTestCase):
         self._retire(old)
         self.client.post("/api/coach/goals/", {"title": "Next idea"})
         response = self.client.get("/api/coach/state/")
-        self.assertEqual(response.data["gate"], {"have": 0, "need": 1, "next_phase": "VALIDATION"})
+        self.assertEqual(response.data["gate"], {"have": 0, "need": 1, "next_phase": "VALIDATION", "owed": []})
         self.assertEqual(response.data["streak"], 0)  # per-goal: this idea is new
         self.assertEqual(response.data["lifetime_days"], 2)  # per-user: work remembered
         self.assertEqual(len(response.data["archive"]), 1)
@@ -2361,6 +2373,225 @@ class OpenersReachEveryPhaseTests(CoachTestCase):
         for phase in Phase:
             with self.subTest(phase=phase):
                 self.assertTrue(guidance.OPENERS[phase])
+
+
+class GateCountsPeopleAndKindsTests(CoachTestCase):
+    """The gate counting what the phase is actually for.
+
+    Both halves of this move a promise the product already makes in prose into a
+    WHERE clause. The README's screenshot caption says "the person already
+    counted cannot be counted again" — that was kept by the judge prompt alone,
+    and a prompt keeping a gate is the one arrangement this product's whole
+    thesis says does not work. BUILD's bar is any-of by design, so two link
+    evenings could leave the phase with nobody having touched the thing, which
+    is the exact hiding move gates.py's own comment says BUILD exists to catch.
+
+    The rule running the other way is just as load-bearing and has its own tests
+    below: a missing label never costs a builder work that was accepted on its
+    merits. The label is the model's contribution; the evening is theirs.
+    """
+
+    def bank(self, goal, n, subject="", parts=None, start=0):
+        """n accepted proofs in the goal's current phase, labelled."""
+        for i in range(n):
+            CheckIn.objects.create(
+                goal=goal,
+                date=date.today() - timedelta(days=start + i),
+                phase=goal.phase,
+                am_declaration="talk to someone",
+                pm_proof_text=f"notes {start + i}",
+                proof_status=CheckIn.ProofStatus.ACCEPTED,
+                subject=subject,
+                proof_parts=parts or [],
+            )
+
+    def test_three_conversations_with_one_person_count_once(self):
+        """The heaviest gate in the product, met by one willing hostelmate three
+        times. Real work, wrong evidence: VALIDATION exists to establish that
+        more than one person has the problem."""
+        goal = self.make_goal(phase=Phase.VALIDATION)
+        self.bank(goal, 3, subject="priya")
+        self.assertEqual(gates.accepted_proofs(goal), 1)
+        advanced, message = gates.try_advance(goal)
+        self.assertFalse(advanced)
+        self.assertIn("1/3", message)
+
+    def test_three_people_open_the_gate(self):
+        goal = self.make_goal(phase=Phase.VALIDATION)
+        for i, name in enumerate(("priya", "ramesh", "sunita")):
+            self.bank(goal, 1, subject=name, start=i)
+        self.assertEqual(gates.accepted_proofs(goal), 3)
+        self.assertTrue(gates.try_advance(goal)[0])
+
+    def test_the_same_name_written_two_ways_is_one_person(self):
+        """Counting keys are normalised on write, so "Priya " and "priya" do not
+        buy two proofs. Deliberately crude — see bar.normalise_subject."""
+        goal = self.make_goal(phase=Phase.VALIDATION)
+        self.assertEqual(bar.normalise_subject("  Priya  S "), "priya s")
+        self.bank(goal, 1, subject=bar.normalise_subject("Priya"))
+        self.bank(goal, 1, subject=bar.normalise_subject("priya "), start=1)
+        self.assertEqual(gates.accepted_proofs(goal), 1)
+
+    def test_an_unlabelled_proof_counts_as_its_own_person(self):
+        """The false-refusal rule, and the reason it is not optional: every proof
+        banked before this field existed has a blank subject, and no builder may
+        wake up to a gate that moved backwards under them."""
+        goal = self.make_goal(phase=Phase.VALIDATION)
+        self.bank(goal, 3)
+        self.assertEqual(gates.accepted_proofs(goal), 3)
+        self.assertTrue(gates.try_advance(goal)[0])
+
+    def test_build_needs_one_proof_a_real_user_touched(self):
+        goal = self.make_goal(phase=Phase.BUILD)
+        self.bank(goal, 2, parts=["link"])
+        self.assertEqual(gates.accepted_proofs(goal), 2)
+        advanced, message = gates.try_advance(goal)
+        self.assertFalse(advanced)
+        # The count is met, so the refusal must not claim proofs are missing —
+        # it has to name the kind, or it reads as the gate losing banked work.
+        self.assertIn("2/2", message)
+        self.assertIn(bar.label_for(Phase.BUILD, "touched"), message)
+        self.assertIn(guidance.GATE_NUDGE[Phase.BUILD], message)
+
+    def test_build_opens_once_a_user_has_touched_it(self):
+        goal = self.make_goal(phase=Phase.BUILD)
+        self.bank(goal, 1, parts=["link"])
+        self.bank(goal, 1, parts=["touched"], start=1)
+        self.assertEqual(gates.kinds_owed(goal), [])
+        self.assertTrue(gates.try_advance(goal)[0])
+
+    def test_the_meter_never_says_earned_while_a_kind_is_owed(self):
+        """The dashboard promises "Earned. X is yours to open." off have >= need.
+        Without `owed` in the payload it would promise it here, and the button
+        under it would refuse — a lit door that doesn't open, on the product's
+        own word."""
+        goal = self.make_goal(phase=Phase.BUILD)
+        self.bank(goal, 2, parts=["link"])
+        status = gates.gate_status(goal)
+        self.assertEqual(status["have"], status["need"])
+        self.assertEqual(status["owed"], [bar.label_for(Phase.BUILD, "touched")])
+
+    def test_a_phase_that_only_counts_rows_owes_no_kinds(self):
+        """IDEA and VALIDATION must keep answering the empty list — the meter
+        reads `owed` on every phase, and a stray label there would hold a gate
+        shut that nothing asked for."""
+        goal = self.make_goal()
+        for phase in (Phase.IDEA, Phase.VALIDATION, Phase.LAUNCH):
+            with self.subTest(phase=phase):
+                goal.phase = phase
+                goal.save(update_fields=["phase"])
+                self.bank(goal, 3)
+                self.assertEqual(gates.kinds_owed(goal), [])
+
+
+class ProofLabelsTests(CoachTestCase):
+    """Where the two labels come from, on both paths a proof can be accepted.
+
+    The issues that asked for this counting both said the parts were "already
+    stored in the offer flow". They are not: bar.read composes the draft text and
+    the arguments are dropped at the end of the turn, so the labels had to be
+    given somewhere to live on each path — the draft's own arguments for a draft
+    filed unedited (which never reaches a model again), and the judge's verdict
+    for everything else.
+    """
+
+    PARTS = {
+        "who": "Ramesh, the mess contractor",
+        "quotes": ["40-50 plates wasted", "nobody replied by 18:00", "no numbers"],
+        "last_action": "Tried a WhatsApp group; it died in a week",
+        "commitment": "Asked for an intro — he gave it",
+    }
+
+    def setUp(self):
+        super().setUp()
+        self.goal = self.make_goal(phase=Phase.VALIDATION)
+        self.client.post("/api/coach/checkins/declare/", {"text": "talk to Ramesh"})
+
+    def draft(self, text="Spoke to Ramesh. 40-50 plates wasted most nights."):
+        events = [
+            (
+                "tool_call",
+                {"name": "suggest_proof", "arguments": {"text": text, **self.PARTS}},
+            )
+        ]
+        with mock.patch("coach.views.llm.stream_chat", return_value=iter(events)):
+            response = self.client.post("/api/coach/chat/", {"content": "talked to him"})
+            b"".join(response.streaming_content)
+        return text
+
+    def prove(self, text, reply):
+        with mock.patch("coach.views.llm.complete", return_value=reply):
+            self.client.post("/api/coach/checkins/prove/", {"text": text})
+        return CheckIn.objects.get()
+
+    def test_a_draft_filed_unedited_carries_its_own_labels(self):
+        """This path accepts with no model call at all, so the draft's arguments
+        are the only place its labels can come from."""
+        text = self.draft()
+        checkin = self.prove(text, '{"verdict": "push_back", "reaction": "no"}')
+        self.assertEqual(checkin.proof_status, CheckIn.ProofStatus.ACCEPTED)
+        self.assertEqual(checkin.subject, "ramesh, the mess contractor")
+        self.assertEqual(checkin.proof_parts, list(self.PARTS))
+
+    def test_the_judge_labels_a_proof_the_builder_typed(self):
+        checkin = self.prove(
+            "Spoke to Sunita at the girls' hostel mess. She counts plates by hand.",
+            '{"verdict": "accept", "reaction": "That is contact.", '
+            '"parts": ["who", "last_action"], "subject": "Sunita"}',
+        )
+        self.assertEqual(checkin.proof_status, CheckIn.ProofStatus.ACCEPTED)
+        self.assertEqual(checkin.subject, "sunita")
+        self.assertEqual(checkin.proof_parts, ["who", "last_action"])
+
+    def test_an_invented_part_key_is_dropped(self):
+        """A gate that counts kinds counts names bar.py chose. Anything else and
+        the model can mint the key that opens the phase."""
+        checkin = self.prove(
+            "Notes from the call.",
+            '{"verdict": "accept", "reaction": "Counted.", '
+            '"parts": ["who", "vibes"], "subject": ""}',
+        )
+        self.assertEqual(checkin.proof_parts, ["who"])
+
+    def test_an_accept_with_no_labels_still_banks(self):
+        """The floor. A verdict that flakes on the extra fields must cost the
+        builder nothing: the proof is accepted, and the unlabelled row counts as
+        its own person."""
+        checkin = self.prove(
+            "Spoke to the Block B contractor tonight.",
+            '{"verdict": "accept", "reaction": "Counted."}',
+        )
+        self.assertEqual(checkin.proof_status, CheckIn.ProofStatus.ACCEPTED)
+        self.assertEqual(checkin.subject, "")
+        self.assertEqual(gates.accepted_proofs(self.goal), 1)
+
+    def test_an_edited_draft_keeps_its_labels_when_the_judge_sends_none(self):
+        """The judge is the better source for text the builder rewrote — but only
+        when it actually answered. Empty must not erase what the draft knew."""
+        self.draft()
+        checkin = self.prove(
+            "Spoke to Ramesh. 40-50 plates wasted. He gave me an intro.",
+            '{"verdict": "accept", "reaction": "Counted."}',
+        )
+        self.assertEqual(checkin.subject, "ramesh, the mess contractor")
+
+    def test_the_judge_is_told_which_keys_exist(self):
+        """The rule is built from bar.py, so a bar that gains a part cannot leave
+        the judge labelling against the old set."""
+        rule = prompts.label_rule_for(Phase.BUILD)
+        for key in bar.known_parts(Phase.BUILD):
+            self.assertIn(f'"{key}"', rule)
+        self.assertNotIn('"quotes"', rule)
+
+    def test_a_redeclared_day_drops_the_drafts_labels_with_the_draft(self):
+        """Evidence for a task the builder has since changed is evidence for work
+        nobody is doing — and a subject left behind would credit tonight's person
+        to it."""
+        self.draft()
+        self.client.post("/api/coach/checkins/declare/", {"text": "talk to Priya"})
+        checkin = CheckIn.objects.get()
+        self.assertEqual(checkin.subject, "")
+        self.assertEqual(checkin.proof_parts, [])
 
 
 class ProofRatchetTests(CoachTestCase):
