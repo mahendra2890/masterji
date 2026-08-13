@@ -68,6 +68,10 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    # Innermost, so the budget starts as close to the view as possible: the
+    # seconds this bounds are the ones spent talking to a provider, not the
+    # ones Django spends on sessions and CSRF.
+    "coach.middleware.LlmBudgetMiddleware",
 ]
 
 ROOT_URLCONF = "config.urls"
@@ -301,6 +305,38 @@ LLM_VISION_MODEL = os.environ.get("LLM_VISION_MODEL", LLM_JUDGE_MODEL)
 # fallback, so timing out is always safe: the caller degrades, the thread
 # comes back.
 LLM_TIMEOUT_S = int(os.environ.get("LLM_TIMEOUT_S", "60"))
+
+# Ceiling on what ONE REQUEST may spend on model calls, in seconds.
+#
+# LLM_TIMEOUT_S bounds a single call and nothing bounded their sum: litellm's
+# num_retries=2 turns one 60s call into three, and a prove pays a link check
+# before any of that. Roughly 180s of held thread, on a box that runs
+# --workers 1 --threads 12 — twelve of those and the process answers nobody,
+# an outage caused entirely by waiting politely for a provider that is already
+# gone.
+#
+# The first call of a request always gets the full LLM_TIMEOUT_S, so nothing a
+# builder does today gets faster or slower. What the budget takes away, it
+# takes from what comes after: the retries go first, then the calls. Every
+# caller here has a deterministic fallback — UNJUDGED, or the stream's own
+# error line — so being refused early is always safe.
+LLM_REQUEST_BUDGET_S = float(os.environ.get("LLM_REQUEST_BUDGET_S", "90"))
+
+# The breaker: how many consecutive provider failures before the seam stops
+# asking, and for how long it stops.
+#
+# The product already degrades correctly per call. What it could not do was
+# degrade per SERVICE — during a wobble every request paid the full timeout on
+# its way to the fallback it was always going to reach, so the graceful path
+# arrived too slowly to keep the app up. After LLM_BREAKER_FAILURES in a row
+# the seam refuses immediately for LLM_BREAKER_COOLDOWN_S, and then lets the
+# next call through to find out whether the provider is back.
+#
+# Counted in the default cache, so this is shared exactly as far as CACHES is:
+# with CACHE_URL set it is one breaker for the deployment, and without it one
+# per process — still bounded, still better than paying the timeout every time.
+LLM_BREAKER_FAILURES = int(os.environ.get("LLM_BREAKER_FAILURES", "4"))
+LLM_BREAKER_COOLDOWN_S = int(os.environ.get("LLM_BREAKER_COOLDOWN_S", "30"))
 
 # --- Proof screenshots: Cloudflare R2 (S3-compatible) -----------------------
 # Entirely optional. With these unset, screenshot proofs are simply off and
