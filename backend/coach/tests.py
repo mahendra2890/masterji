@@ -10,12 +10,16 @@ feature and is tested as such.
 
 import json
 from datetime import date, timedelta
+from io import StringIO
 from unittest import mock
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
+from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.db import IntegrityError
+from django.db.migrations.loader import MigrationLoader
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
@@ -23,6 +27,7 @@ from rest_framework.test import APITestCase
 from rest_framework.throttling import ScopedRateThrottle
 
 from . import bar, gates, guidance, prompts, throttles, views
+from .management.commands import check_migration_leaf
 from .models import (
     ChangelogEntry,
     CheckIn,
@@ -4594,3 +4599,66 @@ class WorkshopTests(CoachTestCase):
         )
         self.assertEqual(response.status_code, 400)
         self.assertFalse(Workshop.objects.exists())
+
+
+class MigrationLeafTests(SimpleTestCase):
+    """The check that used to live only in a session's memory.
+
+    Two sessions each add a migration, each correctly numbered against the main
+    it branched from, and together they are two leaf nodes: `migrate` refuses to
+    guess and the deploy stops. WORKFLOW.md counts the scar tissue — `0012`
+    twice, `0015` three times, `0018` twice, three merge migrations to rejoin
+    them. What fixed it was writing the rule into persistent memory, which holds
+    exactly as long as every future session remembers to run it. A test holds
+    without being remembered, and this suite is already the thing that runs.
+
+    Reads the graph off disk (`MigrationLoader(None)`), so it never touches a
+    database and never needs one.
+    """
+
+    def test_the_migration_graph_has_one_leaf_per_app(self):
+        """The ratchet. When this fails, `migrate` on main is about to."""
+        loader = MigrationLoader(None, ignore_no_migrations=True)
+        self.assertEqual(
+            check_migration_leaf.multi_leaf_apps(loader.graph.leaf_nodes()), {}
+        )
+
+    def test_a_second_leaf_is_reported_with_both_names(self):
+        """Both names, because the fix is to renumber ONE of them onto the
+        other and a message naming only the app leaves you diffing to find
+        out which two collided."""
+        found = check_migration_leaf.multi_leaf_apps(
+            [("coach", "0064_b"), ("coach", "0064_a"), ("accounts", "0003_x")]
+        )
+        self.assertEqual(found, {"coach": ["0064_a", "0064_b"]})
+
+    def test_one_leaf_each_is_not_a_finding(self):
+        """Every app in a healthy graph has exactly one, and Django's own
+        apps are in that graph too — a check that flagged them would be
+        noise nobody reads."""
+        self.assertEqual(
+            check_migration_leaf.multi_leaf_apps(
+                [("coach", "0064_x"), ("accounts", "0003_x")]
+            ),
+            {},
+        )
+
+    def test_the_command_names_the_coach_leaf_it_approved(self):
+        """Printing the name is what makes the pass reviewable: the leaf it
+        approved is the one you compare against main's."""
+        out = StringIO()
+        call_command("check_migration_leaf", stdout=out)
+        self.assertIn("coach", out.getvalue())
+
+    def test_the_command_fails_the_build_rather_than_warning(self):
+        """A warning in a log nobody opens is the state this already was.
+        CommandError is a non-zero exit, which is the only thing CI reads."""
+        with mock.patch.object(
+            check_migration_leaf, "multi_leaf_apps",
+            return_value={"coach": ["0064_a", "0064_b"]},
+        ):
+            with self.assertRaises(CommandError) as caught:
+                call_command("check_migration_leaf")
+        message = str(caught.exception)
+        self.assertIn("0064_a", message)
+        self.assertIn("0064_b", message)

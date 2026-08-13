@@ -84,6 +84,24 @@ merging — so every later session loads it before it touches anything. Most of
 the durable rules in this project came from a failure exactly like that one,
 and they are the real output of the process. Not the code; the constraints.
 
+The rule held, and it held the expensive way: as a two-hundred-character
+command pasted twice per pull request by whoever remembered. It is a check now
+— `manage.py check_migration_leaf`, run by the test suite and by CI — and the
+distance between those two states is the honest lesson here. A constraint
+carried in memory is worth writing down, and it is worth exactly one more step
+after that. What forced the step was noticing that the repository had no
+automated checks at all: thirty-odd pull requests, a suite of several hundred
+tests, and nothing that ran them except a person deciding to.
+
+One thing the check cannot do, which is worth knowing before trusting it. Two
+sessions branching from the same `main` each hold exactly one leaf in their own
+graph, so both pass on their own pull request and collide only once the second
+one merges. Catching that while it is still cheap needs *Require branches to be
+up to date before merging* switched on, because the rebase it forces is what
+makes the second leaf visible. Without that setting the check still runs on
+`main` after every merge — it just reports the breakage instead of preventing
+it.
+
 ## Four times the model was wrong
 
 **It graded its own homework.** VALIDATION asks for three things a customer
@@ -159,7 +177,8 @@ Four other things carried weight:
 - **Checks ran against production, not localhost.** The deployed app, the OAuth
   redirect, and — the one worth running yourself — that the development
   sign-in backdoor returns `404` in production.
-- **The test suite is the ratchet.** Over 340 tests today pin the gate,
+- **The test suite is the ratchet.** `uv run python manage.py test coach.tests`
+  pins the gate,
   tenancy (another user's ids `404`, not `403`), the one-goal constraint, and the
   behaviour when the model is unreachable: the day is kept and the gate is not
   opened. That last one was itself a review finding, and a good example of the
@@ -167,7 +186,10 @@ Four other things carried weight:
   right, and had been implemented as "accept the proof", which also banked it
   toward the next phase. One word was carrying two decisions, and with the
   model down a declaration of "think about the problem" could unlock
-  VALIDATION. Splitting them is four lines; noticing was the work.
+  VALIDATION. Splitting them is four lines; noticing was the work. The
+  browser-side half is much younger — `npm run test:web` covers the logic
+  with no server behind it, starting with the redirect target the waking
+  page hands to the browser.
 - **The suite cannot reach the network, and that is checked rather than
   assumed.** Every test stubs the model, and the base case stubs it to *raise*,
   so the whole suite exercises the deterministic floor unless a test says
