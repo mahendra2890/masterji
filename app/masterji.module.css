@@ -439,6 +439,26 @@
   color: var(--muted);
 }
 
+/* How long the current phase has been open, under the stepper it describes.
+
+   Quieter than the hint below it and not italic: the hint is the coach's voice
+   and this is the record's, the same separation .streakCold makes against the
+   streak pill. Tabular figures so the number does not shuffle its own line as
+   it rolls past nine.
+
+   What it deliberately never does is change appearance as it grows. A counter
+   that turns amber at day fourteen is a deadline, and this product sets none —
+   the coach's copy of this same number ships under a rule saying in as many
+   words that a phase taking a long time is not late. Styling it to disagree
+   would put the pressure back on the one screen the builder actually looks at. */
+.phaseDays {
+  font-family: var(--font-mono), monospace;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  margin: 0 0 6px;
+}
+
 .phaseHint {
   font-size: 13px;
   color: var(--muted);

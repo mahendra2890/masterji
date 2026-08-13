@@ -2743,6 +2743,22 @@ class TheCoachCanSeeTheCalendarTests(CoachTestCase):
         self.assertIn("never a deadline", prompts.THE_CALENDAR)
         self.assertIn("Nothing was lost", prompts.THE_CALENDAR)
 
+    def test_the_dashboard_is_sent_the_same_number_the_coach_is_given(self):
+        """One measurement, two readers. The badge in the header renders what
+        the server sent — it never counts days itself — so the number a builder
+        reads and the number the coach is holding cannot come apart, which is
+        the whole failure mode of a fact quoted by hand in two places."""
+        goal = self.make_goal(phase=Phase.VALIDATION)
+        Goal.objects.filter(pk=goal.pk).update(
+            phase_entered_at=timezone.now() - timedelta(days=12)
+        )
+        response = self.client.get(f"/api/coach/state/?date={date.today()}")
+        self.assertEqual(response.data["days_in_phase"], 12)
+        goal.refresh_from_db()
+        self.assertEqual(
+            response.data["days_in_phase"], streaks.days_in_phase(goal, date.today())
+        )
+
     def test_the_chat_turn_carries_both_dates(self):
         """The wiring, without which every assertion above passes against a
         prompt no builder is ever served. ChatView is the only caller that

@@ -40,7 +40,7 @@ SEED = [
     (
         date(2026, 8, 13),
         "CHANGED",
-        "The coach knows how long it has been",
+        "The coach knows how long it has been, and so do you",
         "Masterji could see your phase, your count and your streak, and not one "
         "date. So a fortnight in VALIDATION was described to him exactly like a "
         "second day, and a builder coming back after a silent week was "
@@ -49,8 +49,13 @@ SEED = [
         "gets two facts: how long the current phase has been open, and how long "
         "since your last complete day. The first is about the work and he may "
         "use it like anything else — three weeks and one conversation is worth "
-        "saying out loud — but it is not a deadline, because this product does "
-        "not set any and a phase taking a long time is not late. The second is "
+        "saying out loud. It is also on your goal card now, under the ladder: "
+        "\"12 days in VALIDATION\", from the day after a phase opens, and it is "
+        "the same number he is holding, measured once on the server so the two "
+        "can never disagree. What it is not is a deadline. This product does "
+        "not set any, a phase taking a long time is not late, and that line "
+        "will never change colour or start looking urgent at you, because "
+        "there is nothing for it to be late for. The second is "
         "there for one reason only: so he does not talk past a week you were "
         "away. He will not open with it, ask where you were, or add up what was "
         "missed. Nothing was lost while you were gone — every banked proof, "

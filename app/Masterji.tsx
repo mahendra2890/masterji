@@ -1537,6 +1537,32 @@ export default function Masterji({ user }: { user: SessionUser }) {
                 </li>
               ))}
             </ol>
+            {/* How long this phase has been open, rendered from the number the
+                server sent — never counted here. The coach is handed the same
+                subtraction in its state block, so a builder reading this and a
+                coach answering them about it are quoting one measurement.
+
+                On the card rather than beside the streak, which is where the
+                issue asked for it: the header's right-hand group is pinned to
+                fixed slots precisely so its controls hold still (see .streak),
+                and a badge whose width moves with both the phase name and the
+                day count would shift "What's new" and "sign out" under the
+                thumb — worst on the morning a phase advances, which is the one
+                morning nothing should move. At 375px that row is already
+                documented as full. Here it costs no control any position, and
+                it sits against the stepper it is a fact about.
+
+                Hidden at zero, the same bargain the streak badge makes: on the
+                day a phase opens this has nothing to say, and a counter reading
+                nought is attention spent for no fact. It appears tomorrow.
+
+                No threshold at which it changes appearance — see .phaseDays. */}
+            {state.daysInPhase > 0 && (
+              <p className={styles.phaseDays}>
+                {state.daysInPhase} day{state.daysInPhase === 1 ? "" : "s"} in{" "}
+                {goal.phase}
+              </p>
+            )}
             <p className={styles.phaseHint}>{guidance?.phaseHint}</p>
 
             {gate && gate.need > 0 && (
