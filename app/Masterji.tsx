@@ -1630,6 +1630,15 @@ export default function Masterji({ user }: { user: SessionUser }) {
                   role={i < doneIdx ? "button" : undefined}
                   tabIndex={i < doneIdx ? 0 : undefined}
                   title={i < doneIdx ? `See what happened in ${p}` : undefined}
+                  // The title is the sighted pointer's explanation and a phone
+                  // never shows it; this is the same sentence for a screen
+                  // reader, which would otherwise be read "IDEA, button" and
+                  // left to guess. It also names the chip for the marker
+                  // .stepDone::after draws — a bare glyph in the accessible
+                  // name would be the affordance announcing itself as content.
+                  aria-label={
+                    i < doneIdx ? `See what happened in ${p}` : undefined
+                  }
                 >
                   {p}
                 </li>
@@ -1851,7 +1860,12 @@ export default function Masterji({ user }: { user: SessionUser }) {
             )}
           </section>
 
-          <section className={styles.card}>
+          {/* The second card in the DOM and the first one on a phone — see
+              .todayCard, which lifts it above the goal card inside the
+              single-column block. The class is here only to be named there:
+              ordering by :nth-child would break the moment a card is inserted
+              above it. */}
+          <section className={`${styles.card} ${styles.todayCard}`}>
             <p className={styles.cardLabel}>Today</p>
             {!today?.amDeclaration ? (
               <>
