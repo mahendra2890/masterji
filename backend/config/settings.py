@@ -158,25 +158,69 @@ REST_FRAMEWORK = {
         # Authorization: Bearer header (curl, tests, other API clients).
         "accounts.authentication.CookieJWTAuthentication",
     ],
-    # Ceilings on the three endpoints that spend money, scoped per user (they
-    # all require auth, so there is no anonymous bucket to fill). Generous
-    # multiples of real use: an honest evening is a handful of turns, one proof
-    # and one or two readings of the morning's task. Nothing here is a coaching
-    # limit — it is the budget that every honest builder's verdict comes out of.
+    # Ceilings on the three endpoints that spend money, scoped per user, plus
+    # one on the only endpoint reachable without an account. Generous multiples
+    # of real use: an honest evening is a handful of turns, one proof and one or
+    # two readings of the morning's task. Nothing here is a coaching limit — it
+    # is the budget that every honest builder's verdict comes out of.
     #
     # No default rate: an endpoint that costs nothing should not be able to
-    # refuse anybody by inheriting one, and the three that do cost say so by
-    # name. Declaring is deliberately absent — see DeclareView.
+    # refuse anybody by inheriting one, and the ones that need a ceiling say so
+    # by name. Declaring is deliberately absent — see DeclareView.
     #
-    # Counted in the default cache, which is LocMemCache until a shared one is
-    # configured: with more than one process serving, the ceiling is per
-    # process rather than per user. That is a weaker limit than it reads, not a
-    # broken one, and it wants a shared cache before it can be quoted exactly.
+    # `changelog` is the odd one, and it is bounding a different thing: it costs
+    # no model call, it is simply the only endpoint here reachable without an
+    # account, and a public surface with no ceiling of any kind is one whose
+    # size somebody else decides. So it is a brake on hammering, not a fair-use
+    # quota, and the number is picked with that asymmetry in mind — a script
+    # does thousands a minute and is stopped by anything in this range, while a
+    # ceiling set too low costs a real visitor the changelog popup.
+    #
+    # Per minute rather than per hour because of what it keys on. With no user,
+    # ScopedRateThrottle keys by address, and in production that address is
+    # whatever the proxy chain leaves in X-Forwarded-For — the same chain this
+    # file already trusts for X-Forwarded-Proto and -Host below. If a request
+    # ever arrives without one, the bucket is shared by every signed-out
+    # visitor at once, which is the case 300 is sized for: one page load is one
+    # request, so it would take three hundred landing-page loads inside the same
+    # minute, and the refusal then clears in sixty seconds rather than an hour.
+    # Signed-in mounts are keyed by user pk and are never in that bucket at all
+    # — the app shell is not rationed by what the landing page is doing.
+    #
+    # Counted in the default cache — see CACHES below for what that means about
+    # the exactness of these numbers.
     "DEFAULT_THROTTLE_RATES": {
         "chat": "30/hour",
         "prove": "20/day",
         "judge": "40/day",
+        "changelog": "300/min",
     },
+}
+
+# Where the ceilings above do their counting.
+#
+# LocMemCache is per process, and start.sh runs gthread workers with more than
+# one instance possible above them — so unset, "thirty chat turns an hour" is
+# thirty per worker, and a cold start resets it. That is a real limit, not a
+# fake one, but it is not the number the product says out loud.
+#
+# CACHE_URL moves the counters somewhere every process can see, and the numbers
+# become exactly what they claim. Unset — local checkouts, the test suite, and
+# the deploy as it stands — behaves precisely as it did before this block
+# existed. Django's RedisCache takes the URL as its LOCATION, which is why
+# `redis` is a dependency: the variable is meant to be a switch somebody flips
+# in a dashboard, not a switch that then needs an image rebuilt behind it.
+CACHE_URL = os.environ.get("CACHE_URL", "")
+
+CACHES = {
+    "default": (
+        {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": CACHE_URL,
+        }
+        if CACHE_URL
+        else {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}
+    )
 }
 
 SIMPLE_JWT = {

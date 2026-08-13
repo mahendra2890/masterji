@@ -41,6 +41,15 @@ dropped connections.
    upgrade the verdicts alone, set `LLM_JUDGE_MODEL` to the non-mini sibling
    of whatever `LLM_MODEL` names (`openai/gpt-5.4` against today's default) —
    one variable, and the key you already have.
+
+   `CACHE_URL` is optional in the same way, and it decides how exact the rate
+   limits are. Unset, the counters live in each worker's own memory, so the
+   ceilings in `DEFAULT_THROTTLE_RATES` hold per worker rather than per user —
+   a real limit, but not the number the product says out loud, and a cold start
+   resets it. Set it to a Redis connection string (Upstash's free tier is one
+   `rediss://…` URL, and nothing else in the stack changes) and the counters
+   are shared. The client library is already in the image, so this is a
+   dashboard value and a restart, not a deploy.
 3. Note the API URL: `https://masterji-api-XXXX.onrender.com`. Check
    `/api/health/` and `/admin/`.
 
