@@ -189,7 +189,13 @@ Four other things carried weight:
   VALIDATION. Splitting them is four lines; noticing was the work. The
   browser-side half is much younger — `npm run test:web` covers the logic
   with no server behind it, starting with the redirect target the waking
-  page hands to the browser.
+  page hands to the browser. It runs plain TypeScript and has no DOM, which
+  decides the shape rather than the amount: the decision comes out of the
+  component into a function, and what is left calling `querySelectorAll` or
+  `localStorage` is thin enough to drive in a browser instead. `trapTarget` is
+  generic over the element type so a test can pass it strings; `readDraft` took
+  a stub for `window.localStorage` and a timestamp eighteen hours old. Both are
+  rules no amount of clicking would have reached.
 - **The suite cannot reach the network, and that is checked rather than
   assumed.** Every test stubs the model, and the base case stubs it to *raise*,
   so the whole suite exercises the deterministic floor unless a test says
