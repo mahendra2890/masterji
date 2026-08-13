@@ -7,11 +7,11 @@ seventeen are bundled as one slide-per-image PDF at
 real product rather than inventing pictures of it.
 
 **Three lengths, one script.** Read straight through, the unmarked text runs
-**about thirteen minutes** (1,865 words at a normal pace) — that's the one to
-record. Sections marked **`[+ OPTIONAL]`** are self-contained expansions; add all
-four and it runs **about seventeen**. For a **~10-minute** cut, drop
-the four passages marked `[10-MIN CUT]` — about 300 words, none of them
-load-bearing, which lands at about eleven minutes at a measured pace and a
+**about thirteen minutes** (a little over 1,900 words at a normal pace) — that's
+the one to record. Sections marked **`[+ OPTIONAL]`** are self-contained
+expansions; add all four and it runs **about seventeen**. For a **~10-minute**
+cut, drop the four passages marked `[10-MIN CUT]` — about 300 words, none of
+them load-bearing, which lands at about eleven minutes at a measured pace and a
 shade over ten read briskly. Every version is inside the 10–30 minute brief.
 
 Timestamps on the headings are for the thirteen-minute read.
@@ -30,8 +30,10 @@ and it will not open the next phase. Nothing I type talks it out of that, becaus
 the refusal isn't a personality — it's a `WHERE` clause in a Django query.
 
 Masterji is a tough-love execution coach for first-time builders. One goal, five
-phases: declare one task every morning, file proof every evening, and a phase
-does not open until the evidence is banked.
+phases — from writing the problem down to a stranger coming back or paying:
+declare one task every morning, file proof every evening, and a phase does not
+open until the evidence is banked. No idea yet? A turn-metered workshop sits
+under the commit box, and the only door out of it is committing to one.
 
 It's for a nineteen-year-old in a tier-two Indian college with three notebooks of
 ideas who has never spoken to a customer. Thirty-two and a half percent of Indian
@@ -184,9 +186,9 @@ stubs the model, and the base case stubs it to *raise*, so the suite exercises
 the deterministic floor unless a test says otherwise. That's easy to claim and
 easy to be wrong about — one unstubbed call and it quietly starts costing money
 and failing on a train. So it's verified the only way it can be: the whole suite
-runs with the provider pointed at a dead port. **Three hundred and forty-four
-tests, all passing, in the same time as a normal run.** A single real call would
-have hung.
+runs with the provider pointed at a dead port. **Three hundred and forty-five
+tests on the thirteenth of August, all passing, in the same time as a normal
+run.** A single real call would have hung.
 
 `[10-MIN CUT: drop this paragraph]`
 Then the opposite check, because a stubbed suite proves the server and nothing
@@ -233,8 +235,9 @@ tests pinning that. **Soften the voice, never the gate.**
 > **Slide 10** — `the-record-at-launch.png`
 
 Reached LAUNCH. Seven proofs banked, six from real-world contact, five days of
-work on the record. That's not a success story. It's a record, and it's the only
-kind of credibility a first build earns.
+work on the record — where the ladder ended then. TRACTION was built after that
+run, so the finish line has moved further out since. That's not a success story.
+It's a record, and it's the only kind of credibility a first build earns.
 
 The design that makes this worth anything — that the LLM has no authority, that
 the gate is a state machine the model can only *propose* an advance to — is
@@ -343,7 +346,7 @@ All seventeen are in [`docs/run/`](../run/) and bundled in
 | 7 | `the-phase-unlocks.png` | accepted, IDEA → VALIDATION, streak, phase-specific openers |
 | 8 | `build-is-earned.png` | 3/3 — *"Earned. BUILD is yours to open."* |
 | 9 | `a-screenshot-as-proof.png` | a real WhatsApp thread filed as BUILD evidence |
-| 10 | `the-record-at-launch.png` | reached LAUNCH · 7 proofs · 6 from real contact · 5 days |
+| 10 | `the-record-at-launch.png` | reached LAUNCH · 7 proofs · 6 from real contact · 5 days — LAUNCH was the last rung then |
 | 11 | `a-solution-is-not-a-problem-statement.png` | *"you gave me a solution, not the problem statement"* |
 | 12 | `filing-on-a-phone.png` | the check-in on a 375px viewport |
 | 13 | `the-first-refusal-and-the-draft.png` | first declaration refused, running notes, drafted proof |
