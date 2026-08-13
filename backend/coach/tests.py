@@ -16,6 +16,7 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import SimpleTestCase, override_settings
+from django.utils import timezone
 from rest_framework.test import APITestCase
 
 from . import bar, gates, guidance, prompts, views
@@ -1209,6 +1210,110 @@ class ClientDayTests(CoachTestCase):
         response = self.client.get(f"/api/coach/state/?date={far}")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(CheckIn.objects.filter(goal=self.goal).count(), 1)
+
+
+class NightOwlTests(CoachTestCase):
+    """Work finished after midnight belongs to the evening that produced it.
+
+    The target builder works after dinner and files late. A proof typed at
+    00:30 used to be refused ("No declaration this morning — proof of what,
+    exactly?"), because the client's clock had rolled over onto a day nothing
+    was declared on — so the dashboard swapped the open cycle for an empty
+    morning form and the streak, which counts a date holding both halves, lost
+    the day. The product punishing exactly the evening it exists to capture.
+
+    The window is the one _client_day already reads: a client date runs AHEAD
+    of the server's UTC date only between local midnight and that client's own
+    UTC offset (00:00–05:30 in IST). It shuts on its own, and the tests below
+    pin both halves — the rule, and the fact that it is not a licence to
+    repair yesterday over lunch.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.goal = self.make_goal(phase="VALIDATION")
+        # Anchored on the server's UTC date, because that is what the rule is
+        # defined against.
+        self.last_night = timezone.now().date()
+        self.after_midnight = (self.last_night + timedelta(days=1)).isoformat()
+
+    def _prove(self, **extra):
+        with mock.patch(
+            "coach.views.llm.complete",
+            return_value='{"verdict": "accept", "reaction": "ok"}',
+        ):
+            return self.client.post(
+                "/api/coach/checkins/prove/", {"text": "called two cooks", **extra}
+            )
+
+    def test_the_rule_rests_on_a_utc_server(self):
+        """The one setting the carry-over cannot survive losing.
+
+        timezone.now() is the UTC instant only while USE_TZ is on; with it off
+        it becomes the host's wall clock, and on a host set to IST a real
+        client at 00:30 would send the date the server already thinks it is —
+        the window would never open for anybody. Nothing else here would
+        notice: every test below computes its client date as server-date + 1,
+        so they stay ahead of the server under any configuration and pass over
+        a dead feature. This is the assertion that fails instead.
+        """
+        self.assertTrue(settings.USE_TZ)
+
+    def test_a_proof_after_midnight_lands_on_the_evening_that_earned_it(self):
+        self.client.post("/api/coach/checkins/declare/", {"text": "call two cooks"})
+        response = self._prove(date=self.after_midnight)
+
+        self.assertEqual(response.status_code, 200, response.data)
+        checkin = CheckIn.objects.get(goal=self.goal)
+        self.assertEqual(checkin.date, self.last_night, "the proof opened a new day")
+        self.assertEqual(checkin.proof_status, CheckIn.ProofStatus.ACCEPTED)
+        # The whole point: the day the declaration was made is complete, so the
+        # streak counts it instead of breaking on a midnight boundary.
+        self.assertEqual(response.data["streak"], 1)
+
+    def test_the_dashboard_shows_the_open_cycle_not_a_fresh_morning(self):
+        """Same rule on the read side: at 00:30 the task is still on the hook,
+        and an empty "Morning. One task" form under it reads as the app having
+        forgotten what they declared."""
+        self.client.post("/api/coach/checkins/declare/", {"text": "call two cooks"})
+        data = self.client.get(f"/api/coach/state/?date={self.after_midnight}").data
+        self.assertIsNotNone(data["today"], "the open cycle vanished at midnight")
+        self.assertEqual(data["today"]["am_declaration"], "call two cooks")
+
+    def test_the_window_shuts_when_the_clock_catches_up(self):
+        """The bound, and the reason this is a rule rather than a hole: once
+        the client's date agrees with the server's it is daylight, and
+        yesterday's unproved cycle stays unproved. A missed day is a missed
+        day — otherwise the streak could be repaired at any hour of the day
+        after."""
+        yesterday = (self.last_night - timedelta(days=1)).isoformat()
+        self.client.post(
+            "/api/coach/checkins/declare/", {"text": "call two cooks", "date": yesterday}
+        )
+        response = self._prove()
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(CheckIn.objects.get(goal=self.goal).pm_proof_text, "")
+
+    def test_declaring_after_midnight_opens_the_new_day(self):
+        """The carry-over is for proofs only. A task declared at 00:30 is a new
+        day's task — last night's declaration must not be overwritten by it,
+        and the proof that follows answers the task actually on the hook."""
+        self.client.post("/api/coach/checkins/declare/", {"text": "call two cooks"})
+        self.client.post(
+            "/api/coach/checkins/declare/",
+            {"text": "draft the order form", "date": self.after_midnight},
+        )
+        self._prove(date=self.after_midnight)
+
+        self.assertEqual(
+            CheckIn.objects.get(goal=self.goal, date=self.after_midnight).pm_proof_text,
+            "called two cooks",
+        )
+        self.assertEqual(
+            CheckIn.objects.get(goal=self.goal, date=self.last_night).am_declaration,
+            "call two cooks",
+        )
 
 
 class RetireTests(CoachTestCase):
