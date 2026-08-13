@@ -833,6 +833,41 @@ piece, that is an accept."""
 # Appended when a screenshot came with the proof. Deliberately sceptical about
 # what an image can establish: a screenshot shows a thing exists, not that the
 # builder did the work or that anyone outside was involved.
+# What the server found when it opened the link the builder filed, appended the
+# same way PROOF_IMAGE_RULE is. It goes in the SYSTEM half deliberately: the URL
+# itself rides inside the fence as the builder's data, and this is the one thing
+# about it the server knows first-hand, so the two must not share a room.
+URL_ANSWERED = """
+The link in this submission answered when the server opened it, moments ago. \
+Corroboration only, exactly like a screenshot: something is running at that \
+address, which is not the same as a person outside their own head having used \
+it. Judge the claim against the bar as you would without this line — it removes \
+one doubt, not the bar."""
+
+URL_NOT_THERE = """
+The link in this submission did not answer when the server opened it, moments \
+ago: the host replied that there is nothing at that address. Treat it the way \
+you would a screenshot showing nothing relevant — worth naming, and worth \
+asking about, because the evidence is not where they said it is. It is NOT \
+grounds to call them a liar and you must not: a typo, a preview that has since \
+been torn down, a renamed project and a path that moved all read exactly like \
+this. Say what you found, ask for the working address, and if the written \
+evidence clears the bar on its own then it still clears it."""
+
+
+def url_fact(alive: bool | None) -> str:
+    """One clause about the link, or silence.
+
+    Silence is the whole reason this is a function. `None` means the server got
+    no answer — nothing was tried, or the attempt failed — and a judge told
+    nothing cannot hold a non-answer against the builder. Only a real answer
+    earns a sentence in the prompt.
+    """
+    if alive is None:
+        return ""
+    return URL_ANSWERED if alive else URL_NOT_THERE
+
+
 PROOF_IMAGE_RULE = """
 A screenshot is attached. Read it and say in one clause what you actually see \
 (e.g. "a WhatsApp reply from someone who isn't you", "a commit list", "a Figma \

@@ -289,6 +289,17 @@ CHAT_MAX_CHARS = 8000
 PROOF_MAX_CHARS = 8000
 DECLARATION_MAX_CHARS = 1000
 
+# --- Proof links: does the thing the builder linked actually answer? --------
+# Short, and for the same reason LLM_TIMEOUT_S exists: this runs inline in the
+# prove path and holds a gunicorn thread while it waits. Two requests at most,
+# so the worst case is twice this — still an order of magnitude under the model
+# call that follows it, and coach.links degrades to "unchecked" on timeout, so
+# spending the thread is always optional.
+LINK_CHECK_TIMEOUT_S = float(os.environ.get("LINK_CHECK_TIMEOUT_S", "3"))
+# Named rather than anonymous: a builder reading their own access log should be
+# able to tell who knocked, and a host that wants to refuse us can.
+LINK_CHECK_USER_AGENT = "MasterjiProofCheck/1.0 (+https://github.com/mahendra2890/masterji)"
+
 # --- Observability (optional; no-op when the endpoint is unset) ------------
 
 OTEL_EXPORTER_OTLP_ENDPOINT = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", "")
