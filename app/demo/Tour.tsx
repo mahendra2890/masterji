@@ -184,6 +184,7 @@ const SLIDES: Slide[] = [
                 <li className={app.stepTodo}>VALIDATION</li>
                 <li className={app.stepTodo}>BUILD</li>
                 <li className={app.stepTodo}>LAUNCH</li>
+                <li className={app.stepTodo}>TRACTION</li>
               </ol>
               <p className={app.phaseHint}>
                 Write the problem statement, and where you&apos;d find these
@@ -236,7 +237,10 @@ const SLIDES: Slide[] = [
         <strong>1</strong> accepted proof to leave IDEA, <strong>3</strong>{" "}
         conversations with <strong>3 different people</strong> to leave
         VALIDATION, <strong>2</strong> working artifacts to leave BUILD, one of
-        them a real user actually touching it.
+        them a real user actually touching it, <strong>3</strong> launch events
+        to leave LAUNCH, one of them a stranger actually doing something.
+        TRACTION is the last one and has no counter: one stranger coming back on
+        their own, or paying.
       </>,
       <>
         The surprising half is the last line of what he asks for:{" "}

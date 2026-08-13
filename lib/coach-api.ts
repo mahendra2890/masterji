@@ -20,7 +20,12 @@ export class ApiError extends Error {
   }
 }
 
-export type Phase = "IDEA" | "VALIDATION" | "BUILD" | "LAUNCH";
+export type Phase =
+  | "IDEA"
+  | "VALIDATION"
+  | "BUILD"
+  | "LAUNCH"
+  | "TRACTION";
 
 export type Goal = {
   id: number;
@@ -499,7 +504,13 @@ export async function getState(): Promise<CoachState> {
     checkins: (data.checkins ?? []).map(fromServerCheckIn),
     transitions: (data.transitions ?? []).map(fromServerTransition),
     messages: (data.messages ?? []).map(fromServerMessage),
-    phases: data.phases ?? ["IDEA", "VALIDATION", "BUILD", "LAUNCH"],
+    phases: data.phases ?? [
+      "IDEA",
+      "VALIDATION",
+      "BUILD",
+      "LAUNCH",
+      "TRACTION",
+    ],
     uploadsEnabled: data.uploads_enabled ?? false,
     atFinishLine: data.at_finish_line ?? false,
     archive: (data.archive ?? []).map(fromServerRetirement),

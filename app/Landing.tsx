@@ -162,6 +162,7 @@ export default function Landing({
                   <li className={app.stepNow}>VALIDATION</li>
                   <li className={app.stepTodo}>BUILD</li>
                   <li className={app.stepTodo}>LAUNCH</li>
+                  <li className={app.stepTodo}>TRACTION</li>
                 </ol>
                 {/* guidance.PHASE_HINT[VALIDATION], word for word. */}
                 <p className={app.phaseHint}>
@@ -239,6 +240,7 @@ export default function Landing({
             <li className={styles.phase}>VALIDATION</li>
             <li className={styles.phase}>BUILD</li>
             <li className={styles.phase}>LAUNCH</li>
+            <li className={styles.phase}>TRACTION</li>
           </ol>
           <p className={styles.sectionBody}>
             Each one opens on evidence you banked in the phase before it. The

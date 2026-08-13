@@ -14,7 +14,13 @@ from loguru import logger
 from . import bar, guidance
 from .models import CheckIn, Goal, Phase, PhaseTransition
 
-PHASE_ORDER = [Phase.IDEA, Phase.VALIDATION, Phase.BUILD, Phase.LAUNCH]
+PHASE_ORDER = [
+    Phase.IDEA,
+    Phase.VALIDATION,
+    Phase.BUILD,
+    Phase.LAUNCH,
+    Phase.TRACTION,
+]
 
 
 class Need(NamedTuple):
@@ -40,9 +46,9 @@ class Need(NamedTuple):
 
 # Accepted proofs required to LEAVE each phase.
 #
-# LAUNCH deliberately has no entry — see at_finish_line. When TRACTION lands
-# (#60) and LAUNCH gains one, its shape is Need(n=3, kinds={"action": 1}): the
-# same argument as BUILD's, one phase further up.
+# TRACTION deliberately has no entry — see at_finish_line. It is the end of the
+# ladder, and an entry there would give gate_status a next_phase to look up past
+# the end of PHASE_ORDER.
 PROOFS_REQUIRED = {
     Phase.IDEA: Need(n=1),  # a written problem statement + who has it
     # Three real customer conversations — with three people. The README's own
@@ -55,6 +61,11 @@ PROOFS_REQUIRED = {
     # shipped an artifact at a people-shaped problem, which gates.py's own
     # docstring for this phase says is the failure it is here to catch.
     Phase.BUILD: Need(n=2, kinds={"touched": 1}),
+    # Three launch events, one of them a stranger acting. The count is the
+    # launch-checklist ladder's one-rung-per-day, and the kind is BUILD's
+    # argument one phase up: three rungs climbed is three posts, and posting is
+    # not somebody acting. The phase this buys is about people who acted.
+    Phase.LAUNCH: Need(n=3, kinds={"action": 1}),
 }
 
 
@@ -126,7 +137,7 @@ def kinds_owed(goal: Goal) -> list[str]:
     ]
 
 
-CONTACT_PHASES = [Phase.VALIDATION, Phase.BUILD, Phase.LAUNCH]
+CONTACT_PHASES = [Phase.VALIDATION, Phase.BUILD, Phase.LAUNCH, Phase.TRACTION]
 # Enough real-world contact that "this idea didn't survive testing" is a fact
 # about the record rather than a flattering self-description.
 INVALIDATED_AT = 2
@@ -184,22 +195,24 @@ def reads_as(goal: Goal, outcome: str = "ABANDONED") -> str:
 
 def at_finish_line(goal: Goal) -> bool:
     """Whether finishing is the EXPECTED move here — drives how prominent the
-    control is, and nothing else. Never a gate: gating completion on LAUNCH
-    just relocates the dead end it was meant to fix.
+    control is, and nothing else. Never a gate: gating completion on the last
+    phase just relocates the dead end it was meant to fix.
 
-    Deliberately not a PROOFS_REQUIRED[LAUNCH] entry either — that would give
+    Deliberately not a PROOFS_REQUIRED[TRACTION] entry either — that would give
     gate_status a next_phase to look up past the end of PHASE_ORDER and 500
     the dashboard for exactly the builders who got furthest.
 
-    Counts LAUNCH's own proofs, not the goal's whole record. This read
-    accepted_proofs_total until it was noticed that no goal can arrive at
-    LAUNCH without having banked the six proofs the earlier gates cost — so
-    the win button lit on the first morning of the phase, before the post went
-    out, and offered the exit immediately ahead of the one piece of work the
-    phase exists for. Same count the gate uses everywhere else; the difference
-    is only that LAUNCH has no next phase to spend it on.
+    Counts the terminal phase's own proofs, not the goal's whole record. This
+    read accepted_proofs_total until it was noticed that no goal can arrive at
+    the end without having banked the proofs the earlier gates cost — so the
+    win button lit on the first morning of a phase whose own bar had seen
+    nothing, and offered the exit immediately ahead of the work that phase
+    exists for. It read LAUNCH until TRACTION landed behind it, which is the
+    same correction made twice: the post going out was never the finish either.
+    Same count the gate uses everywhere else; the difference is only that
+    TRACTION has no next phase to spend it on.
     """
-    return Phase(goal.phase) is Phase.LAUNCH and bool(accepted_proofs(goal))
+    return Phase(goal.phase) is Phase.TRACTION and bool(accepted_proofs(goal))
 
 
 def gate_status(goal: Goal) -> dict:
@@ -212,7 +225,7 @@ def gate_status(goal: Goal) -> dict:
     about, because the builder pressed it on the product's own word.
     """
     need = PROOFS_REQUIRED.get(Phase(goal.phase))
-    if need is None:  # LAUNCH — nothing left to unlock
+    if need is None:  # TRACTION — nothing left to unlock
         return {"have": 0, "need": 0, "next_phase": None, "owed": [], "banked": 0}
     idx = PHASE_ORDER.index(Phase(goal.phase))
     have = accepted_proofs(goal)

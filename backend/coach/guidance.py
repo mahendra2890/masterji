@@ -20,6 +20,7 @@ PHASE_HINT = {
     Phase.VALIDATION: "Talk to real customers. Bring notes, not opinions.",
     Phase.BUILD: "Smallest thing a real user can touch this week.",
     Phase.LAUNCH: "In front of strangers. Ask for commitment.",
+    Phase.TRACTION: "Make one stranger come back, or pay. Repeat beats reach.",
 }
 
 # What tonight's proof has to contain. Mirrors each phase playbook's
@@ -51,6 +52,11 @@ PROOF_HINT = {
     Phase.LAUNCH: (
         "What to submit: a link to your public post, evidence of a stranger's "
         "action or payment, or a real rejection with the reason they gave."
+    ),
+    Phase.TRACTION: (
+        "What to submit: evidence someone came back without being asked — what "
+        "they did the second time and when — or a payment: who, how much, for "
+        "what."
     ),
 }
 
@@ -101,6 +107,12 @@ PROOF_EXAMPLES = {
         "Rejection: Block D contractor said no. He settles cash daily and "
         "won't wait for a weekly payout — that's the objection to solve next.",
     ],
+    Phase.TRACTION: [
+        "Priya ordered through the form again on Thursday — second time this "
+        "week, and I never reminded her. Screenshot of both rows in the sheet.",
+        "Block B contractor paid ₹99 for the month by UPI after two weeks of "
+        'using it free. Payment screenshot and his "continue karo" message.',
+    ],
 }
 
 # Appended to a refusal from gates.try_advance. The refusal already says what
@@ -127,6 +139,16 @@ GATE_NUDGE = {
         "talked to you. A link that loads is a night's proof — but one of the "
         "two has to be somebody actually using it, so send it to one of your "
         "VALIDATION people tonight and write down what they did with it."
+    ),
+    # LAUNCH had none of these while it was the last phase — there was nothing
+    # to refuse, so nothing to say. It has an exit now, and the ladder in
+    # launch-checklist.md is already written one rung per evening.
+    Phase.LAUNCH: (
+        "One rung tonight: send it personally to one person from your "
+        "VALIDATION notes, or post it in one room where these people already "
+        "sit — with the ask attached. Three rungs is the count, but one of the "
+        "three has to be a stranger actually doing something, so make the ask "
+        "concrete enough that doing it leaves a trace you can screenshot."
     ),
 }
 
@@ -167,6 +189,11 @@ OPENERS = {
         "Where do I put this in front of strangers?",
         "What do I ask a stranger for?",
         "Nobody replied. Now what?",
+    ],
+    Phase.TRACTION: [
+        "Nobody came back — how do I find out why?",
+        "How do I ask for money without losing the only user I have?",
+        "One person keeps using it. What now?",
     ],
 }
 
