@@ -254,7 +254,8 @@ to hold myself.
 # `[+ OPTIONAL]` expansions
 
 Each is self-contained. Drop them in at the marked place; all four together take
-the run time to about eighteen minutes.
+the run time to about seventeen minutes — 531 words on top of the core script,
+which is the figure quoted at the top of this file.
 
 ## `[+ OPTIONAL A]` The second time the model was wrong — insert after "the other edge of the same line" (~1:30)
 
