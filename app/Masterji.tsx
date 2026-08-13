@@ -12,6 +12,7 @@ import Changelog from "@/components/Changelog";
 import ClosedIdea from "./ClosedIdea";
 import DayDetail from "./DayDetail";
 import { updatePrefs, type SessionUser } from "@/lib/auth-client";
+import { useDialogFocus } from "@/lib/dialog-focus";
 import {
   advanceGoal,
   ApiError,
@@ -422,6 +423,12 @@ function usePersistedDraft(
   // below: restore once, so a refetch never refills a box the builder
   // deliberately cleared.
   const restored = useRef<string | null>(null);
+  // The same fact as `restored`, in a form a render can read. A ref cannot be
+  // one: the caller has to be re-rendered to say anything about what came
+  // back, and writing to a ref does not do that. Keyed rather than boolean so
+  // it answers for the box on screen — tomorrow's evening is a new key and has
+  // restored nothing.
+  const [restoredKey, setRestoredKey] = useState<string | null>(null);
 
   useEffect(() => {
     if (key === null) return;
@@ -432,11 +439,16 @@ function usePersistedDraft(
       // anything already typed is newer than anything on disk. Returning here
       // also keeps this pass from writing — on it the box is still empty, and a
       // write would delete the draft this line is putting back.
-      if (saved) setValue((current) => current || saved);
+      if (saved) {
+        setValue((current) => current || saved);
+        setRestoredKey(key);
+      }
       return;
     }
     writeDraft(key, value);
   }, [key, value, setValue]);
+
+  return restoredKey !== null && restoredKey === key;
 }
 
 export default function Masterji({ user }: { user: SessionUser }) {
@@ -555,7 +567,7 @@ export default function Masterji({ user }: { user: SessionUser }) {
   const pmKey = goalId === null || todayId === null ? null : `${goalId}.pm.${todayId}`;
   const chatKey = goalId === null ? null : `${goalId}.chat`;
   usePersistedDraft(amKey, amText, setAmText);
-  usePersistedDraft(pmKey, pmText, setPmText);
+  const pmRestored = usePersistedDraft(pmKey, pmText, setPmText);
   // The link belongs to the same form and is cleared on the same line as the
   // text. Restoring one without the other is worse than restoring neither: the
   // builder reads the box they left, presses Submit, and files a proof whose
@@ -667,6 +679,14 @@ export default function Masterji({ user }: { user: SessionUser }) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [viewPhase, viewDay]);
+
+  // Focus, on the same terms Escape is on: the drill-in holds it while it is
+  // the top panel and hands it over while a day is open above it. Unlike
+  // Escape, standing down is not the same as closing — the row a day was
+  // opened from is inside THIS panel, and that is where DayDetail gives focus
+  // back to.
+  const phaseDialog = useRef<HTMLDivElement>(null);
+  useDialogFocus(phaseDialog, Boolean(viewPhase), !viewDay);
 
   // Put them in the box the button just revealed — the same move the draft
   // button and the goal examples make, and for the same reason: a press that
@@ -1913,16 +1933,40 @@ export default function Masterji({ user }: { user: SessionUser }) {
                         form never promises to take something the server would
                         drop. */}
                     {state.uploadsEnabled && (
-                      <label className={styles.attach}>
-                        <input
-                          type="file"
-                          accept="image/png,image/jpeg,image/webp"
-                          onChange={(e) => setPmImage(e.target.files?.[0] ?? null)}
-                        />
-                        <span>
-                          {pmImage ? `📎 ${pmImage.name}` : "📎 Attach a screenshot"}
-                        </span>
-                      </label>
+                      <>
+                        {/* The half of the restore that could not be done. Text
+                            and link come back from storage; a File cannot go
+                            into it, so a builder who attached a screenshot,
+                            lost the tab and came back reads their own paragraph
+                            exactly as they left it and has no reason to look at
+                            the attach row. Worded for everyone it can appear in
+                            front of — the form knows a draft was restored, and
+                            cannot know whether anything was clipped to it — and
+                            in the same words the changelog already used for
+                            this. Not a control and not help text about the
+                            feature: a fact about the form on screen, which is
+                            why it is here and not in the tour. */}
+                        {pmRestored && (
+                          <p className={styles.attachNote}>
+                            Your words came back. An attachment can’t be — if you
+                            had a screenshot picked, pick it again.
+                          </p>
+                        )}
+                        <label className={styles.attach}>
+                          <input
+                            type="file"
+                            accept="image/png,image/jpeg,image/webp"
+                            onChange={(e) =>
+                              setPmImage(e.target.files?.[0] ?? null)
+                            }
+                          />
+                          <span>
+                            {pmImage
+                              ? `📎 ${pmImage.name}`
+                              : "📎 Attach a screenshot"}
+                          </span>
+                        </label>
+                      </>
                     )}
                     <button
                       className={styles.primaryBtn}
@@ -2343,6 +2387,7 @@ export default function Masterji({ user }: { user: SessionUser }) {
           return (
             <div className={styles.modalOverlay} onClick={() => setViewPhase(null)}>
               <div
+                ref={phaseDialog}
                 className={styles.modal}
                 onClick={(e) => e.stopPropagation()}
                 role="dialog"

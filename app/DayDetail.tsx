@@ -6,9 +6,10 @@
 // nowhere. Everything the day holds is already in the state payload, so this
 // costs no fetch.
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import DayRecord, { VERDICT } from "@/components/DayRecord";
 import { formatDay, type CheckIn } from "@/lib/coach-api";
+import { useDialogFocus } from "@/lib/dialog-focus";
 import styles from "./masterji.module.css";
 
 export default function DayDetail({
@@ -27,9 +28,16 @@ export default function DayDetail({
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
+  // Always the top panel when it is open — nothing in the app layers over a
+  // day — so it never stands down. Mounting IS opening here, which is what
+  // makes `open` a constant.
+  const dialog = useRef<HTMLDivElement>(null);
+  useDialogFocus(dialog, true);
+
   return (
     <div className={`${styles.modalOverlay} ${styles.dayOverlay}`} onClick={onClose}>
       <div
+        ref={dialog}
         className={styles.modal}
         onClick={(e) => e.stopPropagation()}
         role="dialog"

@@ -5,9 +5,10 @@
 // of them. The day-by-day check-ins are fetched on open rather than shipped
 // with every dashboard payload.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getGoalHistory, type GoalHistory, type Retirement } from "@/lib/coach-api";
 import DayRecord from "@/components/DayRecord";
+import { useDialogFocus } from "@/lib/dialog-focus";
 import styles from "./masterji.module.css";
 
 const formatDate = (iso: string) =>
@@ -44,9 +45,16 @@ export default function ClosedIdea({
     };
   }, [closed.goalId]);
 
+  // The one panel that can open with nothing behind it — the between-goals
+  // screen has no dashboard to fall back to — which makes the way in and the
+  // way out by keyboard the only ones there are.
+  const dialog = useRef<HTMLDivElement>(null);
+  useDialogFocus(dialog, true);
+
   return (
     <div className={styles.modalOverlay} onClick={onClose}>
       <div
+        ref={dialog}
         className={styles.modal}
         onClick={(e) => e.stopPropagation()}
         role="dialog"
