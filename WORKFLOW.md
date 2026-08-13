@@ -1,9 +1,11 @@
 # How this was built
 
-Masterji was built in six days, between 5 and 10 August 2026, across 33 Claude
-Code sessions — three or four of them running at the same time. This file is
-the part of that which is worth keeping: the loop, the two failures that were
-mine to fix rather than the model's, and what verification actually meant.
+Masterji's first build took six days, between 5 and 10 August 2026, across 33
+Claude Code sessions — three or four of them running at the same time. Work has
+continued since through the same loop, and every number below belongs to those
+six days unless it says otherwise. This file is the part of that which is worth
+keeping: the loop, the two failures that were mine to fix rather than the
+model's, and what verification actually meant.
 
 It is not a case for AI-assisted development. It's a record of where the
 judgement stayed with me, because that turned out to be the only part that
@@ -130,8 +132,8 @@ Four other things carried weight:
 - **Checks ran against production, not localhost.** The deployed app, the OAuth
   redirect, and — the one worth running yourself — that the development
   sign-in backdoor returns `404` in production.
-- **The test suite is the ratchet.** ~200 tests pin the gate, tenancy (another
-  user's ids `404`, not `403`), the one-goal database constraint, and the
+- **The test suite is the ratchet.** Over 340 tests today pin the gate,
+  tenancy (another user's ids `404`, not `403`), the one-goal constraint, and the
   behaviour when the model is unreachable: the day is kept and the gate is not
   opened. That last one was itself a review finding, and a good example of the
   shape — the rule *a builder's streak shouldn't break when an API flakes* was

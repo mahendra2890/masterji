@@ -33,7 +33,14 @@ dropped connections.
 
    `LLM_MODEL` defaults to `openai/gpt-5.4-mini` in render.yaml — change
    it there (or in the dashboard) to switch provider later, e.g.
-   `anthropic/claude-sonnet-5` + `ANTHROPIC_API_KEY`.
+   `anthropic/claude-sonnet-5` + `ANTHROPIC_API_KEY`. Two optional vars sit
+   above it and are in neither render.yaml nor the table because unset
+   changes nothing: `LLM_JUDGE_MODEL` defaults to `LLM_MODEL` and serves the
+   calls that decide something recorded on the row, and `LLM_VISION_MODEL`
+   defaults to `LLM_JUDGE_MODEL` and must name a vision-capable model. To
+   upgrade the verdicts alone, set `LLM_JUDGE_MODEL` to the non-mini sibling
+   of whatever `LLM_MODEL` names (`openai/gpt-5.4` against today's default) —
+   one variable, and the key you already have.
 3. Note the API URL: `https://masterji-api-XXXX.onrender.com`. Check
    `/api/health/` and `/admin/`.
 
