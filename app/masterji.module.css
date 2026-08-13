@@ -759,10 +759,31 @@
   margin: 0;
 }
 
+/* The coach read the work and asked for more. Deliberately not --bad, which
+   this rule used to be: --bad is the colour of the app breaking — a failed
+   request, a dead state payload, the banner over a chat turn that died — and a
+   push-back is the opposite kind of event. The system worked exactly as
+   designed and a person objected. It is also the single highest drop-off
+   moment in the product, so painting it as a fault tells a builder who did
+   real work that they hit one.
+
+   Marigold, because marigold is Masterji: it is his avatar in the log, and it
+   is already what .offPhase uses to object to a declaration. The two can share
+   a card — a morning spent off-phase and a proof pushed back the same evening
+   — so the weight is what separates them, not the hue. This is a verdict on
+   tonight's work and carries the heavier edge and the full text colour;
+   .offPhase is advisory, explicitly never blocks anything, and stays lighter.
+   --bad keeps .error / .errorBanner, and the ✗ in .chipBad, where it is a
+   compact status marker rather than a paragraph addressed to the builder. */
 .pushedBack {
-  color: var(--bad);
-  font-size: 14px;
   margin: 0 0 10px;
+  padding: 7px 9px;
+  border-left: 3px solid var(--accent);
+  border-radius: 0 4px 4px 0;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.45;
 }
 
 /* A proof nobody read yet. Deliberately not --bad: the evening was not
@@ -844,10 +865,15 @@
   user-select: none;
 }
 
+/* Same class of thing as .pushedBack above, one fold down: these are the tries
+   that got the same answer, and nothing broke here either. Muted rather than
+   marigold because the summary above them already says what they are and the
+   builder chose to open them — the one thing worth a colour inside is what
+   Masterji said, which is the part they came back to re-read. */
 .try {
   margin-top: 8px;
   padding: 8px 10px;
-  border-left: 2px solid var(--bad);
+  border-left: 2px solid var(--muted);
   border-radius: 0 4px 4px 0;
   background: var(--surface-2);
 }
@@ -881,7 +907,7 @@
 
 .tryReaction {
   margin: 6px 0 0;
-  color: var(--bad);
+  color: var(--accent);
   font-size: 12.5px;
 }
 
