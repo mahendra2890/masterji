@@ -358,7 +358,9 @@ sign-in, starting where a builder actually starts, on the goal-commit screen
 and the first morning in IDEA. What has moved since
 the first build is in the product itself — **What's new** in the header opens
 the changelog, served from the `ChangelogEntry` table (public endpoint, so the
-tour reads it too) and written from the admin rather than from a deploy.
+tour reads it too). An entry is written as a file in the pull request that
+ships the change it describes, and loaded at boot; the admin stays the place it
+is edited afterwards.
 
 **Phase 2 (Product Month):** Telegram-bot channel · missed check-in
 nudges · pgvector memory over past check-ins · citation-per-refusal (every

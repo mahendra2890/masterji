@@ -9,8 +9,10 @@ feature and is tested as such.
 """
 
 import json
+import tempfile
 from datetime import date, timedelta
 from io import StringIO
+from pathlib import Path
 from unittest import mock
 
 from django.apps import apps
@@ -30,7 +32,7 @@ from rest_framework.throttling import ScopedRateThrottle
 
 from . import admin as coach_admin
 from . import bar, export, gates, guidance, links, prompts, streaks, throttles, views
-from .management.commands import check_migration_leaf
+from .management.commands import check_migration_leaf, load_changelog
 from .models import (
     ChangelogEntry,
     CheckIn,
@@ -5247,3 +5249,174 @@ class MigrationLeafTests(SimpleTestCase):
         message = str(caught.exception)
         self.assertIn("0064_a", message)
         self.assertIn("0064_b", message)
+
+
+# --- changelog entries as files, not migrations ------------------------------
+
+
+ENTRY = """---
+shipped_on: 2026-08-14
+kind: CHANGED
+title: The coach knows how long it has been
+---
+
+Masterji could see your phase, your count and your streak, and not one
+date. He now gets two facts.
+"""
+
+
+def write(directory, name, text):
+    (Path(directory) / name).write_text(text, encoding="utf-8")
+
+
+class ChangelogFileTests(TestCase):
+    """`load_changelog`: the reason `check_migration_leaf` keeps firing, removed.
+
+    57 of `coach`'s 74 migrations were changelog data seeds, and the house rule
+    that every builder-visible change ships a row in the same pull request meant
+    every substantive pull request wrote a migration. Two parallel sessions
+    therefore collided on the leaf essentially every time. Entries are files
+    now, one per entry, so two sessions write two different files and there is
+    nothing to collide on.
+    """
+
+    def setUp(self):
+        # The 57 rows the migrations seeded are not the subject here, and they
+        # would turn every count below into a count of history plus one. Same
+        # reasoning, and the same line, as ChangelogTests.
+        ChangelogEntry.all_objects.all().delete()
+
+    def load(self, directory):
+        out = StringIO()
+        call_command("load_changelog", dir=str(directory), stdout=out)
+        return out.getvalue()
+
+    def test_a_file_becomes_a_row(self):
+        """The whole point, and the fields a reader actually gets."""
+        with tempfile.TemporaryDirectory() as d:
+            write(d, "2026-08-14-how-long.md", ENTRY)
+            self.load(d)
+        row = ChangelogEntry.all_objects.get(title="The coach knows how long it has been")
+        self.assertEqual(row.shipped_on, date(2026, 8, 14))
+        self.assertEqual(row.kind, "CHANGED")
+        self.assertTrue(row.is_active)
+
+    def test_the_body_arrives_as_one_paragraph(self):
+        """`components/Changelog.tsx` renders the body as a single `<p>`, so
+        the file's wrapping has nowhere to land. Unwrapping on load rather than
+        at the renderer keeps the row identical in shape to the 57 the
+        migrations wrote, so the two sources cannot drift."""
+        with tempfile.TemporaryDirectory() as d:
+            write(d, "2026-08-14-how-long.md", ENTRY)
+            self.load(d)
+        body = ChangelogEntry.all_objects.get(shipped_on=date(2026, 8, 14)).body
+        self.assertNotIn("\n", body)
+        self.assertIn("not one date. He now gets two facts.", body)
+
+    def test_loading_twice_makes_one_row(self):
+        """Every boot runs this. If it were not idempotent, `start.sh` would
+        duplicate the entire changelog on every deploy."""
+        with tempfile.TemporaryDirectory() as d:
+            write(d, "2026-08-14-how-long.md", ENTRY)
+            self.load(d)
+            self.load(d)
+        self.assertEqual(
+            ChangelogEntry.all_objects.filter(shipped_on=date(2026, 8, 14)).count(), 1
+        )
+
+    def test_an_entry_edited_in_the_admin_survives_the_next_deploy(self):
+        """`get_or_create`, never update — and that is a product decision, not
+        an implementation detail. The README says the changelog is written from
+        the admin; the file is where a row is born, and fixing a typo in
+        something already published stays an admin job."""
+        with tempfile.TemporaryDirectory() as d:
+            write(d, "2026-08-14-how-long.md", ENTRY)
+            self.load(d)
+            row = ChangelogEntry.all_objects.get(shipped_on=date(2026, 8, 14))
+            row.body = "Corrected in the admin."
+            row.save()
+            self.load(d)
+        row.refresh_from_db()
+        self.assertEqual(row.body, "Corrected in the admin.")
+
+    def test_a_retired_entry_does_not_come_back_on_the_next_boot(self):
+        """Soft delete is how an entry is retired without losing its text. If
+        the loader read `objects` instead of `all_objects` it would not see the
+        retired row, would create a second one, and retiring anything would
+        last until the next deploy."""
+        with tempfile.TemporaryDirectory() as d:
+            write(d, "2026-08-14-how-long.md", ENTRY)
+            self.load(d)
+            ChangelogEntry.all_objects.get(shipped_on=date(2026, 8, 14)).delete()
+            self.load(d)
+        self.assertEqual(
+            ChangelogEntry.all_objects.filter(shipped_on=date(2026, 8, 14)).count(), 1
+        )
+        self.assertEqual(
+            ChangelogEntry.objects.filter(shipped_on=date(2026, 8, 14)).count(), 0
+        )
+
+    def test_the_readme_in_the_directory_is_not_an_entry(self):
+        """The date prefix on entry filenames is what keeps the directory's own
+        documentation out of the glob, which is why it is a convention the
+        loader depends on rather than decoration."""
+        with tempfile.TemporaryDirectory() as d:
+            write(d, "README.md", "# Changelog entries\n\nNot an entry.\n")
+            write(d, "2026-08-14-how-long.md", ENTRY)
+            self.load(d)
+        self.assertEqual(ChangelogEntry.all_objects.count(), 1)
+
+    def test_within_a_day_the_files_read_in_filename_order(self):
+        """`ChangelogEntry` breaks a same-day tie on `-id`, so insertion order
+        is the order a reader sees. Sorting the glob is what makes that
+        predictable instead of filesystem-dependent."""
+        with tempfile.TemporaryDirectory() as d:
+            write(d, "2026-08-14-a-first.md", ENTRY.replace("The coach knows how long it has been", "First"))
+            write(d, "2026-08-14-b-second.md", ENTRY.replace("The coach knows how long it has been", "Second"))
+            self.load(d)
+        titles = list(
+            ChangelogEntry.objects.filter(shipped_on=date(2026, 8, 14)).values_list(
+                "title", flat=True
+            )
+        )
+        # Model ordering is ("-shipped_on", "-id"): newest first within the day.
+        self.assertEqual(titles, ["Second", "First"])
+
+    def test_a_kind_the_frontend_cannot_render_is_refused(self):
+        """`choices` are not enforced on write — `get_or_create` never reaches
+        `full_clean` — so a typo ships. One did: 0058 seeded a row as "ADDED"
+        and `KIND_LABEL[e.kind]` came back `undefined`, so the newest thing the
+        product had shipped wore a chip with no text. Checked here because this
+        is now the only door new rows come through."""
+        with self.assertRaises(CommandError) as caught:
+            load_changelog.parse_entry(ENTRY.replace("CHANGED", "ADDED"), "x.md")
+        self.assertIn("ADDED", str(caught.exception))
+
+    def test_every_malformed_shape_names_the_file(self):
+        """A boot-time loader that says "invalid entry" and stops is a worse
+        deploy than one that says which file. The name is in every message."""
+        for label, text in (
+            ("no header", "shipped_on: 2026-08-14\n\nBody.\n"),
+            ("unclosed header", "---\nshipped_on: 2026-08-14\nkind: NEW\n"),
+            ("missing title", ENTRY.replace("title: The coach knows how long it has been\n", "")),
+            ("not a date", ENTRY.replace("2026-08-14", "the fourteenth")),
+            ("empty body", "---\nshipped_on: 2026-08-14\nkind: NEW\ntitle: T\n---\n\n"),
+            ("long title", ENTRY.replace("The coach knows how long it has been", "T" * 121)),
+            ("bad is_active", ENTRY.replace("kind: CHANGED", "kind: CHANGED\nis_active: maybe")),
+        ):
+            with self.subTest(label):
+                with self.assertRaises(CommandError) as caught:
+                    load_changelog.parse_entry(text, "2026-08-14-how-long.md")
+                self.assertIn("2026-08-14-how-long.md", str(caught.exception))
+
+    def test_an_empty_directory_is_not_an_error(self):
+        """A fresh checkout has no entries here yet, and a boot is not the
+        place to have an opinion about that."""
+        with tempfile.TemporaryDirectory() as d:
+            self.assertIn("0 new", self.load(d))
+
+    def test_every_entry_in_the_tree_parses(self):
+        """The ratchet. Guards every entry a future session writes for the
+        price of this one, and fails in CI rather than at boot — which is the
+        whole reason `start.sh` can afford to run the loader with `|| true`."""
+        load_changelog.read_entries(load_changelog.ENTRIES_DIR)
