@@ -90,12 +90,37 @@ matter):
 First-time users are created automatically on first Google login — there
 is no signup form.
 
-## 6. Keep-alive
+## 6. Keep-alive — don't, unless this is your only free service
 
-Render free sleeps after 15 idle minutes. Point UptimeRobot or
-cron-job.org at `https://masterji-api-XXXX.onrender.com/api/health/`
-every 5 minutes. The health check never touches the DB (protects Neon's
-compute budget); the DB is woken opportunistically when a login starts.
+Render free sleeps after 15 idle minutes. Waking costs more here than
+Render's own "about one minute": §2 measures about two, because the first
+request pays `migrate` on 0.1 CPU as well as the container start. The
+obvious fix is a 5-minute pinger on `/api/health/`, and that is a trap once
+you have more than one free service:
+
+> "Render grants 750 Free instance hours to each workspace **per calendar
+> month**" … "If you consume all of your Free instance hours during a given
+> month, Render suspends **all** of your Free web services until the start
+> of the next month."
+> — [render.com/docs/free](https://render.com/docs/free)
+
+A 31-day month is 744 hours, so **one** always-pinged service consumes the
+entire workspace allowance. A second one exhausts it around day 15 and takes
+every other free service down with it until the 1st. Sleeping services cost
+nothing, so on-demand wake-ups for several apps are far cheaper than keeping
+one warm.
+
+The recommendation: **run no pinger.** Take the cold start and let the note
+§2 describes stand in front of it — that note exists precisely so the wait
+reads as a wait rather than as a broken site.
+Add one only if this is the single free web service in the workspace, or
+window it to the hours you actually demo (cron-job.org supports schedules;
+UptimeRobot's free tier doesn't).
+
+Whatever you do, keep the ping off the database. `/api/health/` never
+touches the DB on purpose — Neon gets 100 CU-hours per project per month and
+resumes from autosuspend in about a second, so it's woken opportunistically
+when a login starts instead.
 
 ## 7. Verify
 
