@@ -8,6 +8,7 @@ both roads lead here, and here only the database counts.
 
 from typing import NamedTuple
 
+from django.db import transaction
 from django.utils import timezone
 from loguru import logger
 
@@ -321,11 +322,18 @@ def try_advance(goal: Goal) -> tuple[bool, str]:
         return False, f"{refusal} {nudge}" if nudge else refusal
 
     from_phase = goal.phase
-    goal.phase = status["next_phase"]
-    goal.phase_entered_at = timezone.now()
-    goal.save(update_fields=["phase", "phase_entered_at", "updated_at"])
-    PhaseTransition.objects.create(
-        goal=goal, from_phase=from_phase, to_phase=goal.phase
-    )
+    # Both writes or neither. A failure between them advances the phase and
+    # records no transition — and this product's entire claim is that the
+    # record is trustworthy because the server wrote it. `PhaseTransition` is
+    # what the stepper, the phase drill-in and `ClosedIdea` read, so a goal in
+    # VALIDATION with no IDEA→VALIDATION row is a record quietly disagreeing
+    # with itself, in the one direction nothing would ever detect.
+    with transaction.atomic():
+        goal.phase = status["next_phase"]
+        goal.phase_entered_at = timezone.now()
+        goal.save(update_fields=["phase", "phase_entered_at", "updated_at"])
+        PhaseTransition.objects.create(
+            goal=goal, from_phase=from_phase, to_phase=goal.phase
+        )
     logger.info(f"Goal {goal.id} advanced {from_phase} → {goal.phase}")
     return True, f"Phase unlocked: {from_phase} → {goal.phase}."

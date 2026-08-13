@@ -37,8 +37,10 @@ from .models import (
     ChangelogEntry,
     CheckIn,
     Goal,
+    GoalRetirement,
     Message,
     Phase,
+    PhaseTransition,
     ProofAttempt,
     Workshop,
     WorkshopMessage,
@@ -5530,3 +5532,117 @@ class IndexTests(TestCase):
         banked.first().delete()
         self.assertEqual(gates._banked(self.goal).count(), before - 1)
         self.assertEqual(CheckIn.all_objects.filter(goal=self.goal).count(), 120)
+# --- multi-write paths land whole or not at all ------------------------------
+
+
+class AtomicWriteTests(CoachTestCase):
+    r"""Three places wrote two rows with no transaction around them.
+
+    `grep -rn "transaction.atomic\|select_for_update" backend` returned zero
+    outside `.venv` before this. Each test kills the second write and asserts
+    the first one did not survive it — because a half-written record is the one
+    failure this product cannot absorb: its whole claim is that the record is
+    trustworthy because the server wrote it, and nothing here would ever detect
+    a row that quietly disagrees with its neighbour.
+    """
+
+    def test_a_lost_transition_row_takes_the_advance_with_it(self):
+        """The one that matters most. `PhaseTransition` is what the stepper,
+        the phase drill-in and `ClosedIdea` read: a goal sitting in VALIDATION
+        with no IDEA→VALIDATION row is a record disagreeing with itself, and
+        the phase is the half that cannot be reconstructed."""
+        goal = self.make_goal()
+        self.accept_proofs(goal, gates.PROOFS_REQUIRED[Phase.IDEA].n)
+        with mock.patch.object(
+            PhaseTransition.objects, "create", side_effect=IntegrityError("boom")
+        ):
+            with self.assertRaises(IntegrityError):
+                gates.try_advance(goal)
+        goal.refresh_from_db()
+        self.assertEqual(goal.phase, Phase.IDEA)
+        self.assertEqual(PhaseTransition.objects.filter(goal=goal).count(), 0)
+
+    def test_a_retirement_that_cannot_be_saved_leaves_the_goal_open(self):
+        """The other order of the same bug. A retirement row against a goal
+        still marked ACTIVE is worse than it looks: `one_active_goal_per_user`
+        means that builder cannot start anything else either."""
+        goal = self.make_goal()
+        with mock.patch.object(
+            Goal, "save", side_effect=IntegrityError("boom")
+        ):
+            with self.assertRaises(IntegrityError):
+                self.client.post(
+                    f"/api/coach/goals/{goal.id}/retire/", {"reason": "it died"}
+                )
+        goal.refresh_from_db()
+        self.assertEqual(goal.status, Goal.Status.ACTIVE)
+        self.assertEqual(GoalRetirement.objects.filter(goal=goal).count(), 0)
+
+    def test_an_archived_try_never_outlives_the_proof_that_replaced_it(self):
+        """A refused try reaches the trail only when the row replacing it
+        lands. Otherwise the builder's evening reads as still pushed back, with
+        the old text under it, and the trail carries a duplicate of it."""
+        goal = self.make_goal(phase=Phase.VALIDATION)
+        self.client.post("/api/coach/checkins/declare/", {"text": "talk to Ramesh"})
+        checkin = CheckIn.objects.get(goal=goal)
+        checkin.pm_proof_text = "I plan to talk to them"
+        checkin.proof_status = CheckIn.ProofStatus.PUSHED_BACK
+        checkin.save()
+
+        with mock.patch(
+            "coach.views.llm.complete",
+            return_value='{"verdict": "accept", "reaction": "ok"}',
+        ):
+            with mock.patch.object(
+                CheckIn, "save", side_effect=IntegrityError("boom")
+            ):
+                with self.assertRaises(IntegrityError):
+                    self.client.post(
+                        "/api/coach/checkins/prove/", {"text": "Spoke to Ramesh."}
+                    )
+        checkin.refresh_from_db()
+        self.assertEqual(checkin.pm_proof_text, "I plan to talk to them")
+        self.assertEqual(ProofAttempt.objects.filter(checkin=checkin).count(), 0)
+
+    def test_a_successful_resubmission_still_archives_the_refused_try(self):
+        """The other half of the one above: the rollback path must not have
+        cost the ordinary path its trail row."""
+        goal = self.make_goal(phase=Phase.VALIDATION)
+        self.client.post("/api/coach/checkins/declare/", {"text": "talk to Ramesh"})
+        checkin = CheckIn.objects.get(goal=goal)
+        checkin.pm_proof_text = "I plan to talk to them"
+        checkin.coach_reaction = "That's a plan, not a proof."
+        checkin.proof_status = CheckIn.ProofStatus.PUSHED_BACK
+        checkin.save()
+
+        with mock.patch(
+            "coach.views.llm.complete",
+            return_value='{"verdict": "accept", "reaction": "ok"}',
+        ):
+            self.client.post(
+                "/api/coach/checkins/prove/", {"text": "Spoke to Ramesh."}
+            )
+        checkin.refresh_from_db()
+        self.assertEqual(checkin.pm_proof_text, "Spoke to Ramesh.")
+        archived = ProofAttempt.objects.get(checkin=checkin)
+        self.assertEqual(archived.text, "I plan to talk to them")
+        self.assertEqual(archived.reaction, "That's a plan, not a proof.")
+
+
+class ChatTurnQueryTests(CoachTestCase):
+    """The hottest authenticated path, counted rather than argued about."""
+
+    def test_the_offer_target_is_read_once_per_turn(self):
+        """`_offer_target` is `_open_checkin` plus `_carried_over` — up to
+        three queries — and `ChatView.post` called it twice, with nothing
+        written between the two calls that could have changed the answer."""
+        self.make_goal()
+        with mock.patch(
+            "coach.views.llm.stream_chat", return_value=iter([("delta", "ok")])
+        ):
+            with mock.patch(
+                "coach.views._offer_target", wraps=views._offer_target
+            ) as spy:
+                response = self.client.post("/api/coach/chat/", {"content": "hi"})
+                b"".join(response.streaming_content)
+        self.assertEqual(spy.call_count, 1)

@@ -12,7 +12,7 @@ import json
 from datetime import date, timedelta
 
 from django.conf import settings
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.http import HttpResponse, StreamingHttpResponse
 from django.shortcuts import get_object_or_404
@@ -893,22 +893,30 @@ class RetireView(APIView):
 
     def _retire(self, request, goal: Goal, reason: str):
         verdict = gates.reads_as(goal, self.outcome)
-        retirement = GoalRetirement.objects.create(
-            goal=goal,
-            outcome=self.outcome,
-            reason=reason,
-            phase_reached=goal.phase,
-            accepted_proofs=gates.accepted_proofs_total(goal),
-            contact_proofs=gates.contact_proofs(goal),
-            days_active=streaks.days_active(goal, _client_day(request)),
-            best_streak=streaks.best_streak(goal),
-        )
-        goal.status = (
-            Goal.Status.COMPLETED
-            if self.outcome == GoalRetirement.Outcome.COMPLETED
-            else Goal.Status.ABANDONED
-        )
-        goal.save(update_fields=["status", "updated_at"])
+        # The snapshot and the closing, together or not at all. Half of this is
+        # a goal the builder cannot reopen with no last words on the record, or
+        # a retirement written against a goal still counted as active — and the
+        # one-active-goal constraint means the second shape blocks them from
+        # starting anything else. The model call that writes the coach's words
+        # is deliberately outside: it can take a minute, and a transaction held
+        # open across it would be a worse bug than the one being fixed.
+        with transaction.atomic():
+            retirement = GoalRetirement.objects.create(
+                goal=goal,
+                outcome=self.outcome,
+                reason=reason,
+                phase_reached=goal.phase,
+                accepted_proofs=gates.accepted_proofs_total(goal),
+                contact_proofs=gates.contact_proofs(goal),
+                days_active=streaks.days_active(goal, _client_day(request)),
+                best_streak=streaks.best_streak(goal),
+            )
+            goal.status = (
+                Goal.Status.COMPLETED
+                if self.outcome == GoalRetirement.Outcome.COMPLETED
+                else Goal.Status.ABANDONED
+            )
+            goal.save(update_fields=["status", "updated_at"])
 
         reaction = _react_to_retirement(retirement, verdict, request.user.tone)
         retirement.coach_reaction = reaction
@@ -1233,8 +1241,18 @@ class ProveView(throttles.VoicedThrottleMixin, APIView):
         # invent a refusal, and prompts.prior_tries would then hand the model a
         # push-back it never wrote, with an empty reaction under it, as
         # something to judge the next submission against.
+        # Built here, where the old values are still on the row, and saved
+        # below in the same transaction as the row that replaces them. Written
+        # this way round on purpose: creating it here and saving the check-in
+        # after the verdict leaves a gap of one model call — up to a minute —
+        # in which a failure archives the try and never overwrites it, so the
+        # builder's evening reads as still pushed back with the old text under
+        # it and the trail carries a duplicate. Wrapping the whole stretch
+        # instead would hold a database transaction open across that same
+        # model call, twelve threads deep, which is the worse trade.
+        archived_try = None
         if checkin.pm_proof_text and checkin.proof_status == CheckIn.ProofStatus.PUSHED_BACK:
-            ProofAttempt.objects.create(
+            archived_try = ProofAttempt(
                 checkin=checkin,
                 text=checkin.pm_proof_text,
                 url=checkin.proof_url,
@@ -1274,7 +1292,12 @@ class ProveView(throttles.VoicedThrottleMixin, APIView):
                 checkin.proof_image_key = key
 
         verdict, reaction, labels = _react_to_proof(
-            goal, checkin, request.user.tone, image_bytes, content_type or ""
+            goal,
+            checkin,
+            request.user.tone,
+            image_bytes,
+            content_type or "",
+            pending_try=archived_try,
         )
         checkin.proof_status = VERDICT_STATUS.get(
             verdict, CheckIn.ProofStatus.PUSHED_BACK
@@ -1288,7 +1311,12 @@ class ProveView(throttles.VoicedThrottleMixin, APIView):
             checkin.subject = labels.subject
             checkin.proof_parts = labels.parts
         checkin.coach_reaction = reaction
-        checkin.save()
+        # The refused try reaches the trail exactly when the row that replaces
+        # it lands, so the record can never hold one without the other.
+        with transaction.atomic():
+            if archived_try is not None:
+                archived_try.save()
+            checkin.save()
         # The row's own date, not the client's: after midnight they differ, and
         # the log should name the evening the proof landed on.
         logger.info(f"Proof {checkin.proof_status} for goal {goal.id} on {checkin.date}")
@@ -1334,6 +1362,7 @@ def _react_to_proof(
     tone: str,
     image: bytes | None = None,
     content_type: str = "",
+    pending_try: ProofAttempt | None = None,
 ) -> tuple[str, str, bar.Labels | None]:
     """LLM garnish with a deterministic floor (transcriber's fix_punctuation
     pattern): any failure logs and falls back to a stock reaction, so the daily
@@ -1405,6 +1434,14 @@ def _react_to_proof(
     # the trail already holds tonight's rejected tries — oldest first (the
     # model's Meta orders by created_at).
     tries = list(checkin.attempts.all())
+    # The try being replaced right now is handed in rather than read back,
+    # because it is not saved yet — it commits with the row that replaces it,
+    # so the record can never hold one without the other. Appended last
+    # because this list is oldest first and it is tonight's most recent
+    # refusal. `prior_tries` only reads `.text` and `.reaction`, so an unsaved
+    # instance is the same thing to it as a row.
+    if pending_try is not None:
+        tries.append(pending_try)
     try:
         system = prompts.PROOF_REACTION_SYSTEM.format(
             # The standard the builder was shown, in the room that decides
@@ -1548,9 +1585,13 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
             for m in list(turns)[::-1]
         ]
 
-        target = _offer_target(goal, today)
-        # Both read off the same `today`, so the draft and the sentence
-        # explaining where it can't go can never disagree about the day.
+        # `target` is the one bound above — read once for the turn. It used to
+        # be recomputed here, which cost `_open_checkin` plus `_carried_over`
+        # a second time on the hottest authenticated path in the product, for
+        # a value that cannot have changed: nothing between the two writes.
+        # Both readers take the same object off the same `today`, so the draft
+        # and the sentence explaining where it can't go can never disagree
+        # about the day.
         response = StreamingHttpResponse(
             self._events(
                 goal,
