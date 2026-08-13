@@ -629,6 +629,13 @@ class StateView(APIView):
                 # reasonable. This was already computed for the retirement
                 # record; it just never reached the dashboard.
                 "best_streak": streaks.best_streak(goal),
+                # The same measurement the coach is handed this turn, sent so
+                # the header badge can render it rather than count days itself.
+                # Two readers of one number: a builder reading "VALIDATION 12d"
+                # and a coach told "In this phase: 12 days" are looking at the
+                # same subtraction, which is the only version of this that
+                # cannot drift.
+                "days_in_phase": streaks.days_in_phase(goal, today),
                 "today": CheckInSerializer(checkin).data if checkin else None,
                 "checkins": CheckInSerializer(
                     goal.checkins.prefetch_related("attempts")[:CHECKIN_HISTORY],
@@ -1518,6 +1525,11 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
             # who they spoke to should not be asked again because the goal has
             # since moved on. Same call as gates.accepted_proofs_total.
             banked=_banked(goal),
+            # The only caller that knows the builder's own date, which is why
+            # it is the only one that measures either of these. Both are
+            # subtractions over rows this turn already read.
+            days_in_phase=streaks.days_in_phase(goal, today),
+            days_since_complete=streaks.days_since_complete(goal, today),
         )
         # SYSTEM rows are excluded, not mapped: they are the app talking about a
         # turn that failed, and the only role this mapping had for them was

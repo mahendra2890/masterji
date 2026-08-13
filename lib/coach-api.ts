@@ -202,6 +202,12 @@ export type CoachState = {
   /** The longest complete run this goal ever had. Shown beside a broken
    * streak so a zero doesn't read as "none of it happened". */
   bestStreak: number;
+  /** Days since the current phase opened, measured on the server against the
+   * date this request sent. Never computed here: the coach is handed the same
+   * subtraction in its state block, and a number the builder reads that
+   * disagrees with the number the coach is holding is the exact failure this
+   * being server-side prevents. 0 on the day a phase opens. */
+  daysInPhase: number;
   today: CheckIn | null;
   checkins: CheckIn[];
   /** How many days the goal actually has, which is not always how many arrived:
@@ -571,6 +577,7 @@ export async function getState(): Promise<CoachState> {
     gate?: ServerGate;
     streak?: number;
     best_streak?: number;
+    days_in_phase?: number;
     today?: ServerCheckIn | null;
     checkins?: ServerCheckIn[];
     checkins_total?: number;
@@ -609,6 +616,10 @@ export async function getState(): Promise<CoachState> {
       : null,
     streak: data.streak ?? 0,
     bestStreak: data.best_streak ?? 0,
+    // Defaulted like the rest: a browser holding this bundle can outlive the
+    // deploy that starts sending the field, and 0 is already the case the
+    // header renders nothing for.
+    daysInPhase: data.days_in_phase ?? 0,
     today: data.today ? fromServerCheckIn(data.today) : null,
     checkins: (data.checkins ?? []).map(fromServerCheckIn),
     // Falls back to what arrived, so a browser holding this bundle from before
