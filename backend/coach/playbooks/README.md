@@ -1,6 +1,6 @@
 # The corpus — everything Masterji knows
 
-This folder is the coach's entire knowledge base: six small markdown
+This folder is the coach's entire knowledge base: nine small markdown
 files. `prompts.py` assembles the system prompt per request from database
 state plus the playbooks mapped to the builder's current phase
 (`PLAYBOOKS_BY_PHASE`). There is no vector database and no retrieval

@@ -2103,6 +2103,60 @@ class VoiceReachesEveryRoomTests(CoachTestCase):
         self.assertNotIn("in IDEA or\nVALIDATION, the answer is no", text)
 
 
+class CorpusCurationTests(CoachTestCase):
+    """The curation policy is a promise this repo makes in public.
+
+    playbooks/README.md tells the reader they can read everything the coach
+    judges them on in ten minutes, that borrowed authority is credited by
+    name, and that a playbook applying to every phase applies to none. Three
+    files landed at once — cold outreach, the money ask, and choosing between
+    ideas — and a corpus grows by exactly the route that stops being checked.
+    """
+
+    # The three that filled the thin shelves: VALIDATION carried the heaviest
+    # gate on one playbook, and LAUNCH asserted a ₹99 payment tells the truth
+    # while teaching no way to get one.
+    NEW_PLAYBOOKS = {
+        "choosing-an-idea": (Phase.IDEA, "Paul Graham"),
+        "getting-the-conversation": (Phase.VALIDATION, "Giff Constable"),
+        "the-first-rupee": (Phase.LAUNCH, "Rob Walling"),
+    }
+
+    def test_each_new_playbook_is_wired_to_exactly_one_phase(self):
+        for name, (phase, _) in self.NEW_PLAYBOOKS.items():
+            with self.subTest(playbook=name):
+                wired = [
+                    p
+                    for p, names in prompts.PLAYBOOKS_BY_PHASE.items()
+                    if name in names
+                ]
+                self.assertEqual(wired, [phase])
+
+    def test_each_new_playbook_credits_its_source_by_name(self):
+        """Borrowed authority is fine, hidden authority is not — the rule that
+        separates this corpus from a model answering out of its pretraining,
+        which is the one authority the product refuses to run on."""
+        for name, (_, source) in self.NEW_PLAYBOOKS.items():
+            with self.subTest(playbook=name):
+                self.assertIn(source, prompts._playbook(name).splitlines()[1])
+
+    def test_the_corpus_holds_nothing_the_coach_never_reads(self):
+        """Every file wired, every wired name a file. An unwired playbook is
+        dead content sitting in the one folder the README calls the coach's
+        entire knowledge base, and nobody would find out."""
+        on_disk = {p.stem for p in prompts.PLAYBOOKS_DIR.glob("*.md")} - {"README"}
+        wired = {n for names in prompts.PLAYBOOKS_BY_PHASE.values() for n in names}
+        self.assertEqual(on_disk, wired)
+
+    def test_the_new_idea_playbook_leaves_contact_to_validation(self):
+        """PHASE_RULES[IDEA] is explicit that the route is desk work and zero
+        contact made is exactly right, and problem-statement.md says it to the
+        builder in as many words. A second playbook in the same phase is the
+        cheapest way to contradict both, so it carries the deferral itself
+        rather than trusting that the first one is still being read."""
+        self.assertIn("VALIDATION's work", prompts._playbook("choosing-an-idea"))
+
+
 class OpenersReachEveryPhaseTests(CoachTestCase):
     """The questions that open a phase have to survive arriving in it.
 
