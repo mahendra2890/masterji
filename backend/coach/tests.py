@@ -13,7 +13,9 @@ from datetime import date, timedelta
 from io import StringIO
 from unittest import mock
 
+from django.apps import apps
 from django.conf import settings
+from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.core.management import call_command
@@ -26,6 +28,7 @@ from django.utils import timezone
 from rest_framework.test import APITestCase
 from rest_framework.throttling import ScopedRateThrottle
 
+from . import admin as coach_admin
 from . import bar, export, gates, guidance, links, prompts, streaks, throttles, views
 from .management.commands import check_migration_leaf
 from .models import (
@@ -5115,6 +5118,72 @@ class WorkshopTests(CoachTestCase):
         )
         self.assertEqual(response.status_code, 400)
         self.assertFalse(Workshop.objects.exists())
+
+
+class AdminReachTests(TestCase):
+    """Every table in this app has a reader, and the workshop's is the only one.
+
+    A goal's chat is readable in the product, so its rows having no admin page
+    would cost nothing. The workshop's is readable nowhere: the room leaves the
+    no-goal screen the moment a goal is committed (the commit spends it), and
+    nothing shows a spent one back to anybody. So the idea discussions on the
+    home screen were being written, kept, and read by no one.
+    """
+
+    def test_every_coach_table_is_reachable_from_the_admin(self):
+        """Pinned as a rule rather than as two names, because the omission this
+        fixes is the kind that recurs: a model lands with its views, its
+        serializer and its tests, and admin.py is the file nobody remembers.
+        Workshop and WorkshopMessage were the only two it had happened to."""
+        unreachable = sorted(
+            model.__name__
+            for model in apps.get_app_config("coach").get_models()
+            if model not in admin.site._registry
+        )
+        self.assertEqual(unreachable, [])
+
+    def test_the_transcript_shows_every_turn_including_deleted_ones(self):
+        """The house rule is that admin sees every row (common/soft_delete.py),
+        and an inline is where it silently stops being true — a formset reads
+        the default manager, which hides soft-deleted rows. A conversation with
+        a hole in it and no mark where the hole is misinforms the only reader
+        the room has."""
+        workshop = Workshop.objects.create(user=make_user("wanda"))
+        kept = WorkshopMessage.objects.create(
+            workshop=workshop, role=WorkshopMessage.Role.USER, content="kept"
+        )
+        gone = WorkshopMessage.objects.create(
+            workshop=workshop, role=WorkshopMessage.Role.COACH, content="deleted"
+        )
+        gone.delete()  # soft
+
+        inline = coach_admin.WorkshopMessageInline(Workshop, admin.site)
+        shown = set(inline.get_queryset(None).values_list("id", flat=True))
+        self.assertEqual(shown, {kept.id, gone.id})
+
+    def test_the_turn_column_counts_what_the_meter_counts(self):
+        """The column is read as "is this room spent" — so it has to be the
+        server's own count (views._turns_used: USER rows, undeleted) and not
+        a count of the transcript, which includes the coach's half."""
+        workshop = Workshop.objects.create(user=make_user("wendell"))
+        for role, content in [
+            (WorkshopMessage.Role.USER, "one"),
+            (WorkshopMessage.Role.COACH, "not a turn"),
+            (WorkshopMessage.Role.SYSTEM, "also not a turn"),
+            (WorkshopMessage.Role.USER, "two"),
+        ]:
+            WorkshopMessage.objects.create(
+                workshop=workshop, role=role, content=content
+            )
+        spent = WorkshopMessage.objects.create(
+            workshop=workshop, role=WorkshopMessage.Role.USER, content="withdrawn"
+        )
+        spent.delete()  # soft
+
+        model_admin = admin.site._registry[Workshop]
+        row = model_admin.get_queryset(None).get(pk=workshop.pk)
+        self.assertEqual(model_admin.turns(row), views._turns_used(workshop))
+        self.assertEqual(model_admin.turns(row), 2)
 
 
 class MigrationLeafTests(SimpleTestCase):

@@ -1,0 +1,16 @@
+/* Loaded only by WorkshopMessageInline, whose whole job is being readable.
+
+   A tabular inline prints str(obj) in a leading cell above each row as a label
+   for the fields under it. For a WorkshopMessage that string is
+   "ROLE: <first 40 characters>" — so a transcript renders the opening of every
+   turn twice, once truncated and once in the content column beside it. The
+   columns are the reading surface; the label is a conversation stuttering.
+
+   Scoped to the formset's own id (`messages` is WorkshopMessage's related_name
+   on Workshop). If that name ever changes this rule stops applying and the
+   duplicate captions come back — visible immediately, which is the failure
+   mode to prefer over a broad selector quietly reaching some later inline. The
+   cell itself stays: it carries the formset's hidden id inputs. */
+#messages-group .tabular td.original p {
+    display: none;
+}
