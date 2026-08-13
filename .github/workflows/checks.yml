@@ -36,7 +36,9 @@ jobs:
       # Sessions locally resolve to whatever `requires-python = ">=3.13"`
       # allows — this tree's .venv is on 3.14 — so this is also the step that
       # would notice code that only works on the newer one.
-      - uses: astral-sh/setup-uv@v10
+      # Exact version, not a floating major: setup-uv stopped publishing the
+      # `vN` alias after v7, so `@v10` does not resolve to anything.
+      - uses: astral-sh/setup-uv@v10.0.0
         with:
           python-version: "3.13"
           enable-cache: true
