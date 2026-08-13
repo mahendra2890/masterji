@@ -7,6 +7,7 @@
 
 import { API_URL } from "@/lib/auth-client";
 import { filenameFrom } from "./download";
+import { refusalFrom } from "./refusal";
 
 const TIMEOUT_MS = 15000;
 
@@ -524,22 +525,7 @@ async function send(
       return send(path, init, true, timeoutMs);
     throw new ApiError("Your session expired — sign in again.", 401);
   }
-  if (!res.ok) {
-    let msg = `Masterji said no (${res.status}).`;
-    try {
-      const body = (await res.json()) as Record<string, unknown>;
-      // DRF sends {"detail": ...} or field errors; the gate sends its
-      // refusal in "detail" alongside non-string fields.
-      const first =
-        typeof body.detail === "string"
-          ? body.detail
-          : Object.values(body)
-              .flat()
-              .find((v) => typeof v === "string");
-      if (typeof first === "string") msg = first;
-    } catch {}
-    throw new ApiError(msg, res.status);
-  }
+  if (!res.ok) throw new ApiError(await refusalFrom(res), res.status);
   return res;
 }
 
@@ -885,7 +871,10 @@ export async function streamChat(
     if (!retried && (await refreshSession())) return streamChat(content, events, true);
     throw new ApiError("Your session expired — sign in again.", 401);
   }
-  if (!res.ok || !res.body) throw new ApiError(`Masterji said no (${res.status}).`, res.status);
+  // The hourly cap lands here, and its refusal is a sentence Masterji wrote —
+  // read it out rather than reporting the number back to the builder.
+  if (!res.ok || !res.body)
+    throw new ApiError(await refusalFrom(res), res.status);
 
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
@@ -930,15 +919,10 @@ export async function streamWorkshopChat(
       return streamWorkshopChat(content, events, true);
     throw new ApiError("Your session expired — sign in again.", 401);
   }
-  if (!res.ok || !res.body) {
-    // The cap's refusal is a sentence, not a status code — read it out rather
-    // than replacing it with "Masterji said no (429)".
-    const detail = await res
-      .json()
-      .then((d) => d?.detail as string | undefined)
-      .catch(() => undefined);
-    throw new ApiError(detail ?? `Masterji said no (${res.status}).`, res.status);
-  }
+  // The cap's refusal is a sentence, not a status code — read it out rather
+  // than replacing it with "Masterji said no (429)".
+  if (!res.ok || !res.body)
+    throw new ApiError(await refusalFrom(res), res.status);
 
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
