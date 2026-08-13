@@ -1809,3 +1809,182 @@
     padding-left: 0;
   }
 }
+
+/* --- the workshop --------------------------------------------------------
+   The room before the goal, under the commit box on the no-goal screen. Same
+   width as the form and the examples so the whole column reads as one thing,
+   and visibly quieter than the box above it: this is the way in for a builder
+   who cannot fill that box yet, never the main event. */
+.workshop {
+  width: min(520px, 100%);
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+  text-align: left;
+}
+
+.workshopHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.workshopTitle {
+  margin: 0;
+  color: var(--text);
+  font-size: 14px;
+}
+
+/* The meter. On screen from the first turn, because a room with a hard end
+   that only announces itself at the end is a trapdoor. */
+.workshopTurns {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+.workshopLog {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 320px;
+  overflow-y: auto;
+  margin-bottom: 10px;
+}
+
+.wsMine,
+.wsTheirs {
+  margin: 0;
+  padding: 8px 11px;
+  border-radius: 10px;
+  font-size: 14px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  max-width: 88%;
+}
+
+.wsMine {
+  align-self: flex-end;
+  background: var(--border);
+  color: var(--text);
+}
+
+.wsTheirs {
+  align-self: flex-start;
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+
+.wsThinking {
+  color: var(--muted);
+}
+
+/* Parked candidates. Cards, because they are things you pick up — and every
+   one of them fills the commit box above rather than committing. */
+.parked {
+  margin-bottom: 12px;
+}
+
+.parkedLabel {
+  margin: 0 0 7px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.parkedList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.parkedItem,
+.parkedPick {
+  width: 100%;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 9px 11px;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13.5px;
+  line-height: 1.4;
+  text-align: left;
+  cursor: pointer;
+}
+
+.parkedItem:hover,
+.parkedPick:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+/* His pick reads as the one to beat, not as a decision already taken: the
+   commit is still the builder's, and the card only fills the box. */
+.parkedPick {
+  border-color: var(--accent);
+  color: var(--text);
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.parkedPickNote {
+  color: var(--accent);
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.workshopComposer {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.workshopInput {
+  flex: 1;
+  background: var(--panel, transparent);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 9px 11px;
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.45;
+  resize: none;
+}
+
+.workshopInput:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* No composer once the turns are gone — this replaces it. The refusal is
+   already in the log in his own words; this is the sign on the closed door,
+   and it points at the box above. */
+.workshopSpent {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
+/* Phone: the head stops being a row. At 375px "Not sure yet? Think it through
+   with him." wraps to two lines and the meter ends up floating beside the
+   second one, which reads as two unrelated fragments rather than a heading and
+   its counter. Same breakpoint the rest of this file switches at. */
+@media (max-width: 820px) {
+  .workshopHead {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+  }
+}

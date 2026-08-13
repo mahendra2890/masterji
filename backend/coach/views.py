@@ -33,6 +33,8 @@ from .models import (
     Message,
     Phase,
     ProofAttempt,
+    Workshop,
+    WorkshopMessage,
 )
 from .serializers import (
     ChangelogEntrySerializer,
@@ -41,6 +43,7 @@ from .serializers import (
     MessageSerializer,
     PhaseTransitionSerializer,
     RetirementSerializer,
+    WorkshopMessageSerializer,
 )
 
 tracer = trace.get_tracer(__name__)
@@ -189,6 +192,100 @@ STREAM_BROKE = "Masterji lost the thread — try again."
 
 def _active_goal(user) -> Goal | None:
     return Goal.objects.filter(user=user, status=Goal.Status.ACTIVE).first()
+
+
+# Turns a workshop gets before the only door left is Commit.
+#
+# Fifteen because it is enough to walk a week for problems, park three and run a
+# tiebreak, and not enough to live in. The number is the mechanism: a room before
+# the goal with no meter on it is the planning-hiding-place this whole product
+# refuses, just with better manners. Counted off USER rows, so it cannot drift
+# from the transcript the builder can see.
+WORKSHOP_TURNS = 15
+
+
+def _open_workshop(user, create: bool = False) -> Workshop | None:
+    """The builder's open workshop, if the room is available to them at all.
+
+    Available only while no goal is active — the exact inverse of the "Set a
+    goal first." guard on ChatView, DeclareView and ProveView, and the reason
+    this room exists: those three are why a builder's first contact with
+    Masterji is the welcome message written after the commit that frightened
+    them.
+
+    `create` is off by default so reads never open a room. A workshop is a row
+    with a turn budget attached, and one should exist because a builder started
+    talking, not because a dashboard polled.
+    """
+    if _active_goal(user) is not None:
+        return None
+    workshop = Workshop.objects.filter(
+        user=user, status=Workshop.Status.OPEN
+    ).first()
+    if workshop is not None or not create:
+        return workshop
+    try:
+        return Workshop.objects.create(user=user)
+    except IntegrityError:
+        # Same reasoning as GoalsView: the check above is a read, the
+        # conditional-unique constraint is the truth, and two near-simultaneous
+        # first turns (a double tap, or the client's 401→refresh→replay) must
+        # not 500 the one screen a builder has.
+        return Workshop.objects.filter(
+            user=user, status=Workshop.Status.OPEN
+        ).first()
+
+
+def _turns_used(workshop: Workshop) -> int:
+    """Turns spent, as a count of the builder's own rows.
+
+    The cap is server arithmetic over the transcript rather than a counter on
+    the row: a stored integer can disagree with the messages the builder is
+    looking at, and this cannot.
+    """
+    return workshop.messages.filter(role=WorkshopMessage.Role.USER).count()
+
+
+def _workshop_payload(workshop: Workshop | None) -> dict | None:
+    """The room, for the no-goal screen. None means there is no room to show —
+    either a goal is active, or nothing has been said yet.
+
+    The transcript goes whole rather than sliced, unlike every other list in
+    this file: WORKSHOP_TURNS bounds it at fifteen of the builder's turns and a
+    reply each, so the cap is already the limit a slice would be imposing.
+    """
+    if workshop is None:
+        return None
+    used = _turns_used(workshop)
+    return {
+        "id": workshop.id,
+        "candidates": list(workshop.candidates or []),
+        "max_candidates": Workshop.MAX_CANDIDATES,
+        "suggested_title": workshop.suggested_title,
+        "turns_used": used,
+        "turns_total": WORKSHOP_TURNS,
+        # Sent computed rather than left to the client, so the meter on screen
+        # and the refusal from the server can never disagree about what's left.
+        "turns_left": max(WORKSHOP_TURNS - used, 0),
+        "messages": WorkshopMessageSerializer(
+            workshop.messages.all(), many=True
+        ).data,
+    }
+
+
+# Said when the turns are gone. Names the exit, in the register of every other
+# refusal in this file: what they have, and the one door still open.
+#
+# The count is interpolated, never written out in words. WORKSHOP_TURNS owns the
+# number, and a refusal that spells it in prose is a second copy that goes stale
+# the first time the cap moves — the same drift the gate's three number-quoting
+# surfaces already cost this codebase once.
+WORKSHOP_SPENT = (
+    "That's the workshop done — {turns} turns, and thinking time is over. "
+    "You don't need a better idea; you need one you can test. Pick the one you "
+    "could ask somebody about this week, put it in the box, and commit. The "
+    "first thing it asks for is one evening at your desk."
+)
 
 
 # A proof is on the record but the cycle is not finished with it. Both of
@@ -514,6 +611,16 @@ class StateView(APIView):
                     "lifetime_days": lifetime,
                     "tone": request.user.tone,
                     "mode": request.user.mode,
+                    # The room before the goal, if they have started one. Read
+                    # without creating: opening a workshop is something a
+                    # builder does by talking, not something a page load does.
+                    "workshop": _workshop_payload(_open_workshop(request.user)),
+                    "workshop_openers": guidance.WORKSHOP_OPENERS,
+                    # Sent whether or not a room exists yet, because the meter
+                    # has to be readable BEFORE the first turn is spent: the
+                    # cap is the mechanism, and a room that only mentions its
+                    # end once you are near it is a trapdoor.
+                    "workshop_turns": WORKSHOP_TURNS,
                 }
             )
         today = _client_day(request)
@@ -616,6 +723,14 @@ class GoalsView(APIView):
             phase=goal.phase,
             content=WELCOME.format(title=goal.title),
         )
+        # The workshop is spent by the commit it was for, whether or not the
+        # title came out of it — a builder who thought in there and then typed
+        # something else entirely still used the room. The next one opens when
+        # this goal closes, which is what stops the vestibule from being
+        # somewhere to go back to instead of forward.
+        Workshop.objects.filter(
+            user=request.user, status=Workshop.Status.OPEN
+        ).update(status=Workshop.Status.SPENT)
         logger.info(f"Goal {goal.id} created for user {request.user.id}")
         return Response(GoalSerializer(goal).data, status=status.HTTP_201_CREATED)
 
@@ -1551,6 +1666,211 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
                     content=content,
                 )
             yield line({"t": "done"})
+
+
+class WorkshopChatView(throttles.VoicedThrottleMixin, APIView):
+    """The room before the goal (models.Workshop).
+
+    Streams NDJSON like ChatView, and is guarded by the INVERSE condition: this
+    endpoint 400s while a goal IS active, where ChatView 400s while one is not.
+    Between them there is now no state a builder can be in where Masterji
+    cannot speak.
+
+    Three things are enforced here in server code, with no model in the loop:
+    the turn cap, the three-candidate ceiling, and the fact that a suggested
+    title only ever fills the commit box. Nothing in this view writes a CheckIn,
+    a proof or a phase — gates.py has nothing here to read, which is what makes
+    the room safe to give away.
+    """
+
+    permission_classes = [IsAuthenticated]
+    throttle_classes = throttles.THROTTLES
+    # Draws from the chat bucket rather than one of its own. Every turn in here
+    # is the same paid call a chat turn is, and a builder cannot be in both
+    # rooms — one endpoint refuses while a goal exists and the other refuses
+    # while none does — so there is no hour in which the two ceilings could be
+    # spent against each other. A second scope would have been a second budget
+    # for the same spending, reachable by retiring a goal.
+    throttle_scope = "chat"
+    throttle_message = (
+        "That's a lot of thinking out loud for one hour. Sit with what he's "
+        "already said, and come back to it in a bit."
+    )
+
+    def post(self, request):
+        # The mirror of "Set a goal first." — and worth saying in the same
+        # register, because a builder who lands here with a goal is a client
+        # out of date rather than somebody doing something wrong.
+        if _active_goal(request.user) is not None:
+            return Response(
+                {"detail": "You have a goal — the workshop is for before that."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        content = (request.data.get("content") or "").strip()
+        if not content:
+            return Response(
+                {"detail": "Say something."}, status=status.HTTP_400_BAD_REQUEST
+            )
+        if len(content) > settings.CHAT_MAX_CHARS:
+            return Response(
+                {"detail": "That's a lot at once. Say the part you want an answer to."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        workshop = _open_workshop(request.user, create=True)
+        if workshop is None:  # a goal appeared between the guard and here
+            return Response(
+                {"detail": "You have a goal — the workshop is for before that."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        # The cap, refused in code and voiced. Checked BEFORE the row is
+        # written, so a refused turn costs nothing and the count the builder
+        # sees is the count the server used.
+        if _turns_used(workshop) >= WORKSHOP_TURNS:
+            logger.info(f"Workshop {workshop.id} spent — turn refused")
+            return Response(
+                {"detail": WORKSHOP_SPENT.format(turns=WORKSHOP_TURNS)},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+        WorkshopMessage.objects.create(
+            workshop=workshop, role=WorkshopMessage.Role.USER, content=content
+        )
+        system = prompts.build_workshop_prompt(
+            candidates=list(workshop.candidates or []),
+            turns_used=_turns_used(workshop),
+            turns_total=WORKSHOP_TURNS,
+            maximum=Workshop.MAX_CANDIDATES,
+            tone=request.user.tone,
+        )
+        # Same exclusion as ChatView, for the same reason: a SYSTEM row is the
+        # app talking about a turn that failed, and feeding it back as
+        # "assistant" hands the model its own outage as something it said.
+        turns = workshop.messages.exclude(
+            role=WorkshopMessage.Role.SYSTEM
+        ).order_by("-created_at")[:HISTORY_LIMIT]
+        history = [
+            {
+                "role": "user" if m.role == WorkshopMessage.Role.USER else "assistant",
+                "content": m.content,
+            }
+            for m in list(turns)[::-1]
+        ]
+        response = StreamingHttpResponse(
+            self._events(workshop, system, history),
+            content_type="application/x-ndjson",
+        )
+        response["Cache-Control"] = "no-cache"
+        response["X-Accel-Buffering"] = "no"
+        return response
+
+    def _events(self, workshop: Workshop, system: str, history: list[dict]):
+        line = lambda obj: json.dumps(obj) + "\n"  # noqa: E731
+        parts: list[str] = []
+        candidates = list(workshop.candidates or [])
+        parked: list[str] = []
+        suggested = ""
+        refused_park = False
+        broke = False
+        with tracer.start_as_current_span("coach.workshop") as span:
+            span.set_attribute("llm.model", settings.LLM_MODEL)
+            try:
+                for kind, payload in llm.stream_chat(
+                    system,
+                    history,
+                    tools=[prompts.PARK_CANDIDATE_TOOL, prompts.SUGGEST_GOAL_TOOL],
+                ):
+                    if kind == "delta":
+                        parts.append(payload)
+                        yield line({"t": "delta", "text": payload})
+                    elif kind == "tool_call":
+                        name = payload.get("name")
+                        arguments = payload.get("arguments", {})
+                        if name == "park_candidate":
+                            one_liner = str(arguments.get("one_liner") or "").strip()
+                            if not one_liner:
+                                continue
+                            # The ceiling, refused here rather than asked for in
+                            # the prompt. The prompt already says three is the
+                            # limit and flips to a forced choice at it, but a
+                            # limit that only exists in a prompt is a limit the
+                            # model can talk itself past — the same division of
+                            # labour as _already_banked.
+                            if len(candidates) >= Workshop.MAX_CANDIDATES:
+                                refused_park = True
+                                logger.info(
+                                    f"Workshop {workshop.id} refused a 4th candidate"
+                                )
+                                continue
+                            candidates.append(one_liner)
+                            parked.append(one_liner)
+                        elif name == "suggest_goal":
+                            title = str(arguments.get("title") or "").strip()
+                            if title:
+                                # Last call wins: a later suggestion in the same
+                                # turn replaces the earlier one, the way a later
+                                # suggest_proof replaces the draft.
+                                suggested = title[:200]
+            except Exception as e:
+                logger.error(f"Workshop stream failed: {e}")
+                broke = True
+                yield line({"t": "error", "detail": STREAM_BROKE})
+
+            content = "".join(parts)
+            fields: list[str] = []
+            if parked:
+                fields.append("candidates")
+            if suggested:
+                fields.append("suggested_title")
+            if fields:
+                if parked:
+                    workshop.candidates = candidates
+                if suggested:
+                    workshop.suggested_title = suggested
+                workshop.save(update_fields=[*fields, "updated_at"])
+                span.set_attribute("workshop.candidates", len(candidates))
+                logger.info(
+                    f"Workshop {workshop.id} holds {len(candidates)} candidate(s)"
+                )
+            # Both are rows on the workshop, not just wire events, for the same
+            # reason a drafted proof is a row: the client refetches state when
+            # the turn ends, and a card that only existed in the stream would
+            # vanish under the builder as they reached for it.
+            if parked or suggested or refused_park:
+                yield line(
+                    {
+                        "t": "candidates",
+                        "candidates": candidates,
+                        "suggested": suggested,
+                        # Said out loud rather than swallowed: the builder is
+                        # watching a suggestion not appear, and silence there
+                        # reads as the app dropping their idea.
+                        "refused": refused_park,
+                    }
+                )
+            notice = False
+            if broke and not content:
+                content = STREAM_BROKE
+                notice = True
+            if content:
+                WorkshopMessage.objects.create(
+                    workshop=workshop,
+                    role=(
+                        WorkshopMessage.Role.SYSTEM
+                        if notice
+                        else WorkshopMessage.Role.COACH
+                    ),
+                    content=content,
+                )
+            # The count the client should show next, computed after this turn's
+            # row landed. Sent on `done` so the meter and the server's own
+            # refusal threshold are the same number.
+            used = _turns_used(workshop)
+            yield line(
+                {
+                    "t": "done",
+                    "turns_used": used,
+                    "turns_left": max(WORKSHOP_TURNS - used, 0),
+                }
+            )
 
 
 # --- the product's own record ---------------------------------------------

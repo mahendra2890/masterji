@@ -218,3 +218,19 @@ def for_phase(phase: Phase) -> dict:
         "proof_examples": PROOF_EXAMPLES[phase],
         "openers": OPENERS[phase],
     }
+
+
+# The workshop has no phase, so it gets its own set (models.Workshop). Same
+# bargain as OPENERS above: tapping one fills the composer and leaves the
+# sending with the builder.
+#
+# These three are the actual freezes, not three flavours of "help me brainstorm":
+# no idea at all, too many ideas, and the fear that the idea is too obvious to
+# be worth doing. The first one is also the condition the coach's week-walk is
+# keyed to — a builder who taps it has told the room they arrived empty-handed,
+# which is the one case where walking their week is the right opening move.
+WORKSHOP_OPENERS = [
+    "I don't have an idea yet.",
+    "I have three ideas and can't pick.",
+    "Is my idea too obvious?",
+]
