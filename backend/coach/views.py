@@ -840,6 +840,11 @@ class DeclareView(APIView):
         checkin.proof_ask = ""
         checkin.proof_offer = ""
         checkin.proof_missing = ""
+        # The draft's labels go with the draft. They describe evidence for the
+        # old task, and a stale subject on a row that later banks a proof would
+        # credit tonight's person to work they had nothing to do with.
+        checkin.subject = ""
+        checkin.proof_parts = []
         checkin.save(
             update_fields=[
                 "am_declaration",
@@ -848,6 +853,8 @@ class DeclareView(APIView):
                 "proof_ask",
                 "proof_offer",
                 "proof_missing",
+                "subject",
+                "proof_parts",
                 "updated_at",
             ]
         )
@@ -976,12 +983,20 @@ class ProveView(APIView):
             if storage.put_image(key, image_bytes, content_type):
                 checkin.proof_image_key = key
 
-        verdict, reaction = _react_to_proof(
+        verdict, reaction, labels = _react_to_proof(
             goal, checkin, request.user.tone, image_bytes, content_type or ""
         )
         checkin.proof_status = VERDICT_STATUS.get(
             verdict, CheckIn.ProofStatus.PUSHED_BACK
         )
+        # What the gate will count this evening as, written at the moment the
+        # verdict is: who it was about, and which parts of the bar it satisfied.
+        # None leaves the row's existing labels alone — the unedited-draft path
+        # has better ones already, and a judge that flaked on the labels must not
+        # erase them (_labels_from_verdict).
+        if labels is not None:
+            checkin.subject = labels.subject
+            checkin.proof_parts = labels.parts
         checkin.coach_reaction = reaction
         checkin.save()
         # The row's own date, not the client's: after midnight they differ, and
@@ -999,13 +1014,37 @@ class ProveView(APIView):
         )
 
 
+def _labels_from_verdict(phase: str, payload: dict) -> bar.Labels | None:
+    """The judge's own labels for the evening it just accepted — who it was
+    about, and which parts of the bar it satisfied.
+
+    Same division of labour as suggest_proof: the model extracts, the server
+    counts. It is the call that already decides accept or push_back, so no new
+    authority is handed out here — and what it says is filtered before it lands.
+    An invented part key is dropped (bar.known_parts), because a gate that counts
+    kinds must count names bar.py chose.
+
+    None means "nothing usable came back", which is deliberately not the same as
+    "empty". A verdict that flakes on this must not wipe the labels the draft
+    already carried, and must never cost the builder the proof itself: the day
+    is accepted either way, and an unlabelled accept simply leaves the kind still
+    owed, which try_advance then names.
+    """
+    known = bar.known_parts(phase)
+    parts = [key for key in bar._entries(payload.get("parts")) if key in known]
+    subject = bar.normalise_subject(payload.get("subject") or "")
+    if not parts and not subject:
+        return None
+    return bar.Labels(subject=subject, parts=parts)
+
+
 def _react_to_proof(
     goal: Goal,
     checkin: CheckIn,
     tone: str,
     image: bytes | None = None,
     content_type: str = "",
-) -> tuple[str, str]:
+) -> tuple[str, str, bar.Labels | None]:
     """LLM garnish with a deterministic floor (transcriber's fix_punctuation
     pattern): any failure logs and falls back to a stock reaction, so the daily
     loop never breaks because a model call flaked.
@@ -1051,7 +1090,7 @@ def _react_to_proof(
         # "5 Aug", the same shape the record card shows (Masterji.tsx's
         # formatDate). Built rather than strftime'd because the format that
         # drops the leading zero is a platform extension, not a guarantee.
-        return "push_back", line.format(date=f"{repeat.date.day} {repeat.date:%b}")
+        return "push_back", line.format(date=f"{repeat.date.day} {repeat.date:%b}"), None
 
     if offer and not missing and checkin.pm_proof_text.strip() == offer:
         # He read the conversation, decided it cleared the bar, and wrote this
@@ -1064,8 +1103,12 @@ def _react_to_proof(
         # incomplete would file straight through untouched. That is not
         # leniency, it is the gate deciding nothing.
         logger.info(f"Proof filed from Masterji's own draft on checkin {checkin.id}")
-        return "accept", prompts.STOCK_OFFER_ACCEPT.get(
-            tone, prompts.STOCK_OFFER_ACCEPT["ENGLISH"]
+        # No labels: the row already carries the draft's own, computed from the
+        # arguments this very text was composed from (ChatView).
+        return (
+            "accept",
+            prompts.STOCK_OFFER_ACCEPT.get(tone, prompts.STOCK_OFFER_ACCEPT["ENGLISH"]),
+            None,
         )
 
     # Written archive-before-overwrite by ProveView, so by the time we're here
@@ -1082,6 +1125,7 @@ def _react_to_proof(
             judge_bar=prompts.judge_bar_for(Phase(goal.phase)),
             substance_rule=prompts.SUBSTANCE_RULE,
             respect_rule=prompts.RESPECT_RULE,
+            label_rule=prompts.label_rule_for(Phase(goal.phase)),
             tone_rule=prompts.HINGLISH_RULE if tone == "HINGLISH" else "",
             phase=goal.phase,
             declared=checkin.am_declaration,
@@ -1125,11 +1169,11 @@ def _react_to_proof(
             # exists to forbid — so an unexplained verdict is treated as no
             # verdict rather than imposed in silence.
             logger.warning(f"Unreadable verdict {verdict!r} on checkin {checkin.id}")
-            return "unjudged", _unjudged_reaction(tone)
-        return verdict, reaction
+            return "unjudged", _unjudged_reaction(tone), None
+        return verdict, reaction, _labels_from_verdict(goal.phase, payload)
     except Exception as e:
         logger.error(f"Proof reaction failed: {e}")
-        return "unjudged", _unjudged_reaction(tone)
+        return "unjudged", _unjudged_reaction(tone), None
 
 
 def _unjudged_reaction(tone: str) -> str:
@@ -1226,6 +1270,7 @@ class ChatView(APIView):
         parts: list[str] = []
         advance_proposed = False
         offered = missing = ""
+        labels = bar.Labels(subject="", parts=[])
         broke = False
         with tracer.start_as_current_span("coach.turn") as span:
             span.set_attribute("goal.phase", goal.phase)
@@ -1256,9 +1301,15 @@ class ChatView(APIView):
                             # later call in the same turn replaces the draft,
                             # and a gap left over from the earlier one would
                             # describe text that is no longer there.
-                            offered, missing = bar.read(
-                                goal.phase, payload.get("arguments", {})
-                            )
+                            arguments = payload.get("arguments", {})
+                            offered, missing = bar.read(goal.phase, arguments)
+                            # Who it was about and which parts it satisfied,
+                            # from the same arguments and by the same
+                            # arithmetic. Kept with the draft because the
+                            # unedited-draft path never reaches a model again
+                            # (_react_to_proof accepts it outright), so this is
+                            # the only moment the labels for that path exist.
+                            labels = bar.labels(goal.phase, arguments)
             except Exception as e:
                 logger.error(f"Chat stream failed: {e}")
                 broke = True
@@ -1275,8 +1326,20 @@ class ChatView(APIView):
                 if offer_target is not None:
                     offer_target.proof_offer = offered
                     offer_target.proof_missing = missing
+                    # Provisional, exactly as far as the draft is: they describe
+                    # THIS draft, and a proof filed with the text edited is
+                    # judged, which overwrites them (ProveView). Nothing reads
+                    # them until a proof on this row is ACCEPTED.
+                    offer_target.subject = labels.subject
+                    offer_target.proof_parts = labels.parts
                     offer_target.save(
-                        update_fields=["proof_offer", "proof_missing", "updated_at"]
+                        update_fields=[
+                            "proof_offer",
+                            "proof_missing",
+                            "subject",
+                            "proof_parts",
+                            "updated_at",
+                        ]
                     )
                     span.set_attribute("proof.offered", True)
                     logger.info(f"Proof drafted for checkin {offer_target.id}")

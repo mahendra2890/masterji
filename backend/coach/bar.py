@@ -56,6 +56,12 @@ class Bar(NamedTuple):
     # What an any-of bar owes while it has nothing at all. Written out rather
     # than joined from the labels because "or" is the whole meaning of it.
     either_label: str = ""
+    # Which part names the PERSON this evening's evidence is about, when the
+    # phase has one. gates.py counts distinct values of it rather than rows, so
+    # the module that decides what a part means is also the module that says
+    # which part is an identity — the alternative is gates.py hardcoding the
+    # string "who", which is bar.py's business leaking one file over.
+    subject_key: str = ""
 
 
 BAR = {
@@ -123,7 +129,8 @@ BAR = {
                 "whether they got it. Praise for the idea is not a "
                 "commitment.",
             ),
-        )
+        ),
+        subject_key="who",
     ),
     Phase.BUILD: Bar(
         parts=(
@@ -220,6 +227,65 @@ def compose(bar: Bar, given: dict[str, list[str]]) -> str:
         for part in bar.parts
         if given[part.key]
     )
+
+
+class Labels(NamedTuple):
+    """What an accepted proof turns out to be about, as the gate counts it."""
+
+    # bar.Bar.subject_key's value, normalised for counting. Blank when the phase
+    # has no identity part, or when nothing came back for it.
+    subject: str
+    # The part keys this evidence satisfied, in bar order.
+    parts: list[str]
+
+
+def normalise_subject(value: str) -> str:
+    """A person's name as a counting key, not as prose.
+
+    Case-folded and whitespace-collapsed so "Priya " and "priya" are one
+    person, and truncated to the field's width. Deliberately crude: this is not
+    identity resolution, and it does not try to be. "Priya" and "Priya S." stay
+    two people, because the alternative is a server guessing that two names
+    mean one person and silently costing a builder a proof for it.
+    """
+    return " ".join(str(value or "").split()).casefold()[:120]
+
+
+def labels(phase: str, arguments: dict) -> Labels:
+    """A suggest_proof call, as the two facts the gate will count later.
+
+    Same normalisation as read(), same source, no second opinion: the model
+    extracted the parts when it drafted the proof, and this is arithmetic over
+    what it sent. Which parts are present is a truth about the arguments, so it
+    is computed here rather than asked for.
+    """
+    bar = BAR[Phase(phase)]
+    given = {part.key: _entries(arguments.get(part.key)) for part in bar.parts}
+    subject = ""
+    if bar.subject_key:
+        entries = given.get(bar.subject_key) or []
+        subject = normalise_subject(entries[0] if entries else "")
+    return Labels(
+        subject=subject, parts=[part.key for part in bar.parts if given[part.key]]
+    )
+
+
+def known_parts(phase: str) -> list[str]:
+    """Every part key this phase's bar defines — what a label may legally say.
+
+    The judge is asked for part keys, and a model asked for keys will sometimes
+    invent one. An unknown key is dropped rather than stored, so a gate that
+    counts kinds is counting names this module chose.
+    """
+    return [part.key for part in BAR[Phase(phase)].parts]
+
+
+def label_for(phase: str, key: str) -> str:
+    """What to call one part in a sentence the builder reads."""
+    for part in BAR[Phase(phase)].parts:
+        if part.key == key:
+            return part.label
+    return key
 
 
 def read(phase: str, arguments: dict) -> Draft:

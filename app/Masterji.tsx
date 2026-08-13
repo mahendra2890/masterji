@@ -1136,7 +1136,14 @@ export default function Masterji({ user }: { user: SessionUser }) {
                     could stand here for days having already earned the next
                     phase and never be told. Refusals got ninety words; this
                     got none. */}
-                {gate.have >= gate.need ? (
+                {/* `owed` is why this isn't just have >= need. BUILD asks for
+                    two proofs AND one of them being a real user touching the
+                    thing, so the count can be full while the phase is not met
+                    — and promising "Earned" there would be a lit door that
+                    doesn't open, on the product's own word. The count still
+                    reads 2/2, because it is: the nights are banked and stay
+                    banked. What's left is named instead. */}
+                {gate.have >= gate.need && gate.owed.length === 0 ? (
                   <>
                     <p className={styles.gateEarned}>
                       Earned. {gate.nextPhase} is yours to open.
@@ -1150,16 +1157,28 @@ export default function Masterji({ user }: { user: SessionUser }) {
                     </button>
                   </>
                 ) : (
-                  /* Still pressable below the bar, on purpose: Django counts
-                     the rows and answers, and being told exactly what is
-                     missing is the coaching. */
-                  <button
-                    className={styles.secondaryBtn}
-                    disabled={busy}
-                    onClick={onAdvance}
-                  >
-                    Request phase advance
-                  </button>
+                  <>
+                    {/* The count is full and a KIND is still owed — the one
+                        case where the number above says nothing is missing.
+                        Said here rather than left to the refusal, because the
+                        refusal only arrives once the button has been pressed,
+                        and a builder reading 2/2 has no reason to press it. */}
+                    {gate.have >= gate.need && gate.owed.length > 0 && (
+                      <p className={styles.gateOwed}>
+                        The count is there. Still needed: {gate.owed.join("; ")}.
+                      </p>
+                    )}
+                    {/* Still pressable below the bar, on purpose: Django counts
+                        the rows and answers, and being told exactly what is
+                        missing is the coaching. */}
+                    <button
+                      className={styles.secondaryBtn}
+                      disabled={busy}
+                      onClick={onAdvance}
+                    >
+                      Request phase advance
+                    </button>
+                  </>
                 )}
               </>
             )}

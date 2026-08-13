@@ -464,6 +464,18 @@
   font-weight: 700;
 }
 
+/* The count is full and a KIND is still owed. Deliberately not .gateEarned:
+   nothing has been won yet, and spending the good colour here would be the
+   same lie as saying "Earned". Not a refusal either — the builder hasn't asked
+   for anything. So it takes the accent the refusal note uses, in the slot the
+   earned line would have occupied. */
+.gateOwed {
+  margin: 0 0 8px;
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 700;
+}
+
 .gateNote {
   margin: 10px 0 0;
   font-size: 13px;
