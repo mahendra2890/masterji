@@ -2157,6 +2157,70 @@ class NotAboutTheWorkTests(CoachTestCase):
         self.assertIn(prompts.SPOT_PROOF, system)
 
 
+class DoubtingTheIdeaTests(CoachTestCase):
+    """"Is this even the right idea?" — the question the coach answered by
+    defending the goal.
+
+    Its neighbour above handles the message that is about the person. This one
+    is about the idea, and it had the opposite problem: not an absent register
+    but a wrong one. PHASE_RULES[IDEA] gives the coach exactly one doubt-
+    adjacent move — "put the problem statement back in front of them" — which
+    is right for a builder drifting toward their tech stack and reads, to a
+    builder asking whether to keep going at all, as the app protecting its own
+    sunk cost. Same tone user-testing disliked, on the turn most likely to end
+    in a closed tab.
+    """
+
+    def system_for(self, goal=None, **kwargs):
+        goal = goal or self.make_goal()
+        return prompts.build_system_prompt(
+            goal, gates.gate_status(goal), 0, "no declaration yet", "ENGLISH", **kwargs
+        )
+
+    def test_every_phase_can_answer_the_doubt(self):
+        """Doubt is not an IDEA-phase event. It arrives hardest in VALIDATION,
+        where the builder has heard three people be polite about it, and the
+        block has to be in the prompt when it does."""
+        goal = self.make_goal()
+        for phase in Phase:
+            with self.subTest(phase=phase):
+                goal.phase = phase
+                goal.save(update_fields=["phase"])
+                self.assertIn(prompts.WHEN_THEY_DOUBT_THE_IDEA, self.system_for(goal))
+
+    def test_it_holds_in_the_mode_built_for_thinking(self):
+        """THINKING mode takes its own branch through the format call, and it
+        is the likeliest room for this question: a builder who wants to think
+        rather than declare is often thinking about whether to continue."""
+        self.assertIn(
+            prompts.WHEN_THEY_DOUBT_THE_IDEA, self.system_for(mode="THINKING")
+        )
+
+    def test_the_turn_does_not_defend_the_goal(self):
+        """The whole content of the rule. A builder asking whether to keep
+        going who gets today's task back has been argued with, not answered."""
+        block = prompts.WHEN_THEY_DOUBT_THE_IDEA
+        self.assertIn("do not defend the goal", block)
+        self.assertIn("not asking what to do tonight", block)
+
+    def test_it_is_only_ever_a_reply(self):
+        """Same condition every deferral carries, for the reason
+        ANSWER_WHAT_THEY_ASKED exists: a coach who decides from a quiet week
+        that somebody has lost faith in their idea has invented it, and
+        raising it unprompted is how you plant the doubt you meant to answer."""
+        self.assertIn("Only ever when they raise it", prompts.WHEN_THEY_DOUBT_THE_IDEA)
+
+    def test_the_readiness_test_is_whichever_phase_they_are_in(self):
+        """COACH_SYSTEM serves all four phases from one string, so the true
+        thing the coach reaches for — the bar in front of them IS the
+        readiness test — has to be worded for the phase the builder is
+        actually in. Naming IDEA's problem statement would make the sentence
+        wrong for three quarters of the builders who read it."""
+        block = prompts.WHEN_THEY_DOUBT_THE_IDEA
+        self.assertIn("bar in front of them", block)
+        self.assertNotIn("problem statement", block)
+
+
 class VoiceReachesEveryRoomTests(CoachTestCase):
     """The respect rule is not a chat feature.
 

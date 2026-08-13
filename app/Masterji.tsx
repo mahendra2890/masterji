@@ -739,12 +739,30 @@ export default function Masterji({ user }: { user: SessionUser }) {
                 threat is spent here and lands properly in the retire flow,
                 where there is a record to keep. What the sentence owes instead
                 is the shape of what they're agreeing to: a commitment nobody
-                has priced reads as unlimited. */}
+                has priced reads as unlimited.
+
+                It priced the daily cost and stopped there, which left the
+                expensive half unpriced: what they think they are signing up to
+                finish. "Pick the one that matters" is a sentence about
+                choosing correctly, on the one screen where nobody can yet —
+                and the freeze here is not indecision, it is a 19-year-old
+                reading the box as a promise to see this through. So the
+                sentence says what the server already does: the commitment is
+                to TEST the problem, the first step out of IDEA is one evening
+                at a desk (gates.PROOFS_REQUIRED[IDEA] is 1, and its bar is
+                desk work), and an idea killed by real people reads as tested
+                rather than failed. That last one is conditional on purpose:
+                reads_as needs INVALIDATED_AT contact proofs before it says
+                "tested → dead", so the promise is about dying in front of
+                people, never about closing. */}
             <p className={styles.onboardSub}>
-              Masterji coaches one thing at a time. Pick the one that matters and
-              commit — then it&apos;s one task each morning and proof of it each
-              evening, about two minutes a day. You can close it whenever you
-              like.
+              Masterji coaches one thing at a time. Pick the problem you&apos;ll
+              test first — not the idea you&apos;ll finish — then it&apos;s one
+              task each morning and proof of it each evening, about two minutes a
+              day. The first thing he asks for is one evening at your desk. You
+              can close it whenever you like, and an idea that dies in front of
+              real people reads as tested on your record — most first ones
+              should.
             </p>
           </>
         )}
