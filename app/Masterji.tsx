@@ -137,6 +137,22 @@ const EVENING_FROM = 17;
 const enterSends = () =>
   window.matchMedia("(hover: hover) and (pointer: fine)").matches;
 
+/** Whether this keystroke means send, in either of the two boxes that talk to
+ * Masterji.
+ *
+ * One predicate because both used to spell the condition out, and the
+ * workshop's copy was missing the `enterSends()` half — so on a phone the room
+ * fired a half-written turn where the chat inserted a newline. That is worse in
+ * the room than it would be in the chat: a workshop turn is metered
+ * (views.WORKSHOP_TURNS), the row is written before the model is called, and
+ * the coach's opening move there is to ask for a walk through the builder's
+ * last seven days, which is a multi-paragraph answer by design.
+ *
+ * Takes the fields it reads rather than a React event, so a third box cannot
+ * diverge by copying four fifths of the condition again. */
+const isSendKey = (e: { key: string; shiftKey: boolean }) =>
+  e.key === "Enter" && !e.shiftKey && enterSends();
+
 /** The gate situation a note was an answer to.
  *
  * "Not yet, 0/1" stops being true the moment a proof lands, and the card used
@@ -226,6 +242,58 @@ function TourLink() {
     >
       How it works
     </a>
+  );
+}
+
+/** EN ⇄ हिं. Both languages on screen with the live one lit — a single button
+ * reading "EN" states the language you already have and never reveals that the
+ * other one exists.
+ *
+ * A component rather than JSX in the header, because the header was not the only
+ * place it belonged and being there alone was a bug. The workshop's system
+ * prompt reads `user.tone` too (views.build_workshop_prompt), so the room has
+ * always spoken Hinglish — while the only control that sets it rendered inside
+ * the goal branch. That made the FIRST conversation a builder ever has with him
+ * the one conversation they could not switch, on a product whose pitch is being
+ * voiced for India, and Hinglish reachable only after committing the goal the
+ * room exists to help someone who cannot commit one yet.
+ *
+ * Where it goes on the no-goal screen is the footer, on this file's own
+ * taxonomy: language is picked once and forgotten, which is account chrome, and
+ * the footer is where that screen keeps account chrome. Not over the composer —
+ * that slot is for a control reached for mid-conversation, which is the mode.
+ */
+function ToneSwitch({
+  tone,
+  busy,
+  onSet,
+}: {
+  tone: CoachState["tone"];
+  busy: boolean;
+  onSet: (next: CoachState["tone"]) => void;
+}) {
+  return (
+    <div className={styles.toneSwitch} role="group" aria-label="Coach language">
+      <button
+        type="button"
+        className={tone === "ENGLISH" ? styles.toneOptOn : styles.toneOpt}
+        aria-pressed={tone === "ENGLISH"}
+        disabled={busy}
+        onClick={() => onSet("ENGLISH")}
+      >
+        EN
+      </button>
+      <button
+        type="button"
+        lang="hi"
+        className={tone === "HINGLISH" ? styles.toneOptOn : styles.toneOpt}
+        aria-pressed={tone === "HINGLISH"}
+        disabled={busy}
+        onClick={() => onSet("HINGLISH")}
+      >
+        हिं
+      </button>
+    </div>
   );
 }
 
@@ -429,6 +497,8 @@ export default function Masterji({ user }: { user: SessionUser }) {
   const [wsPending, setWsPending] = useState<string | null>(null);
   const [wsError, setWsError] = useState("");
   const wsBoxRef = useRef<HTMLTextAreaElement>(null);
+  // The room's log, so it can be pinned to the newest turn the way the chat's is.
+  const wsLogRef = useRef<HTMLDivElement>(null);
 
   // forms
   const [goalTitle, setGoalTitle] = useState("");
@@ -573,6 +643,22 @@ export default function Masterji({ user }: { user: SessionUser }) {
     const box = messagesRef.current;
     if (box) box.scrollTop = box.scrollHeight;
   }, [state?.messages.length, streamingText, pane]);
+
+  // The same pin for the room's log, which never had one. That log is a 320px
+  // window (.workshopLog) on a conversation the server lets run to fifteen
+  // turns, so at rest it opened on the OLDEST three: a builder reopening the tab
+  // was shown "I don't have an idea yet." as the most recent thing said, with
+  // the tiebreak they came back for nearly three screens down inside it — and
+  // the tiebreak is the room's whole output, the thing `suggest_goal` is
+  // grounded in.
+  //
+  // Deliberately the same rule as the chat's above rather than a better one:
+  // there is a live proposal to pin a long incoming turn to its own top instead,
+  // and that belongs in one place for both logs.
+  useEffect(() => {
+    const box = wsLogRef.current;
+    if (box) box.scrollTop = box.scrollHeight;
+  }, [state?.workshop?.messages.length, wsStreaming, wsPending]);
 
   // The composer is the height of what's in it: one row while it's empty, a
   // row taller for every line typed into it, scrolling once it reaches the cap
@@ -1086,7 +1172,7 @@ export default function Masterji({ user }: { user: SessionUser }) {
           </div>
 
           {(ws?.messages.length || wsPending !== null) && (
-            <div className={styles.workshopLog}>
+            <div className={styles.workshopLog} ref={wsLogRef}>
               {ws?.messages.map((m) => (
                 <p
                   key={m.id}
@@ -1195,10 +1281,19 @@ export default function Masterji({ user }: { user: SessionUser }) {
               screen above as the coach's own words, and leaving a box there
               that only ever answers 429 is the product pretending a door is
               open. The commit box above it is the door. */}
+          {/* The {" "} in the closed-door sentence is load-bearing and must not
+              be reformatted away — see the same note in Landing.tsx and
+              Tour.tsx. Written as `{turns} turns, done.` it shipped as
+              "15turns, done." for as long as the room has existed: the text
+              node after the expression wraps to the next source line, and the
+              build drops the space at the front of it. The one sentence that
+              has to send a builder to the commit box, with a typo in its first
+              word. */}
           {ws && ws.turnsLeft === 0 ? (
             <p className={styles.workshopSpent}>
-              {state.workshopTurns} turns, done. You don&apos;t need a better
-              idea — you need one you can test. Put it in the box above.
+              {state.workshopTurns}{" "}
+              turns, done. You don&apos;t need a better idea — you need one you
+              can test. Put it in the box above.
             </p>
           ) : (
             <div className={styles.workshopComposer}>
@@ -1212,7 +1307,7 @@ export default function Masterji({ user }: { user: SessionUser }) {
                 disabled={wsStreaming !== null}
                 onChange={(e) => setWsDraft(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
+                  if (isSendKey(e)) {
                     e.preventDefault();
                     void sendWorkshop();
                   }
@@ -1254,12 +1349,24 @@ export default function Masterji({ user }: { user: SessionUser }) {
 
         {/* The tour matters most here and costs least here: this is the screen
             somebody lands on the moment they finish signing up, with nothing
-            on it yet to explain itself, and the footer holds two quiet words
-            rather than a full control strip. */}
+            on it yet to explain itself, and this row stays quiet rather than
+            becoming a full control strip.
+
+            The language switch is the fourth thing in it, and that is a real
+            charge against the sentence above — paid because the workshop this
+            row sits under has been speaking whichever language it sets all
+            along, with no way to say which. It goes LAST so nothing already
+            here moves: sign out is deliberately leftmost (see .signOut)
+            because its label grows to "sign out?" on the first press, and a
+            control that shifts under the thumb mid-confirmation is the one
+            thing this row must not do. If the row ever does read as clutter,
+            the next place to try is the workshop head beside the turn meter —
+            not a caption or a disclosure explaining what the languages are. */}
         <div className={styles.onboardFooter}>
           <SignOutButton />
           <TourLink />
           <Changelog />
+          <ToneSwitch tone={state.tone} busy={busy} onSet={onSetTone} />
         </div>
 
         {viewClosed && (
@@ -1340,32 +1447,10 @@ export default function Masterji({ user }: { user: SessionUser }) {
               composer, with the conversation it governs. This corner is
               account chrome, and nobody looks for a way of talking in it. */}
           {/* Both languages on screen, the live one lit — the same fix the
-              mode switch got, for the same reason. A single button reading
-              "EN" states the language you already have and never reveals that
-              the other one exists; Hinglish is half of what makes him
-              Masterji, and it was reachable only by pressing a button whose
-              label gave no reason to press it. */}
-          <div className={styles.toneSwitch} role="group" aria-label="Coach language">
-            <button
-              type="button"
-              className={state.tone === "ENGLISH" ? styles.toneOptOn : styles.toneOpt}
-              aria-pressed={state.tone === "ENGLISH"}
-              disabled={busy}
-              onClick={() => onSetTone("ENGLISH")}
-            >
-              EN
-            </button>
-            <button
-              type="button"
-              lang="hi"
-              className={state.tone === "HINGLISH" ? styles.toneOptOn : styles.toneOpt}
-              aria-pressed={state.tone === "HINGLISH"}
-              disabled={busy}
-              onClick={() => onSetTone("HINGLISH")}
-            >
-              हिं
-            </button>
-          </div>
+              mode switch got, for the same reason. See ToneSwitch, which is
+              also on the no-goal screen now: the room before the goal speaks
+              Hinglish too, and this was the only place to say so. */}
+          <ToneSwitch tone={state.tone} busy={busy} onSet={onSetTone} />
           {/* A run that is going, and a run that was. The zero on its own was
               the whole message after a missed day — and a bare zero reads as
               "none of it happened" at exactly the moment quitting looks
@@ -2328,7 +2413,7 @@ export default function Masterji({ user }: { user: SessionUser }) {
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey && enterSends()) {
+                  if (isSendKey(e)) {
                     e.preventDefault();
                     send();
                   }
