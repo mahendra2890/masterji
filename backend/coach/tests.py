@@ -32,7 +32,7 @@ from rest_framework.throttling import ScopedRateThrottle
 
 from . import admin as coach_admin
 from . import bar, export, gates, guidance, links, prompts, streaks, throttles, views
-from .management.commands import check_migration_leaf, load_changelog
+from .management.commands import check_migration_leaf, load_changelog, loop_report
 from .models import (
     ChangelogEntry,
     CheckIn,
@@ -5685,3 +5685,122 @@ class ChatTurnQueryTests(CoachTestCase):
                 response = self.client.post("/api/coach/chat/", {"content": "hi"})
                 b"".join(response.streaming_content)
         self.assertEqual(spy.call_count, 1)
+
+
+# --- counting whether the loop works -----------------------------------------
+
+
+class LoopReportTests(CoachTestCase):
+    """The readout that decides which other work matters.
+
+    Nothing in the repo counted whether the product does what it claims, so the
+    backlog was being ranked on argument. What is pinned here is the arithmetic
+    that is not a plain COUNT — the two places a readout like this quietly
+    starts lying — plus the fact that it never writes.
+    """
+
+    def report(self):
+        out = StringIO()
+        call_command("loop_report", stdout=out)
+        return out.getvalue()
+
+    def test_it_runs_on_an_empty_database(self):
+        """Every rate here has a denominator that starts at zero, and a report
+        that divides by it on a fresh deploy is a report nobody runs twice."""
+        Goal.objects.all().delete()
+        self.assertIn("The workshop", self.report())
+
+    def test_a_spent_workshop_is_the_conversion(self):
+        """`GoalsView.post` flips every open workshop to SPENT at the moment a
+        goal is committed, so SPENT *is* "ended in a committed goal" — nothing
+        has to be inferred and no join is needed. If that ever stops being true
+        this number silently becomes something else."""
+        Workshop.objects.create(user=self.alice, status=Workshop.Status.SPENT)
+        Workshop.objects.create(user=self.bob, status=Workshop.Status.OPEN)
+        text = self.report()
+        self.assertIn("opened                                       2", text)
+        self.assertIn("ended in a committed goal                    1  (50%)", text)
+
+    def test_time_in_a_phase_is_measured_from_entering_it(self):
+        """IDEA is entered when the goal is created — there is no transition
+        into the first rung — and every later phase when the transition into it
+        was written. Reading `Goal.phase_entered_at` instead would only ever
+        describe the phase a goal is in now."""
+        goal = self.make_goal()
+        Goal.objects.filter(pk=goal.pk).update(
+            created_at=timezone.now() - timedelta(days=10)
+        )
+        row = PhaseTransition.objects.create(
+            goal=goal, from_phase=Phase.IDEA, to_phase=Phase.VALIDATION
+        )
+        PhaseTransition.objects.filter(pk=row.pk).update(
+            created_at=timezone.now() - timedelta(days=4)
+        )
+        durations = loop_report.phase_durations()
+        self.assertAlmostEqual(durations[Phase.IDEA][0], 6.0, places=1)
+
+    def test_an_unfinished_phase_is_not_counted_as_a_fast_one(self):
+        """A goal still sitting in BUILD has not cleared BUILD. Counting it
+        would make the median fall every time somebody new arrived, which is
+        the one way this number could move in the opposite direction to the
+        thing it describes."""
+        self.make_goal(phase=Phase.BUILD)
+        self.assertEqual(loop_report.phase_durations().get(Phase.BUILD, []), [])
+
+    def test_retention_only_counts_builders_who_had_the_chance(self):
+        """The denominator is the whole honesty of a retention number. A
+        builder who signed up yesterday has not failed to come back on day 30,
+        and counting them would drag every window down with each new signup."""
+        today = timezone.localdate()
+        yesterday = {self.alice.id: today - timedelta(days=1)}
+        rows = dict(
+            (window, (back, eligible))
+            for window, back, eligible in loop_report.return_windows(
+                yesterday, {self.alice.id: {today - timedelta(days=1)}}
+            )
+        )
+        self.assertEqual(rows[2], (0, 1))  # day 2 has arrived; they did not return
+        self.assertEqual(rows[7], (0, 0))  # day 7 has not arrived — not a failure
+        self.assertEqual(rows[30], (0, 0))
+
+    def test_a_refused_evening_that_was_answered_counts_as_answered(self):
+        """The question the product's whole argument rests on: does a refusal
+        send a builder back to the work, or out of the door? An archived
+        attempt means it was refused at least once; the status now is what they
+        did about it."""
+        goal = self.make_goal()
+        won = CheckIn.objects.create(
+            goal=goal, date=date.today(), phase=goal.phase,
+            am_declaration="x", pm_proof_text="second try",
+            proof_status=CheckIn.ProofStatus.ACCEPTED,
+        )
+        ProofAttempt.objects.create(checkin=won, text="first try", reaction="no")
+        lost = CheckIn.objects.create(
+            goal=goal, date=date.today() - timedelta(days=1), phase=goal.phase,
+            am_declaration="x", pm_proof_text="still not",
+            proof_status=CheckIn.ProofStatus.PUSHED_BACK,
+        )
+        ProofAttempt.objects.create(checkin=lost, text="first try", reaction="no")
+        text = self.report()
+        self.assertIn("evenings refused at least once               2", text)
+        self.assertIn("…later accepted                              1  (50%)", text)
+
+    def test_the_readout_writes_nothing(self):
+        """It reuses `gates.py` and `streaks.py`, which is what makes it safe:
+        the same arithmetic that refuses a phase advance, adding no authority
+        and able to contradict nothing. A readout that wrote would be a second
+        opinion about the record."""
+        goal = self.make_goal()
+        self.accept_proofs(goal, 1)
+        before = {
+            model.__name__: model.all_objects.count()
+            for model in (Goal, CheckIn, PhaseTransition, Workshop, ProofAttempt)
+        }
+        self.report()
+        after = {
+            model.__name__: model.all_objects.count()
+            for model in (Goal, CheckIn, PhaseTransition, Workshop, ProofAttempt)
+        }
+        self.assertEqual(before, after)
+        goal.refresh_from_db()
+        self.assertEqual(goal.phase, Phase.IDEA)
