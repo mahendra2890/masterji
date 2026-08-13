@@ -4566,6 +4566,13 @@ class ChangelogTests(APITestCase):
     the one unscoped table here, it must not leak a way to write to it."""
 
     def setUp(self):
+        # This endpoint is throttled by address, and every request in this file
+        # arrives from the same one — so without a clear the counter is shared
+        # with whatever ran before, and the class that asserts the refusal would
+        # decide whether the classes that don't get one. Same reasoning as
+        # CoachTestCase, different key: no user, so it counts by IP.
+        cache.clear()
+        self.addCleanup(cache.clear)
         ChangelogEntry.all_objects.all().delete()  # the seeded history isn't the subject
         self.old = ChangelogEntry.objects.create(
             shipped_on=date(2026, 8, 5), kind="NEW", title="first build", body="…"
@@ -4609,14 +4616,24 @@ class ChangelogTests(APITestCase):
         self.assertEqual(body["total"], 1)
         self.assertEqual([e["title"] for e in body["entries"]], ["first build"])
 
-    def test_a_limit_that_isnt_a_positive_number_serves_everything(self):
-        """These arrive from typed URLs and mangling proxies, not from us. The
-        honest answer to a limit nobody meant is the list, not a 400."""
-        for raw in ["abc", "0", "-3", "", "2.5"]:
+    def test_a_limit_that_isnt_a_positive_number_is_refused(self):
+        """A size the server cannot honour used to fall through to the whole
+        table, so the reply to a value nobody could have meant was the largest
+        response here — on the one endpoint with no account behind it. It now
+        says so instead, in the shape every other refusal in views.py uses."""
+        for raw in ["abc", "0", "-3", "2.5", "1e3", "six"]:
             with self.subTest(limit=raw):
-                body = self.client.get(f"/api/coach/changelog/?limit={raw}").json()
-                self.assertEqual(len(body["entries"]), 2)
-                self.assertEqual(body["total"], 2)
+                response = self.client.get(f"/api/coach/changelog/?limit={raw}")
+                self.assertEqual(response.status_code, 400)
+                self.assertIn("positive whole number", response.json()["detail"])
+
+    def test_a_limit_with_no_value_reads_as_no_limit(self):
+        """`?limit=` is a proxy or a typed URL dropping the value, not somebody
+        asking for a size — and it must keep meaning what leaving it off means,
+        because the landing page is where a mangled URL lands."""
+        body = self.client.get("/api/coach/changelog/?limit=").json()
+        self.assertEqual(len(body["entries"]), 2)
+        self.assertEqual(body["total"], 2)
 
     def test_a_limit_past_the_end_is_not_an_error(self):
         body = self.client.get("/api/coach/changelog/?limit=500").json()
@@ -4630,6 +4647,43 @@ class ChangelogTests(APITestCase):
         response = self.client.get("/api/coach/changelog/")
         titles = [e["title"] for e in response.json()["entries"]]
         self.assertEqual(titles[:2], [later.title, self.new.title])
+
+    def test_the_one_public_endpoint_has_a_ceiling(self):
+        """The other three ceilings bound a model bill. This one costs no
+        model call — it exists because the only endpoint reachable without an
+        account had no ceiling of any kind, and a public surface with none is
+        one whose size somebody else decides.
+
+        Patched on the dict the throttle actually consults rather than through
+        override_settings — see ThrottleTests for why that does not reach it.
+        """
+        with mock.patch.dict(ScopedRateThrottle.THROTTLE_RATES, {"changelog": "1/min"}):
+            first = self.client.get("/api/coach/changelog/")
+            second = self.client.get("/api/coach/changelog/")
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 429)
+        # In the product's register, like every other refusal here, not DRF's
+        # seconds-remaining arithmetic.
+        self.assertNotIn("throttled", second.json()["detail"].lower())
+
+    def test_a_signed_in_mount_does_not_share_the_landing_page_bucket(self):
+        """What makes a per-address rate safe to run at all. Every screen in
+        the app mounts this component, and a hostel or campus behind one NAT is
+        one address — so if signed-in mounts counted there too, a shared
+        connection would ration the app shell for everybody on it. DRF keys an
+        authenticated request by pk, and the sizing argument in settings rests
+        on that being true.
+        """
+        alice, bob = make_user("alice"), make_user("bob")
+        with mock.patch.dict(ScopedRateThrottle.THROTTLE_RATES, {"changelog": "1/min"}):
+            self.client.force_authenticate(alice)
+            self.assertEqual(self.client.get("/api/coach/changelog/").status_code, 200)
+            self.assertEqual(self.client.get("/api/coach/changelog/").status_code, 429)
+            # A different account at the same address, already over the limit
+            # the anonymous bucket would have applied.
+            self.client.force_authenticate(bob)
+            self.assertEqual(self.client.get("/api/coach/changelog/").status_code, 200)
+        self.client.force_authenticate(None)
 
     def test_endpoint_is_read_only(self):
         response = self.client.post(

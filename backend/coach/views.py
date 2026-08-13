@@ -20,6 +20,7 @@ from django.utils import timezone
 from loguru import logger
 from opentelemetry import trace
 from rest_framework import status
+from rest_framework.exceptions import ParseError
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -2053,12 +2054,19 @@ class WorkshopChatView(throttles.VoicedThrottleMixin, APIView):
 # --- the product's own record ---------------------------------------------
 
 
-class ChangelogView(APIView):
+class ChangelogView(throttles.VoicedThrottleMixin, APIView):
     """What has changed in Masterji, newest first.
 
     Public, unlike everything else here: the demo and the sign-in screen
     reach it too, and a changelog kept behind a login is a press release.
     Active rows only — an entry can be written before the change ships.
+
+    Being the one endpoint with no account behind it is also why it is the one
+    endpoint here that is throttled without spending a paisa. The other three
+    ceilings exist to bound a model bill; this one exists because a public
+    surface with no ceiling of any kind is a surface somebody else decides the
+    size of. Signed-in mounts are keyed by user pk like everything else — the
+    per-address bucket is the landing page and the tour.
 
     `?limit=N` serves the newest N. It exists because every screen in the
     product mounts this component to decide whether to show one dot, and the
@@ -2074,24 +2082,41 @@ class ChangelogView(APIView):
     """
 
     permission_classes = [AllowAny]
+    throttle_classes = throttles.THROTTLES
+    throttle_scope = "changelog"
 
     def _limit(self, request) -> int | None:
-        """The newest N, or None for all of them. Anything that isn't a
-        positive whole number is not an error — it is a URL somebody typed or
-        a proxy mangled, and the honest answer to it is the whole list."""
+        """The newest N, or None for all of them.
+
+        Raises on anything else. A limit that states an intent the server
+        cannot honour — `abc`, `0`, `-3`, `2.5` — used to fall through to the
+        whole table, so the reply to a value nobody could mean was the largest
+        response this endpoint has. Answering a request that was not made is
+        not honesty, it is a silent upgrade, and on the one endpoint with no
+        account behind it, it is the wrong direction to fail in.
+
+        An absent `limit`, and an empty one, are not that: `?limit=` is a proxy
+        or a typed URL dropping the value rather than asking for a size, and it
+        means what leaving it off means.
+        """
         raw = request.query_params.get("limit")
-        if raw is None:
+        if raw is None or raw == "":
             return None
         try:
             n = int(raw)
         except (TypeError, ValueError):
-            return None
-        return n if n > 0 else None
+            n = 0
+        if n <= 0:
+            # ParseError rather than a hand-built Response: it is a 400 whose
+            # body is `{"detail": ...}`, which is the shape every other refusal
+            # in this file answers in.
+            raise ParseError("limit must be a positive whole number.")
+        return n
 
     def get(self, request):
+        limit = self._limit(request)
         entries = ChangelogEntry.objects.filter(is_active=True)
         total = entries.count()
-        limit = self._limit(request)
         if limit is not None:
             entries = entries[:limit]
         return Response(
