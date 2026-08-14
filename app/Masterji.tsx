@@ -2194,8 +2194,12 @@ export default function Masterji({ user }: { user: SessionUser }) {
             )}
             <p className={styles.phaseHint}>{guidance?.phaseHint}</p>
 
-            {/* And under the hint that is the same sentence for every builder
-                forever, the one that is theirs. A phase has a bar and no shape:
+            {/* And under the hint the server chose, the one that is theirs. The
+                hint moves with the count on a phase with beats (guidance.BEATS
+                — VALIDATION's three conversations each ask for something
+                different) and is the phase's constant everywhere else, but
+                either way it is a sentence written for every builder in that
+                position. This is not: a phase has a bar and no shape, and
                 "smallest thing a real user can touch this week" cannot tell the
                 coach whether tonight's task is the thing THIS builder decided
                 on the morning the phase opened.

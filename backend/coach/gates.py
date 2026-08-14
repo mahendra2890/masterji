@@ -275,15 +275,27 @@ def try_advance(goal: Goal) -> tuple[bool, str]:
         # ladder out — and AdvanceView writes this sentence to the transcript
         # before it looks at whether anything advanced, so a wrong phase name
         # here does not scroll away.
+        #
+        # Through phase_hint() rather than the dict, though the terminal phase
+        # has no beats and this is the same sentence either way. One reader
+        # bypassing it is how a phase that later earns beats gets them
+        # everywhere except the one place nobody thought to look.
         return False, (
             f"You're at {goal.phase} — there is no next phase to unlock. "
-            f"{guidance.PHASE_HINT[Phase(goal.phase)]}"
+            f"{guidance.phase_hint(Phase(goal.phase), status['have'])}"
         )
 
     # A bare count is a locked door with no sign on it. The dashboard's advance
     # button reaches this with no LLM in the loop, so if the refusal doesn't name
     # the next action, nothing does.
-    nudge = guidance.GATE_NUDGE.get(Phase(goal.phase))
+    #
+    # Which action depends on how far in they are (guidance.BEATS), and `have` is
+    # the number to ask with rather than `banked`: on a people-counting phase the
+    # rung a builder is standing on is how many PEOPLE they have, which is what
+    # this refusal is about to be short of. Nothing above this line reads it —
+    # the verdict and the sentence stating it are computed the same way at every
+    # rung, and this is the tail that varies.
+    nudge = guidance.gate_nudge(Phase(goal.phase), status["have"])
 
     if status["have"] < status["need"]:
         missing = status["need"] - status["have"]

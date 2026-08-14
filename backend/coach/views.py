@@ -942,6 +942,11 @@ class StateView(APIView):
         _read_the_week_back(goal, request.user, today)
         checkin = _latest_checkin(goal, today)
         messages = list(goal.messages.order_by("-created_at")[:HISTORY_LIMIT])[::-1]
+        # Once, because the guidance bundle below is keyed to the same count the
+        # meter renders. Two reads would be two queries and, worse, two chances
+        # for the line under the goal title to be about a rung the meter above it
+        # is not showing.
+        gate = _gate_payload(goal)
         return Response(
             {
                 "goal": GoalSerializer(goal).data,
@@ -953,7 +958,7 @@ class StateView(APIView):
                 # from `workshop_turns` below, which is sent regardless.
                 "workshop": _workshop_payload(_open_workshop(request.user)),
                 "workshop_turns": REOPENED_TURNS,
-                "gate": _gate_payload(goal),
+                "gate": gate,
                 # Null until they name one, and the control reads that: there is
                 # no default date and no placeholder day, because a date the app
                 # picked is not a commitment anybody made.
@@ -994,7 +999,9 @@ class StateView(APIView):
                 ).data,
                 "messages": MessageSerializer(messages, many=True).data,
                 "phases": [str(p) for p in gates.PHASE_ORDER],
-                "guidance": guidance.for_phase(Phase(goal.phase)),
+                # Keyed to the gate's own count, so the line under the goal
+                # title is about the rung the meter beside it is showing.
+                "guidance": guidance.for_phase(Phase(goal.phase), gate["have"]),
                 # The client hides the upload control when storage isn't
                 # wired, so an unconfigured deploy offers nothing it can't do.
                 "uploads_enabled": storage.is_configured(),
@@ -1633,9 +1640,12 @@ def _react_to_declaration(goal: Goal, text: str, tone: str) -> tuple[str, str, s
             phase_rules=prompts.PHASE_RULES[Phase(goal.phase)],
             proof_hint=guidance.PROOF_HINT[Phase(goal.phase)],
             # What this builder said this phase was for, if they said anything.
-            # It is what the morning's reading has never had: PHASE_HINT is the
-            # same sentence for every builder forever, so "is this the work this
-            # phase is for" could only ever be answered about phases in general.
+            # It is what the morning's reading has never had: the phase hint is
+            # the same sentence for every builder in the same position — and
+            # since guidance.BEATS, that position includes how far into the phase
+            # they are, which is still not what THIS builder decided the phase
+            # was for. So "is this the work this phase is for" could only ever be
+            # answered about phases in general without this line.
             intent=prompts.declaration_intent(_phase_intent(goal)),
         )
         # The judge model: this call decides declaration_fit and writes the
@@ -2325,9 +2335,11 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
             week=week,
             week_of=week_of,
             # What they said THIS phase would produce, which is the one thing
-            # the coach could never tell from PHASE_HINT: that sentence is the
-            # same for every builder forever, and this one is about the thing
-            # they decided on the morning the phase opened.
+            # the coach could never tell from the phase hint. That sentence is
+            # the same for every builder standing where they stand — since
+            # guidance.BEATS it moves with the count, and that is still a rung
+            # rather than a person. This one is about the thing they decided on
+            # the morning the phase opened.
             intent=_phase_intent(goal),
             # And the day they said they would launch, if they named one. The
             # only fact in the state block the builder put there themselves.
