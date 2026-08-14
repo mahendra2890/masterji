@@ -89,8 +89,14 @@ function Board({ board, onLeave }: { board: Board; onLeave: (id: number) => void
         <p className={styles.empty}>Nobody has joined yet.</p>
       ) : (
         <ol className={styles.rows}>
-          {rows.map((row) => (
-            <Row key={row.name} row={row} />
+          {/* Keyed by position, not by name. A cohort of forty first names has
+              two Priyas in it sooner or later, and `key={row.name}` would then
+              be a duplicate key — React reuses one row for both and the board
+              silently shows one of them twice. Position is safe here for the
+              reason it usually is not: no row holds any state, and the whole
+              list is replaced by one fetch rather than reordered in place. */}
+          {rows.map((row, i) => (
+            <Row key={i} row={row} />
           ))}
         </ol>
       )}
