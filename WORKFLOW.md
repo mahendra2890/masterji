@@ -127,6 +127,42 @@ described the problem accurately enough, every single time, that nobody read
 the description. `check_migration_leaf` had been saying *57 of these are
 changelog seeds* in its own directory listing since the day it was written.
 
+The third failure in this family is the one that complicates that moral, because
+there was nothing to detect.
+
+On 14 August two sessions built the same two issues at the same time — token
+accounting on the model seam, and a circuit breaker so a provider outage cost
+the verdict instead of the whole app. Neither knew the other existed. One merged
+at 23:57. The other opened its pull request at 00:01, read the diff it had just
+been beaten to, found it better in two places, and closed its own finished,
+tested branch.
+
+The mechanism is the one above: neither session was wrong, and neither could see
+the other. What is different is that there was nothing to see. A worktree sits
+clean while a session reads an issue, a branch is local until its first push,
+and no pull request exists until the work is done — so four sessions in flight
+are indistinguishable from none by any command you can run against the
+repository. The migration collision at least left two leaf nodes in a graph,
+which is exactly why it could harden into `check_migration_leaf`. Duplicated
+effort leaves no trace until the second pull request opens, and by then the cost
+is already paid in full.
+
+So this one cannot ratchet from a memory into a check the way the leaf did. The
+only signal available is one a session chooses to emit: claim the issue in a
+comment before the first edit, and look again before opening the pull request.
+That is a convention rather than a guarantee, and it is written into
+[CLAUDE.md](CLAUDE.md) — because a rule that lives only in one operator's
+memory is not a convention, it is a habit, and the parallel sessions do not
+share it. Writing it into the repository is the step that makes it loadable by
+whoever runs next.
+
+Worth noting what the failure was *not*. Both implementations independently
+found the same two non-obvious details — that a streamed call reports its cost
+only if you ask for it, and that the chunk carrying that cost has no content in
+it, so the obvious way to read it turns every successful conversation into a
+crash. Two sessions converging on the same two traps is evidence the work was
+right. It is no evidence at all that the process was.
+
 ## Four times the model was wrong
 
 **It graded its own homework.** VALIDATION asks for three things a customer
