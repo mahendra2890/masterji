@@ -171,18 +171,18 @@ gcloud run deploy masterji-api \
   --region asia-southeast1 --project portfolio-502209 \
   --allow-unauthenticated --min-instances 0 --max-instances 2 \
   --memory 512Mi --cpu 1 \
-  --set-env-vars "^@^MIGRATE_ON_BOOT=0@\
-DJANGO_DEBUG=0@\
-LLM_MODEL=<LLM_MODEL>@\
-LLM_JUDGE_MODEL=<LLM_JUDGE_MODEL>@\
-GUNICORN_WORKERS=2@\
-GOOGLE_CLIENT_ID=<GOOGLE_CLIENT_ID>@\
-FRONTEND_URL=https://masterji.mscsoftwares.in@\
-DJANGO_ALLOWED_HOSTS=masterji.mscsoftwares.in@\
-CSRF_TRUSTED_ORIGINS=https://masterji.mscsoftwares.in@\
-R2_ACCOUNT_ID=<R2_ACCOUNT_ID>@\
-R2_BUCKET=<R2_BUCKET>@\
-VAPID_PUBLIC_KEY=<VAPID_PUBLIC_KEY>@\
+  --set-env-vars "^|^MIGRATE_ON_BOOT=0|\
+DJANGO_DEBUG=0|\
+LLM_MODEL=<LLM_MODEL>|\
+LLM_JUDGE_MODEL=<LLM_JUDGE_MODEL>|\
+GUNICORN_WORKERS=2|\
+GOOGLE_CLIENT_ID=<GOOGLE_CLIENT_ID>|\
+FRONTEND_URL=https://masterji.mscsoftwares.in|\
+DJANGO_ALLOWED_HOSTS=masterji.mscsoftwares.in|\
+CSRF_TRUSTED_ORIGINS=https://masterji.mscsoftwares.in|\
+R2_ACCOUNT_ID=<R2_ACCOUNT_ID>|\
+R2_BUCKET=<R2_BUCKET>|\
+VAPID_PUBLIC_KEY=<VAPID_PUBLIC_KEY>|\
 VAPID_CONTACT=<VAPID_CONTACT>" \
   --set-secrets "DATABASE_URL=masterji-database-url:latest,\
 DJANGO_SECRET_KEY=masterji-secret-key:latest,\
@@ -208,7 +208,7 @@ Then add Cloud Run's own hostname, which you only learn from that output:
 
 ```bash
 gcloud run services update masterji-api --region asia-southeast1 --project portfolio-502209 \
-  --update-env-vars "^@^DJANGO_ALLOWED_HOSTS=masterji.mscsoftwares.in,masterji-api-697438837887.asia-southeast1.run.app@CSRF_TRUSTED_ORIGINS=https://masterji.mscsoftwares.in,https://masterji-api-697438837887.asia-southeast1.run.app"
+  --update-env-vars "^|^DJANGO_ALLOWED_HOSTS=masterji.mscsoftwares.in,masterji-api-697438837887.asia-southeast1.run.app|CSRF_TRUSTED_ORIGINS=https://masterji.mscsoftwares.in,https://masterji-api-697438837887.asia-southeast1.run.app"
 ```
 
 `CSRF_TRUSTED_ORIGINS` needs the `run.app` origin for a reason that has no
@@ -222,9 +222,28 @@ reads like a wrong password.
 Two hosts for two reasons, and `settings.py:443` is why: `USE_X_FORWARDED_HOST`
 is on under `DJANGO_DEBUG=0`, so Django sees whichever Host the Vercel proxy
 forwards — the public one — while anything hitting the API directly (curl,
-the keep-warm ping, your own verification) arrives as the `run.app` host. The
-`^@^` prefix switches gcloud's list delimiter to `@` so the commas inside the
-value are not read as separators.
+the keep-warm ping, your own verification) arrives as the `run.app` host.
+
+### The `^|^` prefix, and why not `^@^`
+
+gcloud splits a `--set-env-vars` / `--update-env-vars` list on commas, and two
+of these values contain commas of their own. The `^X^` prefix changes the
+separator to `X` — but **the character you pick must appear in none of the
+values**, and `@` fails that test here: `VAPID_CONTACT` is a `mailto:` address.
+Using `^@^` splits it mid-address and gcloud rejects the flag as malformed.
+
+`|` is the safe choice for this particular set — no host, URL, model name,
+key or address contains one. munshiji's runbook uses `^@^` and is right to,
+because nothing it sets contains an `@`; the delimiter is a property of the
+values, not a convention to copy.
+
+**Do not fold this into the `gcloud run deploy` above.** When the two are one
+command and the delimiter is wrong, gcloud rejects only the flag — the deploy
+still runs, and the service goes live with *no environment at all*. That means
+`DJANGO_DEBUG` unset, which defaults to `1`: a publicly reachable service
+serving debug tracebacks. It happened on the first deploy of this service on
+2026-08-14 and lasted about two minutes. Deploy first, set the environment
+second, and read the output of both.
 
 `--min-instances 0` because one always-allocated instance is roughly 2.6M
 instance-seconds a month against a 180k vCPU-second allowance. `--max-instances 2`
