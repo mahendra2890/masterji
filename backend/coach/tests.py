@@ -3723,6 +3723,11 @@ class CorpusCurationTests(CoachTestCase):
         # The terminal phase carried one playbook and it taught acquisition,
         # while the phase's own bar asks for a RETURN.
         "coming-back": (Phase.TRACTION, "Andrew Chen"),
+        # IDEA's bar asks for a PLACE and for why the builder believes anyone
+        # is there, and both are downstream of a segment nothing in the corpus
+        # taught them to cut. The two already here teach the anatomy of the
+        # statement and the choice between candidates.
+        "narrowing-the-first-user": (Phase.IDEA, "Geoffrey Moore"),
     }
 
     def test_each_new_playbook_is_wired_to_exactly_one_phase(self):
@@ -3751,13 +3756,18 @@ class CorpusCurationTests(CoachTestCase):
         wired = {n for names in prompts.PLAYBOOKS_BY_PHASE.values() for n in names}
         self.assertEqual(on_disk, wired)
 
-    def test_the_new_idea_playbook_leaves_contact_to_validation(self):
+    def test_the_new_idea_playbooks_leave_contact_to_validation(self):
         """PHASE_RULES[IDEA] is explicit that the route is desk work and zero
         contact made is exactly right, and problem-statement.md says it to the
-        builder in as many words. A second playbook in the same phase is the
-        cheapest way to contradict both, so it carries the deferral itself
-        rather than trusting that the first one is still being read."""
-        self.assertIn("VALIDATION's work", prompts._playbook("choosing-an-idea"))
+        builder in as many words. Every further playbook in the same phase is
+        the cheapest way to contradict both, so each carries the deferral
+        itself rather than trusting that the first one is still being read.
+        The third one earns the check hardest: it asks whether the builder
+        could be standing in the room on Thursday, which is one word away from
+        telling them to go."""
+        for name in ("choosing-an-idea", "narrowing-the-first-user"):
+            with self.subTest(playbook=name):
+                self.assertIn("VALIDATION's work", prompts._playbook(name))
 
 
 class OpenersReachEveryPhaseTests(CoachTestCase):
