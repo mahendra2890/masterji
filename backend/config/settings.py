@@ -193,11 +193,19 @@ REST_FRAMEWORK = {
     #
     # Counted in the default cache — see CACHES below for what that means about
     # the exactness of these numbers.
+    # `cohort_join` is the third kind again, and narrower than `changelog`: it
+    # costs no model call and it does need an account, but it is the one
+    # endpoint here that looks a caller-supplied string up in a table. 31^8 is
+    # not walkable at any rate, so this is not the security — it is that a
+    # lookup surface with no ceiling is one whose size somebody else decides.
+    # Sized for a builder mistyping a code off a slide a few times, which is
+    # the only honest way to reach it twice.
     "DEFAULT_THROTTLE_RATES": {
         "chat": "30/hour",
         "prove": "20/day",
         "judge": "40/day",
         "changelog": "300/min",
+        "cohort_join": "20/hour",
     },
 }
 

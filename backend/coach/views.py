@@ -33,6 +33,7 @@ from rest_framework.views import APIView
 
 from . import (
     bar,
+    cohorts,
     export,
     gates,
     guidance,
@@ -47,6 +48,8 @@ from . import (
 from .models import (
     ChangelogEntry,
     CheckIn,
+    Cohort,
+    CohortMember,
     Goal,
     GoalRetirement,
     LaunchCommitment,
@@ -3358,3 +3361,150 @@ class ChangelogView(throttles.VoicedThrottleMixin, APIView):
                 "total": total,
             }
         )
+
+
+# --- cohorts: a lens over the record, with no way to write on it -------------
+#
+# Four views, and between them exactly two writes: a builder creating their own
+# membership row, and a builder removing it. Neither takes a user — there is no
+# way to spell "somebody else" in either request — and nothing in this section
+# writes to a Goal, a CheckIn, a PhaseTransition or any proof field. The board
+# itself is GET and defines no other method, so every other verb is a 405 from
+# DRF because the handler is absent rather than because a check refused it.
+#
+# There is no view here for making, renaming or deleting a cohort, and that is
+# the design and not an omission: a cohort is created by staff in the admin, so
+# the coordinator's whole capability is holding a code. See coach/cohorts.py.
+
+
+def _cohort_payload(cohort) -> dict:
+    """A cohort as a member sees it before opening its board."""
+    return {"id": cohort.id, "name": cohort.name, "members": cohort.size}
+
+
+class CohortsView(APIView):
+    """The cohorts this builder has joined, and no sign that any other exists.
+
+    Not a listing of cohorts. There is no endpoint that lists cohorts, by
+    design: joining by code is the consent, and a directory is the thing that
+    would make a code unnecessary.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        return Response(
+            {"cohorts": [_cohort_payload(c) for c in cohorts.joined(request.user)]}
+        )
+
+
+class CohortBoardView(APIView):
+    """One cohort's board: every member's counted work, ranked.
+
+    GET and nothing else. This class deliberately has no `post`, `patch`, `put`
+    or `delete` — not a stubbed one that refuses, none — because the feature's
+    whole credibility is that no coordinator can bank or unbank anything, and a
+    write path that exists and is guarded is one somebody can later mis-guard.
+
+    A non-member gets the same 404 as a cohort that does not exist. The
+    difference between "no such cohort" and "not yours" is itself something a
+    stranger can walk to learn which cohorts there are.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk: int):
+        cohort = cohorts.mine(request.user, pk)
+        if cohort is None:
+            return Response(
+                {"detail": "No cohort here."}, status=status.HTTP_404_NOT_FOUND
+            )
+        return Response(
+            {
+                "cohort": _cohort_payload(cohort),
+                "board": cohorts.board(cohort, _client_day(request)),
+            }
+        )
+
+
+class CohortJoinView(throttles.VoicedThrottleMixin, APIView):
+    """Join by code. The one act in this feature that is the builder's consent.
+
+    Idempotent: joining a cohort you are already in returns the membership you
+    have. The unique constraint is conditional on the soft-delete predicate, so
+    a builder who left and comes back gets a new row rather than a collision.
+
+    Throttled, and not because 31^8 is guessable. It is a lookup keyed on a
+    string a stranger supplies, and a surface like that with no ceiling of any
+    kind is one whose size somebody else decides — the argument ChangelogView
+    already makes for the same reason.
+    """
+
+    permission_classes = [IsAuthenticated]
+    throttle_classes = throttles.THROTTLES
+    throttle_scope = "cohort_join"
+    throttle_message = "That's a lot of codes at once. Try again in a bit."
+
+    def post(self, request):
+        code = Cohort.normalise(request.data.get("code", ""))
+        if not code:
+            return Response(
+                {"detail": "Type the join code your cohort gave you."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        cohort = Cohort.objects.filter(join_code=code).first()
+        if cohort is None:
+            # Same refusal whether the code never existed or has been rotated
+            # away. Rotation is how a cohort is closed to new joins, so the two
+            # cases are the same event as far as anybody outside is concerned.
+            return Response(
+                {"detail": "No cohort with that code."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        try:
+            CohortMember.objects.get_or_create(cohort=cohort, user=request.user)
+        except IntegrityError:
+            # Two taps racing each other. The constraint did its job and the
+            # membership exists, which is what was being asked for.
+            pass
+        # Re-read through `joined` so the reply carries the member count the
+        # board will show, computed the one way it is computed anywhere.
+        joined = cohorts.mine(request.user, cohort.id)
+        if joined is None:
+            # Belt and braces on the race above: `mine` is the same membership
+            # scope the board uses, so if it cannot see the row, neither can the
+            # page this reply is about to send them to. Saying so is a refusal
+            # they can act on; a 201 followed by an empty board is not.
+            logger.warning(f"User {request.user.pk} joined cohort {cohort.id}, no row")
+            return Response(
+                {"detail": "That didn't go through — try the code again."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        logger.info(f"User {request.user.pk} joined cohort {cohort.id}")
+        return Response(
+            {"cohort": _cohort_payload(joined)}, status=status.HTTP_201_CREATED
+        )
+
+
+class CohortMembershipView(APIView):
+    """Leave. DELETE only, and it removes exactly one row.
+
+    The builder's own membership, and nothing else: their goal, their
+    check-ins, their proofs and their retirements are untouched, so the day
+    after they leave their record is identical. What they agreed to was being
+    shown, and taking that back must cost them nothing they earned.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, pk: int):
+        member = CohortMember.objects.filter(
+            cohort_id=pk, user=request.user
+        ).first()
+        if member is None:
+            return Response(
+                {"detail": "No cohort here."}, status=status.HTTP_404_NOT_FOUND
+            )
+        member.delete()  # soft, like every delete in this product
+        logger.info(f"User {request.user.pk} left cohort {pk}")
+        return Response(status=status.HTTP_204_NO_CONTENT)

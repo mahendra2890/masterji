@@ -7,6 +7,8 @@ from common.soft_delete import SoftDeleteAdmin
 from .models import (
     ChangelogEntry,
     CheckIn,
+    Cohort,
+    CohortMember,
     Goal,
     GoalRetirement,
     LaunchCommitment,
@@ -15,6 +17,7 @@ from .models import (
     ProofAttempt,
     Workshop,
     WorkshopMessage,
+    mint_join_code,
 )
 
 
@@ -181,6 +184,63 @@ class WorkshopMessageAdmin(SoftDeleteAdmin):
     @admin.display(description="content")
     def excerpt(self, obj):
         return Truncator(obj.content).chars(120)
+
+
+@admin.register(Cohort)
+class CohortAdmin(SoftDeleteAdmin):
+    """Where a cohort comes from. There is no API route that makes one.
+
+    That is the point rather than a gap: the whole of a coordinator's
+    capability is holding a join code, so the making of a cohort is staff work
+    and the product surface has no write path on it at all.
+    """
+
+    list_display = ["name", "join_code", "size", "created_at", "is_deleted"]
+    search_fields = ["name", "join_code"]
+    actions = ["rotate_join_code"]
+
+    def get_queryset(self, request):
+        return (
+            super()
+            .get_queryset(request)
+            .annotate(
+                member_count=Count("members", filter=Q(members__deleted_at__isnull=True))
+            )
+        )
+
+    @admin.display(description="members", ordering="member_count")
+    def size(self, obj):
+        """Live memberships. The filter is the whole column: a reverse join
+        does not inherit `SoftDeleteManager`'s predicate, so without it this
+        would count everybody who ever left."""
+        return obj.member_count
+
+    @admin.action(description="Rotate join code (members keep their place)")
+    def rotate_join_code(self, request, queryset):
+        """Rotation IS the revocation — the old string then matches nothing,
+        and closing a cohort to new joins is rotating to a code nobody has.
+
+        It never touches members, and the description says so where the button
+        is: a code is an invitation, not a session, and a rotation that ejected
+        forty people would make the safe operation the dangerous one.
+        """
+        for cohort in queryset:
+            cohort.join_code = mint_join_code()
+            cohort.save(update_fields=["join_code", "updated_at"])
+        self.message_user(
+            request,
+            f"Rotated {queryset.count()} code(s). Everyone already in stays in.",
+        )
+
+
+@admin.register(CohortMember)
+class CohortMemberAdmin(SoftDeleteAdmin):
+    # The consent, as a row. Soft-deleted ones are visible here and nowhere
+    # else, which is what makes "they left" auditable without the board ever
+    # showing it.
+    list_display = ["cohort", "user", "joined_at", "is_deleted"]
+    list_filter = ["cohort"]
+    list_select_related = ["cohort", "user"]
 
 
 @admin.register(ChangelogEntry)
