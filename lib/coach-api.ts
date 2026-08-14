@@ -2,11 +2,13 @@
 
 // Coach API client (journal-api pattern from the portfolio): one request()
 // with a timeout, a 401→refresh→replay retry, DRF error surfacing, and
-// snake_case → camelCase mappers at the boundary. Chat is the exception —
-// it streams NDJSON and gets its own reader below.
+// snake_case → camelCase mappers at the boundary. The two live turns are the
+// exception — they stream NDJSON, and they share one opener and one reader
+// (`streamTurn` below, over `lib/ndjson.ts`) rather than a copy each.
 
 import { API_URL } from "@/lib/auth-client";
 import { filenameFrom } from "./download";
+import { ndjsonFeed } from "./ndjson";
 import { refusalFrom } from "./refusal";
 
 const TIMEOUT_MS = 15000;
@@ -1120,98 +1122,106 @@ export type WorkshopEvents = {
   onError: (detail: string) => void;
 };
 
-/** POST the message and consume the NDJSON stream. Resolves when done. */
-export async function streamChat(
+/** One event off either wire, exactly as `JSON.parse` hands it over: `t` says
+ * which kind it is, and the payload is whatever that kind carries.
+ *
+ * `any` on purpose, and named here rather than left implicit the way the two
+ * hand-rolled readers left it. The checked boundary is one line further in —
+ * each dispatcher below tests `t` and then reads only the fields that kind has,
+ * against the `ChatEvents`/`WorkshopEvents` signatures. A union written out
+ * here would be a second declaration of the wire format, kept in step with
+ * `views.py` by hand, which is the shape of duplication this change exists to
+ * remove rather than add. */
+type WireEvent = any;
+
+/** POST a turn and consume its NDJSON stream, handing each event to the
+ * dispatcher for that wire. Resolves when the server closes the stream.
+ *
+ * The two turns share everything except which events they understand: the same
+ * body, the same 401→refresh→replay, the same refusal surfacing, the same
+ * reader. `dispatch` is a parameter rather than a flag because the vocabularies
+ * genuinely differ — a coaching turn can propose a phase advance or a close, a
+ * workshop turn can park a candidate — and a single function that switched on a
+ * mode would be pretending those are one thing.
+ *
+ * Deliberately NOT routed through `send()`, despite sharing most of its job,
+ * and the reason is worth stating so nobody has to re-derive it: `send` wraps a
+ * network failure in its own sentence, and both callers below report
+ * `e.message` straight to the builder, so folding these in would rewrite what a
+ * dropped connection says mid-turn — a behaviour change inside a refactor that
+ * promised none. Its abort timeout is *not* the obstacle, for the record: it is
+ * cleared the moment the headers land, which is before the first chunk of a
+ * stream is read. Worth doing on purpose one day, in a change that says so.
+ */
+async function streamTurn(
+  path: string,
   content: string,
-  events: ChatEvents,
+  dispatch: (event: WireEvent) => void,
   retried = false
 ): Promise<void> {
-  const res = await fetch(`${API_URL}/api/coach/chat/`, {
+  const res = await fetch(`${API_URL}/api/coach/${path}`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
-    // The date goes with it so Masterji is told about the task on the hook
-    // today — without it he opens a 1am conversation insisting nothing has
-    // been declared, while it's on screen next to him.
+    // The date goes with it, and both rooms have their own reason to want it.
+    // The coaching turn needs Masterji told about the task on the hook today —
+    // without it he opens a 1am conversation insisting nothing has been
+    // declared, while it's on screen next to him. The reopened workshop needs
+    // it to count "day 4 of BUILD", which is off by one for every builder
+    // ahead of UTC otherwise. The pre-goal room ignores it.
     body: JSON.stringify({ content, date: localDate() }),
   });
   if (res.status === 401) {
-    if (!retried && (await refreshSession())) return streamChat(content, events, true);
+    if (!retried && (await refreshSession()))
+      return streamTurn(path, content, dispatch, true);
     throw new ApiError("Your session expired — sign in again.", 401);
   }
-  // The hourly cap lands here, and its refusal is a sentence Masterji wrote —
-  // read it out rather than reporting the number back to the builder.
-  if (!res.ok || !res.body)
-    throw new ApiError(await refusalFrom(res), res.status);
+  // Both caps land here — chat's hourly throttle and the workshop's turn budget
+  // — and both refusals are a sentence Masterji wrote. Read it out rather than
+  // replacing it with "Masterji said no (429)".
+  if (!res.ok || !res.body) throw new ApiError(await refusalFrom(res), res.status);
 
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
-  let buffer = "";
+  const feed = ndjsonFeed<WireEvent>();
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() ?? "";
-    for (const raw of lines) {
-      if (!raw.trim()) continue;
-      const event = JSON.parse(raw);
-      if (event.t === "delta") events.onDelta(event.text);
-      else if (event.t === "gate") events.onGate(event);
-      else if (event.t === "close") events.onCloseProposed();
-      else if (event.t === "error") events.onError(event.detail);
-    }
+    for (const event of feed(decoder.decode(value, { stream: true })))
+      dispatch(event);
   }
+}
+
+/** POST the message and consume the NDJSON stream. Resolves when done. */
+export async function streamChat(
+  content: string,
+  events: ChatEvents
+): Promise<void> {
+  return streamTurn("chat/", content, (event) => {
+    if (event.t === "delta") events.onDelta(event.text);
+    else if (event.t === "gate") events.onGate(event);
+    else if (event.t === "close") events.onCloseProposed();
+    else if (event.t === "error") events.onError(event.detail);
+  });
 }
 
 /** POST a workshop turn and consume the NDJSON stream. Resolves when done.
  *
- * Deliberately a sibling of streamChat rather than a flag on it: the two
- * endpoints are mutually exclusive by design (one refuses while a goal exists,
- * the other refuses while none does), and the events they carry are different.
+ * Deliberately a sibling of streamChat rather than a flag on it: the events the
+ * two carry are different, and the rooms are no longer even mutually exclusive
+ * — the workshop learned to reopen behind a live goal, so a builder can be in
+ * both. What they do share is `streamTurn` above.
+ *
  * A 429 here is the turn cap, and its detail line is the coach's own words —
  * surfaced as an ApiError so the pane can show it where the reply would have
  * gone. */
 export async function streamWorkshopChat(
   content: string,
-  events: WorkshopEvents,
-  retried = false
+  events: WorkshopEvents
 ): Promise<void> {
-  const res = await fetch(`${API_URL}/api/coach/workshop/chat/`, {
-    method: "POST",
-    credentials: "include",
-    headers: { "Content-Type": "application/json" },
-    // The date goes with it for the reopened room, which tells the coach how
-    // many days into the phase this is — "day 4 of BUILD" is off by one for
-    // every builder ahead of UTC without it, and how long this has been going
-    // on is most of what that room is about. The pre-goal room ignores it.
-    body: JSON.stringify({ content, date: localDate() }),
+  return streamTurn("workshop/chat/", content, (event) => {
+    if (event.t === "delta") events.onDelta(event.text);
+    else if (event.t === "candidates") events.onCandidates(event);
+    else if (event.t === "error") events.onError(event.detail);
   });
-  if (res.status === 401) {
-    if (!retried && (await refreshSession()))
-      return streamWorkshopChat(content, events, true);
-    throw new ApiError("Your session expired — sign in again.", 401);
-  }
-  // The cap's refusal is a sentence, not a status code — read it out rather
-  // than replacing it with "Masterji said no (429)".
-  if (!res.ok || !res.body)
-    throw new ApiError(await refusalFrom(res), res.status);
-
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() ?? "";
-    for (const raw of lines) {
-      if (!raw.trim()) continue;
-      const event = JSON.parse(raw);
-      if (event.t === "delta") events.onDelta(event.text);
-      else if (event.t === "candidates") events.onCandidates(event);
-      else if (event.t === "error") events.onError(event.detail);
-    }
-  }
 }

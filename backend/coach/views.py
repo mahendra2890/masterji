@@ -2256,6 +2256,92 @@ def _unjudged_reaction(tone: str) -> str:
     return prompts.STOCK_UNJUDGED.get(tone, prompts.STOCK_UNJUDGED["ENGLISH"])
 
 
+# --- what the two streaming turns share ------------------------------------
+#
+# ChatView and WorkshopChatView open the same way: take a sentence, refuse it
+# if it is empty or enormous, read the transcript back without the app's own
+# notes in it, and stream NDJSON out past proxies told not to buffer.
+#
+# They differ in exactly three places — which model of message, whether there
+# is a phase, and which tools go out — and those three stay in the views. No
+# base class: a workshop turn and a coaching turn are not one thing, and the
+# reopened room being handed no tools at all is the clearest proof of it.
+# Something that made them look alike would be worse than the duplication.
+#
+# What is here is only the part where a fix applied to one and not the other
+# is the bug. That is not hypothetical in this tree: guidance.py:206-208 has
+# to warn in a comment that a third copy of a string lives somewhere that
+# cannot import it, and that copy is the one people forget.
+
+
+def _line(obj) -> str:
+    """One NDJSON event.
+
+    Was `line = lambda obj: json.dumps(obj) + "\\n"  # noqa: E731` written out
+    in both `_events` — two places to disagree about the one byte every reader
+    on the client splits on.
+    """
+    return json.dumps(obj) + "\n"
+
+
+def _turn_content(request) -> tuple[str, Response | None]:
+    """The builder's sentence, or the refusal to hand back in its place.
+
+    Returned rather than raised: DRF's ValidationError renders `detail` as a
+    list, and both of these are a single line the client shows as written.
+
+    The caller decides where this falls in its own order of checks, because
+    the two views genuinely disagree about it — ChatView wants a goal first,
+    since without one there is nowhere to put the row; the workshop wants the
+    sentence first, since a refused turn should not open a room.
+    """
+    content = (request.data.get("content") or "").strip()
+    if not content:
+        return "", Response(
+            {"detail": "Say something."}, status=status.HTTP_400_BAD_REQUEST
+        )
+    if len(content) > settings.CHAT_MAX_CHARS:
+        return "", Response(
+            {"detail": "That's a lot at once. Say the part you want an answer to."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    return content, None
+
+
+def _history(messages, *, user_role, system_role) -> list[dict]:
+    """The transcript as the model reads it, oldest first.
+
+    SYSTEM rows are excluded, not mapped: they are the app talking about a
+    turn that failed, and the only role this mapping had for them was
+    "assistant" — which handed the model its own outage back as something it
+    had said, on every turn after it, for as long as it stayed in the window.
+    Excluded in the queryset rather than after the slice, so a run of failures
+    can't push real turns out of HISTORY_LIMIT.
+
+    Both roles are arguments because the two message models are two models
+    with their own enums. Passing them in costs a line at each call site and
+    buys not having to trust that both will go on spelling it "SYSTEM".
+    """
+    turns = messages.exclude(role=system_role).order_by("-created_at")[:HISTORY_LIMIT]
+    return [
+        {
+            "role": "user" if m.role == user_role else "assistant",
+            "content": m.content,
+        }
+        for m in list(turns)[::-1]
+    ]
+
+
+def _ndjson(events) -> StreamingHttpResponse:
+    """The stream itself, with every proxy on the way (Vercel, Render) asked
+    not to buffer it. A turn that arrives whole at the end is a turn the
+    builder spent watching a spinner."""
+    response = StreamingHttpResponse(events, content_type="application/x-ndjson")
+    response["Cache-Control"] = "no-cache"
+    response["X-Accel-Buffering"] = "no"
+    return response
+
+
 class ChatView(throttles.VoicedThrottleMixin, APIView):
     permission_classes = [IsAuthenticated]
     throttle_classes = throttles.THROTTLES
@@ -2271,16 +2357,11 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
             return Response(
                 {"detail": "Set a goal first."}, status=status.HTTP_400_BAD_REQUEST
             )
-        content = (request.data.get("content") or "").strip()
-        if not content:
-            return Response(
-                {"detail": "Say something."}, status=status.HTTP_400_BAD_REQUEST
-            )
-        if len(content) > settings.CHAT_MAX_CHARS:
-            return Response(
-                {"detail": "That's a lot at once. Say the part you want an answer to."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        # After the goal, deliberately: without one there is nowhere to put
+        # the row, so "set a goal first" is the truer answer to an empty box.
+        content, refusal = _turn_content(request)
+        if refusal is not None:
+            return refusal
         Message.objects.create(
             goal=goal, role=Message.Role.USER, phase=goal.phase, content=content
         )
@@ -2336,22 +2417,11 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
             # pivot. Facts, never counts: the gate has been given nothing.
             predecessor=_predecessor(goal),
         )
-        # SYSTEM rows are excluded, not mapped: they are the app talking about a
-        # turn that failed, and the only role this mapping had for them was
-        # "assistant" — which handed the model its own outage back as something
-        # it had said, on every turn after it, for as long as it stayed in the
-        # window. Excluded in the queryset rather than after the slice, so a run
-        # of failures can't push real turns out of HISTORY_LIMIT.
-        turns = goal.messages.exclude(role=Message.Role.SYSTEM).order_by(
-            "-created_at"
-        )[:HISTORY_LIMIT]
-        history = [
-            {
-                "role": "user" if m.role == Message.Role.USER else "assistant",
-                "content": m.content,
-            }
-            for m in list(turns)[::-1]
-        ]
+        history = _history(
+            goal.messages,
+            user_role=Message.Role.USER,
+            system_role=Message.Role.SYSTEM,
+        )
 
         # `target` is the one bound above — read once for the turn. It used to
         # be recomputed here, which cost `_open_checkin` plus `_carried_over`
@@ -2360,20 +2430,15 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
         # Both readers take the same object off the same `today`, so the draft
         # and the sentence explaining where it can't go can never disagree
         # about the day.
-        response = StreamingHttpResponse(
+        return _ndjson(
             self._events(
                 goal,
                 system,
                 history,
                 target,
                 day_closed=target is None and _day_closed(goal, today),
-            ),
-            content_type="application/x-ndjson",
+            )
         )
-        # Ask every proxy on the way (Vercel, Render) not to buffer the stream.
-        response["Cache-Control"] = "no-cache"
-        response["X-Accel-Buffering"] = "no"
-        return response
 
     def _events(
         self,
@@ -2383,7 +2448,6 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
         offer_target: CheckIn | None = None,
         day_closed: bool = False,
     ):
-        line = lambda obj: json.dumps(obj) + "\n"  # noqa: E731
         parts: list[str] = []
         advance_proposed = False
         close_proposed = False
@@ -2411,7 +2475,7 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
                 ):
                     if kind == "delta":
                         parts.append(payload)
-                        yield line({"t": "delta", "text": payload})
+                        yield _line({"t": "delta", "text": payload})
                     elif kind == "tool_call":
                         name = payload.get("name")
                         if name == "propose_phase_advance":
@@ -2441,7 +2505,7 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
             except Exception as e:
                 logger.error(f"Chat stream failed: {e}")
                 broke = True
-                yield line({"t": "error", "detail": STREAM_BROKE})
+                yield _line({"t": "error", "detail": STREAM_BROKE})
 
             content = "".join(parts)
 
@@ -2488,7 +2552,9 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
                     # Streamed as well as saved, the way a gate refusal is: it
                     # belongs to the turn the builder is watching, not to the
                     # refetch a second later.
-                    yield line({"t": "delta", "text": f"\n\n{note}" if content else note})
+                    yield _line(
+                        {"t": "delta", "text": f"\n\n{note}" if content else note}
+                    )
                     content = f"{content}\n\n{note}".strip()
                 else:
                     # Running notes with nothing to pin them to, which is not
@@ -2526,12 +2592,12 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
                 receipt = (
                     NOTES_LANDED.format(missing=missing) if missing else OFFER_LANDED
                 )
-                yield line({"t": "delta", "text": receipt})
+                yield _line({"t": "delta", "text": receipt})
                 content = receipt
             if advance_proposed:
                 advanced, detail = gates.try_advance(goal)
                 span.set_attribute("gate.advanced", advanced)
-                yield line(
+                yield _line(
                     {
                         "t": "gate",
                         "advanced": advanced,
@@ -2563,7 +2629,7 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
             if close_proposed:
                 span.set_attribute("close.proposed", True)
                 logger.info(f"Close box proposed on goal {goal.id}")
-                yield line({"t": "close"})
+                yield _line({"t": "close"})
             if content:
                 Message.objects.create(
                     goal=goal,
@@ -2571,7 +2637,7 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
                     phase=goal.phase,
                     content=content,
                 )
-            yield line({"t": "done"})
+            yield _line({"t": "done"})
 
 
 class WorkshopChatView(throttles.VoicedThrottleMixin, APIView):
@@ -2612,16 +2678,11 @@ class WorkshopChatView(throttles.VoicedThrottleMixin, APIView):
     )
 
     def post(self, request):
-        content = (request.data.get("content") or "").strip()
-        if not content:
-            return Response(
-                {"detail": "Say something."}, status=status.HTTP_400_BAD_REQUEST
-            )
-        if len(content) > settings.CHAT_MAX_CHARS:
-            return Response(
-                {"detail": "That's a lot at once. Say the part you want an answer to."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        # Before the room, deliberately: `create=True` below opens one, and an
+        # empty box is not a reason to have started a workshop.
+        content, refusal = _turn_content(request)
+        if refusal is not None:
+            return refusal
         workshop = _open_workshop(request.user, create=True)
         if workshop is None:  # nothing to open, and nothing to say about it
             return Response(
@@ -2671,26 +2732,12 @@ class WorkshopChatView(throttles.VoicedThrottleMixin, APIView):
                 tone=request.user.tone,
                 sketch=list(workshop.sketch_parts or []),
             )
-        # Same exclusion as ChatView, for the same reason: a SYSTEM row is the
-        # app talking about a turn that failed, and feeding it back as
-        # "assistant" hands the model its own outage as something it said.
-        turns = workshop.messages.exclude(
-            role=WorkshopMessage.Role.SYSTEM
-        ).order_by("-created_at")[:HISTORY_LIMIT]
-        history = [
-            {
-                "role": "user" if m.role == WorkshopMessage.Role.USER else "assistant",
-                "content": m.content,
-            }
-            for m in list(turns)[::-1]
-        ]
-        response = StreamingHttpResponse(
-            self._events(workshop, system, history, reopened=reopened),
-            content_type="application/x-ndjson",
+        history = _history(
+            workshop.messages,
+            user_role=WorkshopMessage.Role.USER,
+            system_role=WorkshopMessage.Role.SYSTEM,
         )
-        response["Cache-Control"] = "no-cache"
-        response["X-Accel-Buffering"] = "no"
-        return response
+        return _ndjson(self._events(workshop, system, history, reopened=reopened))
 
     def _events(
         self,
@@ -2699,7 +2746,6 @@ class WorkshopChatView(throttles.VoicedThrottleMixin, APIView):
         history: list[dict],
         reopened: bool = False,
     ):
-        line = lambda obj: json.dumps(obj) + "\n"  # noqa: E731
         parts: list[str] = []
         candidates = list(workshop.candidates or [])
         parked: list[str] = []
@@ -2733,7 +2779,7 @@ class WorkshopChatView(throttles.VoicedThrottleMixin, APIView):
                 ):
                     if kind == "delta":
                         parts.append(payload)
-                        yield line({"t": "delta", "text": payload})
+                        yield _line({"t": "delta", "text": payload})
                     elif kind == "tool_call":
                         # Sent none, and honours none. The tool list above is
                         # already empty for this room, so this can only fire on
@@ -2798,7 +2844,7 @@ class WorkshopChatView(throttles.VoicedThrottleMixin, APIView):
             except Exception as e:
                 logger.error(f"Workshop stream failed: {e}")
                 broke = True
-                yield line({"t": "error", "detail": STREAM_BROKE})
+                yield _line({"t": "error", "detail": STREAM_BROKE})
 
             content = "".join(parts)
             fields: list[str] = []
@@ -2829,7 +2875,7 @@ class WorkshopChatView(throttles.VoicedThrottleMixin, APIView):
             # the turn ends, and a card that only existed in the stream would
             # vanish under the builder as they reached for it.
             if parked or suggested or refused_park:
-                yield line(
+                yield _line(
                     {
                         "t": "candidates",
                         "candidates": candidates,
@@ -2844,7 +2890,7 @@ class WorkshopChatView(throttles.VoicedThrottleMixin, APIView):
             # refetches when the turn ends, and a meter that only existed in
             # the stream would reset itself under a builder who was reading it.
             if sketched is not None:
-                yield line({"t": "sketch", **_sketch_payload(sketched)})
+                yield _line({"t": "sketch", **_sketch_payload(sketched)})
             notice = False
             if broke and not content:
                 content = STREAM_BROKE
@@ -2863,7 +2909,7 @@ class WorkshopChatView(throttles.VoicedThrottleMixin, APIView):
             # row landed. Sent on `done` so the meter and the server's own
             # refusal threshold are the same number.
             used = _turns_used(workshop)
-            yield line(
+            yield _line(
                 {
                     "t": "done",
                     "turns_used": used,
