@@ -97,6 +97,12 @@ export type CheckIn = {
   date: string; // YYYY-MM-DD, from the CLIENT's local clock
   phase: Phase | ""; // stamped server-side; "" only for pre-migration rows
   amDeclaration: string;
+  /** The hour the builder said tonight's proof would land, 0-23 on their own
+   * clock, or null because naming one is optional. Voice, never gate: nothing
+   * counts it, nothing refuses a proof for arriving after it, and no
+   * notification is promised on it. It is on the record so the coach can hold
+   * them to their own word. */
+  dueHour: number | null;
   /** Whether this morning's task is the work the phase is for. Advisory —
    * an off-phase task is still allowed and still earns its proof.
    * UNJUDGED means the model was unreachable, not that it passed. */
@@ -382,6 +388,7 @@ type ServerCheckIn = {
   date: string;
   phase: Phase | "";
   am_declaration: string;
+  due_hour?: number | null;
   declaration_fit?: CheckIn["declarationFit"];
   declaration_reaction?: string;
   proof_ask?: string;
@@ -461,6 +468,7 @@ const fromServerCheckIn = (c: ServerCheckIn): CheckIn => ({
   date: c.date,
   phase: c.phase ?? "",
   amDeclaration: c.am_declaration,
+  dueHour: c.due_hour ?? null,
   declarationFit: c.declaration_fit ?? "UNJUDGED",
   declarationReaction: c.declaration_reaction ?? "",
   proofAsk: c.proof_ask ?? "",
@@ -1020,10 +1028,17 @@ export async function shareRecord(
   return data.share_slug;
 }
 
-export async function declare(text: string): Promise<CheckIn> {
+/** `dueHour` is the hour the builder says tonight's proof will land, and it is
+ * always sent — null when they named none, which is how an hour gets taken
+ * back. The declaration is one statement including its hour, so the server
+ * writes the whole of it rather than patching a field at a time. */
+export async function declare(
+  text: string,
+  dueHour: number | null = null
+): Promise<CheckIn> {
   const data = await request<ServerCheckIn>("checkins/declare/", {
     method: "POST",
-    body: JSON.stringify({ text, date: localDate() }),
+    body: JSON.stringify({ text, date: localDate(), due_hour: dueHour }),
   });
   return fromServerCheckIn(data);
 }

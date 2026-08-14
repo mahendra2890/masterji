@@ -601,6 +601,33 @@ def _parse_date(value) -> date:
     return day
 
 
+def _parse_due_hour(value) -> int | None:
+    """The hour the builder says tonight's proof will land, or None.
+
+    On THEIR clock, like `date` above and for the same reason: an evening is
+    the builder's own, and the server has no business deciding when one is.
+    Nothing here compares it to a real time — no code in this project reads
+    the clock against it — so it needs no window the way `_parse_date` does.
+    It only has to be an hour.
+
+    Absent, null and the empty string all mean "didn't name one", which is
+    the ordinary case: the control that writes this is optional and most
+    declarations will leave it alone. Anything else that is not an hour of
+    the day is a bug in the caller and gets a 400 rather than a silent None,
+    because a builder who named an hour and had it quietly dropped would go
+    on believing their word was on the record.
+    """
+    if value is None or value == "":
+        return None
+    try:
+        hour = int(value)
+    except (TypeError, ValueError):
+        raise ValueError("due_hour is not a number")
+    if not 0 <= hour <= 23:
+        raise ValueError("due_hour is not an hour of the day")
+    return hour
+
+
 def _client_day(request) -> date:
     """Which day the daily loop is on, for the endpoints that READ it.
 
@@ -711,6 +738,20 @@ def _today_state(checkin: CheckIn | None) -> str:
     if checkin is None or not checkin.am_declaration:
         return "no task declared yet today."
     if not checkin.pm_proof_text:
+        # The hour, when they named one, and only while the proof is still
+        # owed — it is a fact about tonight, and once the proof is in it has
+        # been overtaken by the thing it was about. Reported as THEIR word
+        # ("they said") rather than as a deadline, because it is not one:
+        # nothing in this codebase refuses a proof for arriving after it, and
+        # a state block that read like a cutoff would be describing a product
+        # that does not exist. What it is for is that the coach can hold a
+        # builder to something they chose themselves.
+        if checkin.due_hour is not None:
+            return (
+                f'declared "{checkin.am_declaration}" — proof still owed '
+                f"tonight; they said it would land by "
+                f"{checkin.due_hour:02d}:00."
+            )
         return f'declared "{checkin.am_declaration}" — proof still owed tonight.'
     return (
         f'declared "{checkin.am_declaration}", proof submitted '
@@ -1658,6 +1699,13 @@ class DeclareView(APIView):
             return Response(
                 {"detail": "Bad date."}, status=status.HTTP_400_BAD_REQUEST
             )
+        try:
+            due_hour = _parse_due_hour(request.data.get("due_hour"))
+        except ValueError:
+            return Response(
+                {"detail": "An hour of the day, 0 to 23."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         # Editing the task still on the hook updates it; declaring once the
         # day's last cycle is proved opens a new one (see CheckIn's docstring
         # — real work counts when it happens, not once per calendar day).
@@ -1665,6 +1713,13 @@ class DeclareView(APIView):
         if checkin is None:
             checkin = CheckIn.objects.create(goal=goal, date=day, phase=goal.phase)
         checkin.am_declaration = text
+        # Absent clears it, rather than leaving whatever was there. The hour is
+        # part of the declaration, not a separate setting with its own
+        # endpoint, so re-declaring states the whole of it — and that is the
+        # only way a builder who said 21:00 and can no longer make it gets to
+        # take the word back. Being held to a promise you have withdrawn is
+        # worse than never having made one.
+        checkin.due_hour = due_hour
         # Declaring stays a pure write — it is the most repeated action in the
         # product and must not wait on a model. JudgeDeclarationView is the
         # second half. Clearing the judgement fields matters on an EDIT: a
@@ -1684,6 +1739,7 @@ class DeclareView(APIView):
         checkin.save(
             update_fields=[
                 "am_declaration",
+                "due_hour",
                 "declaration_fit",
                 "declaration_reaction",
                 "proof_ask",

@@ -819,6 +819,40 @@
   font-size: 14px;
 }
 
+/* The hour they named, on the declared line. Quiet on purpose: the task is
+   what the evening gets judged against and this is a note beside it, not a
+   deadline — nothing in the product refuses a proof for arriving after it. */
+.declaredHour {
+  color: var(--muted);
+}
+
+/* "Declare it" and the hour beside it — a control strip, and only that. The
+   two sit on one row so the hour reads as part of declaring rather than as a
+   second step, and it wraps on a narrow phone instead of squeezing the
+   button. Nothing here explains itself; the tour does that. */
+.declareRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.hourSelect {
+  background: var(--surface-2);
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 9px 10px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.hourSelect:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
 /* The morning, closed off. Deliberately quiet — no border, no accent, none of
    the marigold the card spends on things that need doing. It is the only line
    in this product whose job is to say there is nothing to do, and it should

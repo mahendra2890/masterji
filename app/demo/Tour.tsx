@@ -331,7 +331,21 @@ const SLIDES: Slide[] = [
                 Interview the mess aunty about what happens at the 9pm rush
               </div>
             </Mark>
-            <span className={app.primaryBtn}>Declare it</span>
+            {/* The hour rides in the same strip, outside the ring and with no
+                note of its own — the goal examples on slide 1 and the tone
+                switch opposite are drawn the same way, and for the same
+                reason: it is on the screen, so a mock without it is a picture
+                of a screen that no longer exists, and what it BUYS is a clause
+                in note 1 rather than a mark of its own. A slide's worth of
+                deck for an optional tap would be a manual.
+
+                A span, like every other mock control in this file, and the
+                one it borrows from is a <select>: it cannot be pressed, so it
+                must not announce itself as something that can. */}
+            <div className={app.declareRow}>
+              <span className={app.primaryBtn}>Declare it</span>
+              <span className={app.hourSelect}>by 21:00</span>
+            </div>
           </section>
 
           <section className={app.card}>
@@ -445,10 +459,21 @@ const SLIDES: Slide[] = [
     ),
     notes: [
       <>
+        {/* The clause is the whole of what this deck says about the hour, and
+            it is a clause on purpose. The control is one optional tap and it
+            moves nothing; a slide would be promising more than it does.
+
+            Every word of it has to be true with no scheduler in the product,
+            because there isn't one — nothing here fires on a clock. So it says
+            what naming an hour DOES ("hold you to it"), which is true the
+            moment the coach can read it back, and not what it might one day
+            trigger. "He'll be waiting at nine" is the sentence this deck must
+            never learn to say. */}
         <strong>One task</strong>, small enough to finish today and specific
         enough to prove tonight. Filed the moment you press it — he reads it a
         second later and says what he makes of it, but the day is on the record
-        either way.
+        either way. Name the hour you&apos;ll have proof by and he&apos;ll hold
+        you to it — optional, and a proof that lands later still counts in full.
       </>,
       <>
         Off-phase work is <strong>flagged, never blocked</strong>. He&apos;ll

@@ -346,6 +346,53 @@ const CHIP: Record<
 const isUnsettled = (s: CheckIn["proofStatus"]) =>
   s === "PUSHED_BACK" || s === "UNJUDGED";
 
+/** An hour of the builder's own day, 00:00–23:00. */
+const hourLabel = (h: number) => `${String(h).padStart(2, "0")}:00`;
+
+/** Every hour, not an evening's worth. A day can hold more than one cycle (see
+ * "Declare another task") and the second one gets proved whenever it gets
+ * proved, so a list that stopped at midnight-ish would be this control holding
+ * a product opinion it has no standing to hold. */
+const DUE_HOURS = Array.from({ length: 24 }, (_, h) => h);
+
+/** The hour beside "Declare it", and nothing else.
+ *
+ * It STAYS A CONTROL. No caption, no tooltip, no "why bother" line: this repo
+ * puts that in the tour (app/demo/Tour.tsx, slide 2), and the one time an
+ * explanation was set down beside a control here it shipped as clutter and was
+ * pulled out again — the note under `.modeSwitch` records that. So the strip
+ * says what the choice is and the deck says what it buys.
+ *
+ * What it must never say is that anything will happen AT this hour. Nothing
+ * fires on a clock in this product yet, and when something does (#142 settled
+ * it as a best-effort GitHub Actions tick, shared with #87) it will arrive
+ * shortly after the hour rather than at it. "by 21:00" is the builder's own
+ * claim about their evening, which is true with no scheduler at all; "he'll
+ * be waiting at 21:00" would be a promise the infrastructure cannot keep. */
+function DueHourSelect({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <select
+      className={styles.hourSelect}
+      aria-label="When tonight's proof will land"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+    >
+      <option value="">any time tonight</option>
+      {DUE_HOURS.map((h) => (
+        <option key={h} value={h}>
+          by {hourLabel(h)}
+        </option>
+      ))}
+    </select>
+  );
+}
+
 /** One line of the record, and the way into that day.
  *
  * A row is a summary, so it has to open: the proof, the screenshot and
@@ -555,6 +602,11 @@ export default function Masterji({ user }: { user: SessionUser }) {
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleText, setTitleText] = useState("");
   const [amText, setAmText] = useState("");
+  // The hour named alongside this morning's task, as the select's own string
+  // ("" is "didn't name one"). Not persisted like amText is: a draft exists so
+  // half-typed words survive a closed tab, and there is no half-made choice
+  // here to lose.
+  const [amHour, setAmHour] = useState("");
   const [pmText, setPmText] = useState("");
   const [pmUrl, setPmUrl] = useState("");
   const [pmImage, setPmImage] = useState<File | null>(null);
@@ -946,8 +998,12 @@ export default function Masterji({ user }: { user: SessionUser }) {
       if (!amText.trim() || declaring.current) return;
       declaring.current = true;
       try {
-        const checkin = await declare(amText.trim());
+        const checkin = await declare(
+          amText.trim(),
+          amHour === "" ? null : Number(amHour)
+        );
         setAmText("");
+        setAmHour("");
         setDeclaringAgain(false);
         // A second cycle starts at its own morning. Without this, declaring
         // again after an early filing would drop the builder straight back
@@ -2601,18 +2657,35 @@ export default function Masterji({ user }: { user: SessionUser }) {
                   value={amText}
                   onChange={(e) => setAmText(e.target.value)}
                 />
-                <button
-                  className={styles.primaryBtn}
-                  disabled={busy}
-                  onClick={onDeclare}
-                >
-                  Declare it
-                </button>
+                <div className={styles.declareRow}>
+                  <button
+                    className={styles.primaryBtn}
+                    disabled={busy}
+                    onClick={onDeclare}
+                  >
+                    Declare it
+                  </button>
+                  <DueHourSelect value={amHour} onChange={setAmHour} />
+                </div>
               </>
             ) : !today.pmProofText || isUnsettled(today.proofStatus) ? (
               <>
+                {/* Their own word, read back while it is still about
+                    something. Without this the hour would be a control whose
+                    value the builder can never see again, which is the
+                    definition of decorative — and it is the coach's only
+                    lever here, so the card and the prompt have to be looking
+                    at the same fact. Deliberately absent from the settled
+                    branch below: once the proof is in, the hour is spent, and
+                    a filing time is not what that line is for. */}
                 <p className={styles.declared}>
                   Declared: <em>{today.amDeclaration}</em>
+                  {today.dueHour !== null && (
+                    <span className={styles.declaredHour}>
+                      {" "}
+                      — by {hourLabel(today.dueHour)}
+                    </span>
+                  )}
                 </p>
                 {today.proofStatus === "PUSHED_BACK" && (
                   <p className={styles.pushedBack}>{today.coachReaction}</p>
@@ -2842,13 +2915,16 @@ export default function Masterji({ user }: { user: SessionUser }) {
                       value={amText}
                       onChange={(e) => setAmText(e.target.value)}
                     />
-                    <button
-                      className={styles.primaryBtn}
-                      disabled={busy}
-                      onClick={onDeclare}
-                    >
-                      Declare it
-                    </button>
+                    <div className={styles.declareRow}>
+                      <button
+                        className={styles.primaryBtn}
+                        disabled={busy}
+                        onClick={onDeclare}
+                      >
+                        Declare it
+                      </button>
+                      <DueHourSelect value={amHour} onChange={setAmHour} />
+                    </div>
                   </>
                 )}
               </>
