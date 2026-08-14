@@ -42,6 +42,10 @@ class GoalSerializer(serializers.ModelSerializer):
             "phase_entered_at",
             "created_at",
             "title_locked",
+            # The goal this one came out of, read-only here and set by the view:
+            # it is a claim about another row, and whose row it is and whether
+            # it is closed are not a client's to assert.
+            "pivoted_from",
         ]
         # Everything except the title and the brief. `phase` and `status` being
         # read-only here is what stops the update endpoint from being a road
@@ -58,6 +62,7 @@ class GoalSerializer(serializers.ModelSerializer):
             "phase_entered_at",
             "created_at",
             "title_locked",
+            "pivoted_from",
         ]
 
     def get_title_locked(self, obj: Goal) -> bool:

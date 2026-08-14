@@ -629,6 +629,12 @@ export default function Masterji({ user }: { user: SessionUser }) {
   // The one line about the phase you are in, and whether its box is open. The
   // box shows itself when the line is empty, which is the state every phase
   // starts in — nothing here nags, and ignoring it is a complete answer.
+  // Which closed goal the next one comes out of, set by "Same problem, new
+  // idea" and spent by the commit. Client-side only and deliberately not
+  // durable: it is a link the builder just asked for, and a flag that survived
+  // a closed tab would silently attach last month's idea to a goal they came
+  // back and committed for a different reason.
+  const [pivotFrom, setPivotFrom] = useState<number | null>(null);
   const [intentDraft, setIntentDraft] = useState("");
   const [namingPhase, setNamingPhase] = useState(false);
   // The launch date and the room it goes into, and whether the box is open.
@@ -872,8 +878,9 @@ export default function Masterji({ user }: { user: SessionUser }) {
   const onCreateGoal = () =>
     run(async () => {
       if (!goalTitle.trim()) return;
-      await createGoal(goalTitle.trim());
+      await createGoal(goalTitle.trim(), pivotFrom);
       setGoalTitle("");
+      setPivotFrom(null);
       await refresh();
     });
 
@@ -980,14 +987,22 @@ export default function Masterji({ user }: { user: SessionUser }) {
       }
     });
 
-  const onRetire = (outcome: "ABANDONED" | "COMPLETED") =>
+  /** Close the goal. `pivot` changes nothing about the closing — same
+   * ABANDONED row, same computed verdict — and only remembers which goal the
+   * next one came out of, for the screen that is about to ask for it. */
+  const onRetire = (
+    outcome: "ABANDONED" | "COMPLETED",
+    opts: { pivot?: boolean } = {}
+  ) =>
     run(async () => {
       if (!state?.goal || !retireReason.trim()) return;
+      const closing = state.goal.id;
       const { retirement } = await retireGoal(
-        state.goal.id,
+        closing,
         retireReason.trim(),
         outcome
       );
+      setPivotFrom(opts.pivot ? closing : null);
       setRetireReason("");
       setRetiring(false);
       // Hold Masterji's reaction on screen. Without this the dashboard would
@@ -1530,6 +1545,31 @@ export default function Masterji({ user }: { user: SessionUser }) {
               ))}
             </ul>
           </div>
+        )}
+
+        {/* Said out loud, because a link the builder cannot see is a link they
+            cannot decline. What carries over is what they LEARNED — the people
+            they spoke to and what those people said, as facts the coach is
+            handed — and nothing they earned: the new goal starts at IDEA with
+            nothing banked and its first proof is owed exactly as if this were
+            their first day.
+
+            Droppable in one press. They asked for it thirty seconds ago on the
+            previous screen, and by the time they have typed a title they may
+            have decided this is a different problem after all. */}
+        {pivotFrom !== null && closing && (
+          <p className={styles.carrying}>
+            Carrying what you learned on{" "}
+            <strong>{closing.title}</strong> — the conversations, not the
+            counts. This one still starts at IDEA.{" "}
+            <button
+              type="button"
+              className={styles.carryingOff}
+              onClick={() => setPivotFrom(null)}
+            >
+              start clean instead
+            </button>
+          </p>
         )}
 
         {error && <p className={styles.error}>{error}</p>}
@@ -2447,6 +2487,26 @@ export default function Masterji({ user }: { user: SessionUser }) {
                     onClick={() => onRetire("ABANDONED")}
                   >
                     I&apos;m dropping it
+                  </button>
+                  {/* The third exit, and the one the journey actually takes
+                      most often between VALIDATION and BUILD: the idea dies
+                      and the problem survives. It closes exactly as "I'm
+                      dropping it" does — same ABANDONED row, same computed
+                      verdict, and a pivot with no contact proofs behind it
+                      still reads UNTESTED, because calling it a pivot is not
+                      evidence of anything.
+
+                      What it changes is the next screen: the goal they commit
+                      to there is linked back to this one, so the coach opens
+                      knowing what those weeks of interviews found. Until now
+                      the product's memory of them died with the goal, which
+                      made the honest move cost more than limping on. */}
+                  <button
+                    className={styles.secondaryBtn}
+                    disabled={busy || !retireReason.trim()}
+                    onClick={() => onRetire("ABANDONED", { pivot: true })}
+                  >
+                    Same problem, new idea
                   </button>
                   <button
                     className={styles.linkBtn}

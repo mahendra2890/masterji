@@ -88,6 +88,31 @@ class Goal(SoftDeleteModel):
     # digest's own text would make builder-facing copy load-bearing in two
     # languages and would still race. This claims in one atomic UPDATE.
     last_digest_week = models.DateField(null=True, blank=True)
+    # The goal this one came out of, when a builder closed the idea and kept the
+    # problem. Null for a goal started from nothing, which is most of them.
+    #
+    # The commonest real journey event between VALIDATION and BUILD is the idea
+    # dying while the problem survives, and the product's memory of those
+    # hard-won interviews used to die with the goal — ARCHIVE_BLOCK carries
+    # counts and one line, not contents. So the honest move, killing the idea,
+    # cost more than limping on, which inverts the whole incentive design.
+    #
+    # A link and nothing else. It seeds NO count: the successor starts at IDEA
+    # with zero proofs, gates.py reads this field never, and IDEA's one proof is
+    # still owed — writing the new problem statement is one evening and it is
+    # the pivot decision made concrete. What it buys is a prompt block, so the
+    # coach does not send a builder back to re-interview Tuesday's person for
+    # facts already on the family record.
+    #
+    # SET_NULL rather than CASCADE: a deleted parent must orphan the successor,
+    # never delete a live goal with weeks of its own work on it.
+    pivoted_from = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="successors",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

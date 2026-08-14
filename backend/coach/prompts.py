@@ -558,6 +558,34 @@ Different work with the same person, the next step on the same artifact, or a \
 second conversation the same evening are NOT repeats. Accept those, and say in \
 one clause what makes this one new."""
 
+# The record of the goal this one came out of — the pivot's whole payload.
+#
+# The fourth reader of record_block's formatter, and the one furthest from the
+# others: those three describe THIS goal, and this describes the one before it.
+# The distinction has to be in the words or the coach quietly credits work to a
+# goal that has not done any yet, which would be the gate leaking through the
+# prompt — so it says outright that none of it counts here.
+#
+# What it buys is the thing the pivot exists for: a builder who spent three
+# weeks interviewing Block C should not be sent back to re-interview Tuesday's
+# person because the goal they did it under is closed.
+PREDECESSOR_BLOCK = """
+WHAT THEY ALREADY LEARNED ON THE IDEA THIS ONE CAME OUT OF ("{{title}}" — closed, \
+and its accepted proofs, newest first):
+{lines}
+Same problem, new idea: they kept the problem and dropped the solution, which \
+is the honest move and usually the expensive one. Treat every fact in that list \
+as GIVEN — the people they spoke to, what those people said, what they built \
+and what it did. Do not send them back to somebody on that list for something \
+that list already answers.
+
+NONE OF IT COUNTS HERE, and say so if they ask. This goal starts at IDEA with \
+nothing banked, its first proof is still owed, and the gate has not been given \
+a single row from before. What carried over is what they know, not what they \
+earned — and the first evening's work is writing the new problem statement, \
+which is that decision made concrete.
+"""
+
 # And the same record a third time, for the reopened room. Its own template
 # because both of the others end in instructions about DRAFTING — the coach's
 # copy says don't call suggest_proof on a repeat, the judge's says push one
@@ -1355,6 +1383,29 @@ def declaration_intent(intent: str) -> str:
     return f"{DECLARATION_INTENT.format(intent=text)}\n" if text else ""
 
 
+def predecessor_block(title: str, banked: list[dict] | None) -> str:
+    """The parent goal's accepted proofs, as facts the successor inherits.
+
+    record_block's formatter with a different template around it — the same
+    reason RECORD_FOR_JUDGE and RECORD_FOR_ROOM exist: if the two ever read
+    different lists they would disagree about what the builder has done.
+
+    Absent when the parent banked nothing, which is the common shape of a goal
+    closed early: naming a dead idea and then saying it produced nothing is
+    a paragraph about failure with no facts in it.
+
+    The title is `{{title}}` in the template and goes in with str.replace after
+    record_block has done its format() pass — a goal title is builder text and
+    may contain a brace, which format() would read as a field and raise on. The
+    doubled braces are what survive that pass to be replaced here.
+    """
+    if not banked:
+        return ""
+    return record_block(banked, template=PREDECESSOR_BLOCK).replace(
+        "{title}", title
+    )
+
+
 def launch_line(launch: dict | None) -> str:
     """The named date as one line of the state block, or nothing.
 
@@ -1624,6 +1675,7 @@ def build_system_prompt(
     week: dict | None = None,
     intent: str = "",
     launch: dict | None = None,
+    predecessor: tuple[str, list[dict]] | None = None,
 ) -> str:
     phase = Phase(goal.phase)
     return COACH_SYSTEM.format(
@@ -1663,7 +1715,13 @@ def build_system_prompt(
         # narrower than the idea and wider than tonight.
         intent=intent_block(intent, phase),
         idea=idea_block(goal.brief),
-        record=record_block(banked or []),
+        # This goal's record, then the one it came out of. In that order because
+        # the near one is what tonight is measured against and the far one is
+        # background — and because a coach that opened with the last idea would
+        # be talking about the goal they closed on the first morning of the one
+        # they replaced it with.
+        record=record_block(banked or [])
+        + (predecessor_block(*predecessor) if predecessor else ""),
         spot_proof=SPOT_PROOF,
         goal_title=goal.title,
         phase=goal.phase,

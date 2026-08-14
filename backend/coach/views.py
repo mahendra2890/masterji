@@ -657,6 +657,24 @@ def _launch_payload(goal: Goal, today: date) -> dict | None:
     }
 
 
+def _predecessor(goal: Goal) -> tuple[str, list[dict]] | None:
+    """The goal this one came out of, and what it banked — or nothing.
+
+    Nothing when there is no parent, and nothing when the parent banked no
+    accepted proofs: naming a dead idea and then reporting that it produced
+    nothing is a paragraph about failure with no facts in it, on the first
+    morning of the thing that replaced it.
+
+    Reads the parent's proofs through the same _banked the live goal uses, so
+    the two lists cannot disagree about what a proof was.
+    """
+    parent = goal.pivoted_from
+    if parent is None:
+        return None
+    banked = _banked(parent)
+    return (parent.title, banked) if banked else None
+
+
 def _current_transition(goal: Goal) -> PhaseTransition | None:
     """The row that opened the phase the goal is in right now, if there is one.
 
@@ -1073,8 +1091,23 @@ class GoalsView(APIView):
             )
         serializer = GoalSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        # The link back, when this goal is the "same problem, new idea" one.
+        # Read here rather than through the serializer because it is not the
+        # client's to assert about an arbitrary row: it must be the builder's
+        # own goal and it must already be closed. A bad id is dropped rather
+        # than 400ing — the goal itself is what the builder is committing to,
+        # and refusing the whole commit over a stale link would be the app
+        # losing their sentence to protect a footnote.
+        parent = None
+        raw_parent = request.data.get("pivoted_from")
+        if raw_parent:
+            parent = (
+                Goal.objects.filter(user=request.user, id=raw_parent)
+                .exclude(status=Goal.Status.ACTIVE)
+                .first()
+            )
         try:
-            goal = serializer.save(user=request.user)
+            goal = serializer.save(user=request.user, pivoted_from=parent)
         except IntegrityError:
             # The check above is a read; the constraint is the truth. Two
             # near-simultaneous creates (a double tap, or the API client's
@@ -2217,6 +2250,9 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
             # And the day they said they would launch, if they named one. The
             # only fact in the state block the builder put there themselves.
             launch=_launch_payload(goal, today),
+            # What the idea before this one taught them, when this goal is a
+            # pivot. Facts, never counts: the gate has been given nothing.
+            predecessor=_predecessor(goal),
         )
         # SYSTEM rows are excluded, not mapped: they are the app talking about a
         # turn that failed, and the only role this mapping had for them was

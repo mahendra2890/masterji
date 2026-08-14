@@ -788,6 +788,110 @@ class PhaseBriefTests(CoachTestCase):
 # --- daily loop ----------------------------------------------------------------
 
 
+class PivotTests(CoachTestCase):
+    """Same problem, new idea — the commonest real journey event between
+    VALIDATION and BUILD, and the one the product used to punish.
+
+    The whole of what is pinned here: a pivot carries KNOWLEDGE and never
+    CREDIT. Everything the builder learned travels; not one row of what they
+    earned does, and the successor's first proof is owed exactly as if they had
+    started from nothing — which, as far as gates.py is concerned, they have.
+    """
+
+    def pivot(self, title="Mess-counter board for Block C"):
+        parent = self.make_goal(phase=Phase.VALIDATION)
+        self.accept_proofs(parent, 2)
+        self.client.post(
+            f"/api/coach/goals/{parent.id}/retire/",
+            {"reason": "Nobody wants a tiffin service. They want to know what's left."},
+        )
+        created = self.client.post(
+            "/api/coach/goals/", {"title": title, "pivoted_from": parent.id}
+        ).json()
+        return parent, Goal.objects.get(id=created["id"])
+
+    def test_the_successor_starts_at_idea_with_nothing_banked(self):
+        """The gate is never seeded. IDEA's one proof is still owed, and
+        writing the new problem statement is that decision made concrete."""
+        parent, successor = self.pivot()
+        self.assertEqual(successor.pivoted_from_id, parent.id)
+        self.assertEqual(successor.phase, Phase.IDEA)
+        self.assertEqual(gates.accepted_proofs(successor), 0)
+        self.assertEqual(gates.accepted_proofs_total(successor), 0)
+        advanced, _ = gates.try_advance(successor)
+        self.assertFalse(advanced)
+
+    def test_the_parent_closes_as_it_would_have_anyway(self):
+        """No new self-declared verdict. A contact-free pivot still reads
+        UNTESTED, because calling it a pivot is not evidence of anything."""
+        parent, _ = self.pivot()
+        retirement = GoalRetirement.objects.get(goal=parent)
+        self.assertEqual(retirement.outcome, GoalRetirement.Outcome.ABANDONED)
+        self.assertEqual(
+            gates.reads_as(parent, retirement.outcome),
+            gates.reads_as(parent, GoalRetirement.Outcome.ABANDONED),
+        )
+
+    def test_the_coach_inherits_the_facts_and_is_told_they_are_not_counts(self):
+        parent, successor = self.pivot()
+        text = prompts.build_system_prompt(
+            successor,
+            gates.gate_status(successor),
+            0,
+            "nothing yet",
+            "ENGLISH",
+            predecessor=views._predecessor(successor),
+        )
+        self.assertIn(parent.title, text)
+        # The guard that keeps the block from leaking into the gate.
+        self.assertIn("NONE OF IT COUNTS HERE", text)
+        self.assertIn("its first proof is still owed", text)
+
+    def test_a_parent_that_banked_nothing_says_nothing(self):
+        """Naming a dead idea and then reporting it produced nothing is a
+        paragraph about failure with no facts in it, on the first morning of
+        the thing that replaced it."""
+        parent = self.make_goal()
+        self.client.post(f"/api/coach/goals/{parent.id}/retire/", {"reason": "no"})
+        created = self.client.post(
+            "/api/coach/goals/", {"title": "Second", "pivoted_from": parent.id}
+        ).json()
+        successor = Goal.objects.get(id=created["id"])
+        self.assertEqual(successor.pivoted_from_id, parent.id)
+        self.assertIsNone(views._predecessor(successor))
+
+    def test_a_link_to_somebody_elses_goal_is_dropped_not_honoured(self):
+        bobs = self.make_goal(user=self.bob)
+        created = self.client.post(
+            "/api/coach/goals/", {"title": "Mine", "pivoted_from": bobs.id}
+        )
+        self.assertEqual(created.status_code, 201)
+        self.assertIsNone(Goal.objects.get(id=created.json()["id"]).pivoted_from_id)
+
+    def test_a_link_to_a_goal_still_running_is_dropped(self):
+        """A pivot is from something CLOSED. Linking a live goal would be one
+        builder with two goals, described in a field instead of a row."""
+        live = self.make_goal()
+        self.client.post(f"/api/coach/goals/{live.id}/retire/", {"reason": "done"})
+        second = self.client.post("/api/coach/goals/", {"title": "Second"}).json()
+        third = self.client.post(
+            "/api/coach/goals/", {"title": "Third", "pivoted_from": second["id"]}
+        )
+        # Refused for the ordinary reason — one goal at a time — and the link
+        # never gets the chance to be the thing that let a second one exist.
+        self.assertEqual(third.status_code, 400)
+
+    def test_a_stale_link_does_not_cost_them_the_commit(self):
+        """The goal is what they are committing to; the link is a footnote.
+        Refusing the whole commit over it would be the app losing their
+        sentence to protect the footnote."""
+        created = self.client.post(
+            "/api/coach/goals/", {"title": "Mine", "pivoted_from": 999999}
+        )
+        self.assertEqual(created.status_code, 201)
+        self.assertIsNone(Goal.objects.get(id=created.json()["id"]).pivoted_from_id)
+
+
 class SharedRecordTests(CoachTestCase):
     """A closed goal as a page you can hand to somebody.
 

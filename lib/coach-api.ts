@@ -889,10 +889,20 @@ export async function retireGoal(
   };
 }
 
-export async function createGoal(title: string): Promise<Goal> {
+/** `pivotedFrom` is the closed goal this one came out of — "same problem, new
+ * idea". A link and nothing else: the successor starts at IDEA with zero
+ * proofs and the gate is never seeded. The server drops the link if it is not
+ * the builder's own closed goal, rather than refusing the commit: the goal is
+ * what they are committing to and the link is a footnote. */
+export async function createGoal(
+  title: string,
+  pivotedFrom?: number | null
+): Promise<Goal> {
   const data = await request<ServerGoal>("goals/", {
     method: "POST",
-    body: JSON.stringify({ title }),
+    body: JSON.stringify(
+      pivotedFrom ? { title, pivoted_from: pivotedFrom } : { title }
+    ),
   });
   return fromServerGoal(data);
 }
