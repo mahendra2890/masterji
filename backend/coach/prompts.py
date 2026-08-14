@@ -7,6 +7,7 @@ by the phase, so "retrieval" is a dict lookup.
 """
 
 import re
+from datetime import date
 from functools import lru_cache
 from pathlib import Path
 
@@ -1629,7 +1630,7 @@ def calendar_block(days_in_phase: int | None, days_since_complete: int | None) -
     return "".join(f"{line}\n" for line in lines)
 
 
-def week_block(summary: dict | None) -> str:
+def week_block(summary: dict | None, week_of: date | None = None) -> str:
     """Last week's counts, as one line of the state block.
 
     Absent by default, like the calendar above it and for the same reason: only
@@ -1644,6 +1645,16 @@ def week_block(summary: dict | None) -> str:
     The builder read this as prose on Monday morning (coach/weekly.py). This is
     the same arithmetic handed to the model, so the week is a fact it is told
     rather than one it infers from how long the transcript is.
+
+    `week_of` names the window when it is not the week that just ended, and the
+    label moves with it — "Last week" over an older window would be a false
+    sentence in the block that tells the model to trust it over anything said in
+    chat. It is also the reason this follows the digest's fallback rather than
+    keeping the calendar week: SYSTEM rows are excluded from the transcript, so
+    the coach never sees the digest the builder just read. Draw a different
+    window here and a builder back from two weeks away reads "Picking up from
+    the week of 20 Jul", says something about it, and is answered by a coach who
+    has been told nothing about any week at all.
     """
     if not summary or not summary["filed"]:
         return ""
@@ -1655,7 +1666,8 @@ def week_block(summary: dict | None) -> str:
         parts.append(f"{guidance.people(summary['people'])} spoken to")
     if summary["advanced_to"]:
         parts.append(f"opened {summary['advanced_to']}")
-    return f"- Last week: {', '.join(parts)}\n"
+    label = "Last week" if week_of is None else f"Week of {weekly.on(week_of)}"
+    return f"- {label}: {', '.join(parts)}\n"
 
 
 def build_system_prompt(
@@ -1673,6 +1685,7 @@ def build_system_prompt(
     days_in_phase: int | None = None,
     days_since_complete: int | None = None,
     week: dict | None = None,
+    week_of: date | None = None,
     intent: str = "",
     launch: dict | None = None,
     predecessor: tuple[str, list[dict]] | None = None,
@@ -1741,7 +1754,7 @@ def build_system_prompt(
         # Sits with the calendar because it is the same kind of fact one scope
         # up: those two say where today is, this says what the last seven days
         # came to. Both are absent unless somebody measured them.
-        week=week_block(week),
+        week=week_block(week, week_of),
         today_state=today_state,
         phase_rules=PHASE_RULES[phase],
         playbooks=playbooks_for(phase),
