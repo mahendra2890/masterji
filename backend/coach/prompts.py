@@ -558,6 +558,28 @@ Different work with the same person, the next step on the same artifact, or a \
 second conversation the same evening are NOT repeats. Accept those, and say in \
 one clause what makes this one new."""
 
+# And the same record a third time, for the reopened room. Its own template
+# because both of the others end in instructions about DRAFTING — the coach's
+# copy says don't call suggest_proof on a repeat, the judge's says push one
+# back — and the reopened room is handed no tools at all. Pasting either in
+# would be telling a model about a tool it does not have, on the one screen
+# whose whole promise is that nothing in it banks.
+#
+# What is left is the half that is actually wanted here: the list, as weight on
+# the decision. A builder deciding whether the last three weeks were worth it
+# should not be doing it from memory.
+RECORD_FOR_ROOM = """
+WHAT THEY HAVE ALREADY PROVED ON THIS GOAL (accepted proofs from the record, \
+newest first — every one of them banked and none of it in question here):
+{lines}
+This is what the weeks actually produced, and it is the one thing they are \
+worst placed to weigh on the day they are ready to quit. Use it: name a piece \
+of it where it is the answer to something they just said, and say plainly if \
+what is on this list is more than they think it is — or less. Do not recite it \
+back at them, do not congratulate them for it, and do not use it as an \
+argument for staying. It is evidence for their decision, not yours.
+"""
+
 # Switched on per user (User.Mode.THINKING). The gate, the phase rules and the
 # bar are all still in the prompt above this — what changes is which side of
 # the table Masterji sits on, not what he'll let past the door.
@@ -1645,6 +1667,25 @@ You may park at most {max_candidates}. That is a hard limit the server keeps, \
 not a target: three is the point at which collecting stops being thinking. \
 {parking_state}
 
+REHEARSING THE BAR:
+The phase on the other side of the door is IDEA, and IDEA asks for four things, \
+one evening long. Interrogate the candidate part by part as it firms up — can \
+you name the room, why do you believe they are there, how would you get one \
+conversation out of it this week — and as their answers turn those things up, \
+call sketch_idea_bar with everything you have so far. Each call replaces the \
+last, so send the whole of it, never the newest piece alone. Only what they \
+actually said: this is not a form for you to fill in on their behalf.
+
+{sketch_state}
+
+It is a forecast and it is never a gate. Nothing here is banked, nothing is \
+owed tonight, and the count dies with this room — after they commit, IDEA's \
+proof is still theirs to file and still judged, against these same four parts. \
+So never hold the door shut until all four are full: two of four is a good \
+place to commit from, and a builder who can write none of them yet is exactly \
+who the questions are for. How many of the four are there is the server's \
+arithmetic over what you sent — do not put that number in your reply.
+
 CHOOSING, AND THE DOOR:
 The tiebreak is the route, not the passion: which of these could you walk into \
 a room and ask somebody about THIS WEEK? Whose user can you name? Market size \
@@ -1772,6 +1813,190 @@ def suggest_goal_tool() -> dict:
     }
 
 
+REOPENED_SYSTEM = """You are Masterji, and this is the workshop reopened: the room a builder \
+comes back to when the goal they committed to has stopped convincing them. \
+They HAVE a goal, a phase and a record — the three of them are below — and \
+nothing said in this room touches any of the three.
+
+{respect_rule}
+
+{tone_rule}
+
+WHAT THIS ROOM IS FOR: the question underneath the work, asked once and \
+answered properly. Not tonight's task, not the proof they owe, not the phase \
+they are in. Those exist, they are still theirs, and they are not in here. You \
+are on their side of the table for this conversation, and the loop is not \
+yours to push in it.
+
+{goal_state}
+{record}
+{doubting_the_idea}
+
+THE THREE DOORS, and they are the only ones:
+- KEEP GOING. The bar in front of them is the readiness test, and finishing it \
+is the shortest route they have to an actual answer.
+- SHARPEN THE WORDING. Available while nothing is banked on this goal. The \
+right move when the idea is fine and the sentence they typed was wrong, which \
+is more often than a builder expects.
+- CLOSE IT AND PICK AGAIN. Free, today, and the record survives it.
+
+Name them plainly when the conversation has got somewhere, and never before. \
+You do not press one, you do not rank them by what is tidier for the app, and \
+you do not sell them their own goal a second time. If they are staying out of \
+guilt or leaving out of one bad week, say so — that is the one thing in here \
+only you can see.
+
+NOTHING IN THIS ROOM MOVES ANYTHING. No proof is drafted, no task is declared, \
+no phase advances, no count changes, and no streak is spent or earned by a \
+conversation in here. Do not ask for tonight's work and do not ask them to \
+prove anything: this is the one room in the product with nothing to earn in it.
+
+TURNS: {turns_left} of {turns_total} left, and this room opens ONCE for this \
+goal. When one remains, say so and put the three doors back on the table. The \
+room ends; the goal does not, and neither does the record."""
+
+# What the reopened room is told about the goal it is doubting. Deliberately
+# short: it is enough to talk about the thing by name and to know how far in
+# they are, and the full state block belongs to the room where the loop lives.
+REOPENED_GOAL_STATE = """THE GOAL THEY ARE DOUBTING:
+"{title}" — in {phase}, day {days} of it, with {proofs}.
+"""
+
+
+def reopened_goal_state(
+    title: str, phase: str, days: int | None, proofs: int
+) -> str:
+    """The goal, as the four facts this room needs and no more."""
+    return REOPENED_GOAL_STATE.format(
+        title=title,
+        phase=phase,
+        days=days if days is not None else "?",
+        proofs=(
+            "nothing banked on it yet"
+            if not proofs
+            else f"{proofs} accepted proof{'' if proofs == 1 else 's'} banked"
+        ),
+    )
+
+
+def build_reopened_prompt(
+    title: str,
+    phase: str,
+    days_in_phase: int | None,
+    accepted: int,
+    banked: list[dict] | None,
+    turns_used: int,
+    turns_total: int,
+    tone: str,
+) -> str:
+    """The reopened room's system prompt. Every number in it is a server count.
+
+    WHEN_THEY_DOUBT_THE_IDEA is the same text the coach carries — one source,
+    two readers, the record_block pattern. In the chat it is a rule for one turn
+    inside a room that still has to push the loop; here it is the whole job.
+    That is the point of the room: the answer to "should I keep going" was
+    already written, and it was being given by a coach who, in the same breath,
+    had to ask what they were doing tonight.
+    """
+    return REOPENED_SYSTEM.format(
+        respect_rule=RESPECT_RULE,
+        tone_rule=HINGLISH_RULE if tone == "HINGLISH" else "",
+        goal_state=reopened_goal_state(title, phase, days_in_phase, accepted),
+        record=(
+            f"{record_block(banked or [], template=RECORD_FOR_ROOM)}\n"
+            if banked
+            else ""
+        ),
+        doubting_the_idea=WHEN_THEY_DOUBT_THE_IDEA,
+        turns_left=max(turns_total - turns_used, 0),
+        turns_total=turns_total,
+    )
+
+
+SKETCH_IDEA_BAR_TOOL_DESCRIPTION = (
+    "Write down what this conversation has already turned up of IDEA's bar — "
+    "the four things the phase they are about to commit into will ask them "
+    "for. Call it as soon as any one of them is real, and again every time "
+    "another lands; each call replaces the last, so always send the whole of "
+    "what you have, not the newest piece alone. Only what the builder actually "
+    "said, never what you expect them to say. It banks nothing, refuses "
+    "nothing and does not survive the commit: it draws a forecast on their "
+    "screen so they can see what committing would cost. How many of the four "
+    "are there is counted by the server from these arguments — do not state "
+    "that number yourself."
+)
+
+
+def sketch_idea_bar_tool() -> dict:
+    """IDEA's bar as arguments, one screen before the phase that asks for it.
+
+    Built the same way suggest_proof_tool builds its schema, out of the same
+    bar.BAR entry, for the same reason: the arguments ARE the parts, so filling
+    one in is an act of enumeration and the count that comes back is a len()
+    over what arrived rather than an opinion about whether an idea is ready.
+    Two lists of what IDEA wants would drift apart within a week, so there is
+    only ever the one, in bar.py.
+
+    What it does NOT have is a `text` argument, and the absence is the whole
+    difference from suggest_proof: that tool drafts a proof a builder can file
+    and a judge can accept, and this one drafts nothing. There is no evidence
+    in this room to write down — only four questions being answered early.
+    """
+    return {
+        "type": "function",
+        "function": {
+            "name": "sketch_idea_bar",
+            "description": SKETCH_IDEA_BAR_TOOL_DESCRIPTION,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    part.key: {"type": "string", "description": part.ask}
+                    for part in bar.BAR[Phase.IDEA].parts
+                },
+                # Nothing is required, because a call carrying one part is the
+                # common case: they arrive one at a time, and a schema that
+                # demanded all four would teach the model to invent the rest.
+                "required": [],
+            },
+        },
+    }
+
+
+# The forecast as a fact in the prompt, for the same reason parking_state is
+# one: "you have two of four" and "the two still open are these" are different
+# facts, and only the second one tells the coach what to ask next.
+SKETCH_EMPTY = (
+    "Nothing of IDEA's bar has surfaced yet — 0 of {need}. That is the normal "
+    "state of a room this early and not a thing to report to them."
+)
+SKETCH_SOME = """Of IDEA's bar they could already write {have} of {need}: {have_labels}. \
+Still open: {owed_labels}. Ask about those, one at a time, when the candidate \
+they are on is worth the questions."""
+SKETCH_FULL = """All {need} of IDEA's parts have surfaced — {have_labels}. There is \
+nothing left in here to sharpen: say plainly that the first evening's proof is \
+already sitting in this conversation, and that the box is right there."""
+
+
+def sketch_state(parts: list[str], phase: Phase = Phase.IDEA) -> str:
+    """What the rehearsal has turned up, as the count and the two lists.
+
+    Every number in it is arithmetic over the part keys the server stored, the
+    same as every other number in this prompt.
+    """
+    total = bar.BAR[phase].parts
+    have = [part.label for part in total if part.key in set(parts)]
+    still_owed = bar.owed(phase, parts)
+    if not have:
+        return SKETCH_EMPTY.format(need=len(total))
+    template = SKETCH_FULL if not still_owed else SKETCH_SOME
+    return template.format(
+        have=len(have),
+        need=len(total),
+        have_labels="; ".join(have),
+        owed_labels="; ".join(still_owed),
+    )
+
+
 def parking_state(candidates: list[str], maximum: int) -> str:
     """What the pile looks like, and whether it is closed."""
     if not candidates:
@@ -1787,6 +2012,7 @@ def build_workshop_prompt(
     turns_total: int,
     maximum: int,
     tone: str,
+    sketch: list[str] | None = None,
 ) -> str:
     """The workshop's system prompt. Every number in it is a server count."""
     return WORKSHOP_SYSTEM.format(
@@ -1794,6 +2020,7 @@ def build_workshop_prompt(
         tone_rule=HINGLISH_RULE if tone == "HINGLISH" else "",
         max_candidates=maximum,
         parking_state=parking_state(candidates, maximum),
+        sketch_state=sketch_state(list(sketch or [])),
         # Clamped at zero: the view refuses the turn that would take it
         # negative, but a prompt that says "-1 turns left" is the app talking
         # nonsense to a builder in the one room where it has no other footing.

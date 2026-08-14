@@ -187,6 +187,10 @@ export type Guidance = {
  * budget and one should exist because somebody started talking. */
 export type Workshop = {
   id: number;
+  /** Which of the two rooms this is: the one before the goal, or the one
+   * reopened once per goal after it. Sent by the server rather than inferred
+   * from whether there are candidates — an empty first room has none either. */
+  status: "OPEN" | "REOPENED" | "SPENT";
   /** One-liners parked so far, oldest first. Capped server-side. */
   candidates: string[];
   maxCandidates: number;
@@ -198,7 +202,24 @@ export type Workshop = {
   /** Computed by the server, not here, so the meter on screen and the
    * refusal from the server can never disagree about what is left. */
   turnsLeft: number;
+  /** How much of IDEA's bar this conversation has already turned up. */
+  sketch: WorkshopSketch;
   messages: WorkshopMessage[];
+};
+
+/** The pre-commit forecast: what committing would cost, in the phase's own
+ * four parts. Every field of it is the server's arithmetic — `have` is a
+ * count of part keys and `owed` is the subtraction, both done there, because
+ * a client doing its own is a second answer waiting to disagree with the one
+ * the coach was given. It is a forecast and never a gate: nothing is banked
+ * here, and IDEA's one proof is still filed and judged after the commit. */
+export type WorkshopSketch = {
+  /** IDEA's part keys the room has turned up — keys, never the values. */
+  parts: string[];
+  have: number;
+  need: number;
+  /** The parts still open, in the builder's words rather than as keys. */
+  owed: string[];
 };
 
 export type WorkshopMessage = {
@@ -340,23 +361,37 @@ type ServerWorkshopMessage = {
 };
 type ServerWorkshop = {
   id: number;
+  status?: "OPEN" | "REOPENED" | "SPENT";
   candidates?: string[];
   max_candidates?: number;
   suggested_title?: string;
   turns_used?: number;
   turns_total?: number;
   turns_left?: number;
+  sketch?: {
+    parts?: string[];
+    have?: number;
+    need?: number;
+    owed?: string[];
+  };
   messages?: ServerWorkshopMessage[];
 };
 
 const fromServerWorkshop = (w: ServerWorkshop): Workshop => ({
   id: w.id,
+  status: w.status ?? "OPEN",
   candidates: w.candidates ?? [],
   maxCandidates: w.max_candidates ?? 3,
   suggestedTitle: w.suggested_title ?? "",
   turnsUsed: w.turns_used ?? 0,
   turnsTotal: w.turns_total ?? 0,
   turnsLeft: w.turns_left ?? 0,
+  sketch: {
+    parts: w.sketch?.parts ?? [],
+    have: w.sketch?.have ?? 0,
+    need: w.sketch?.need ?? 0,
+    owed: w.sketch?.owed ?? [],
+  },
   messages: (w.messages ?? []).map((m) => ({
     id: m.id,
     role: m.role,
@@ -938,7 +973,11 @@ export async function streamWorkshopChat(
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ content }),
+    // The date goes with it for the reopened room, which tells the coach how
+    // many days into the phase this is — "day 4 of BUILD" is off by one for
+    // every builder ahead of UTC without it, and how long this has been going
+    // on is most of what that room is about. The pre-goal room ignores it.
+    body: JSON.stringify({ content, date: localDate() }),
   });
   if (res.status === 401) {
     if (!retried && (await refreshSession()))
