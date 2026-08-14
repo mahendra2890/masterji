@@ -656,6 +656,12 @@ def _read_the_week_back(goal: Goal, user, today: date) -> None:
     reads.
     """
     covered = weekly.week_start(today) - timedelta(days=weekly.DAYS)
+    # Read before writing, on the busiest authenticated endpoint in the product.
+    # The UPDATE below is correct on its own — it is what makes the claim atomic
+    # — but it is a write statement, and six days out of seven it is guaranteed
+    # to match nothing. The row is already in hand.
+    if goal.last_digest_week is not None and goal.last_digest_week >= covered:
+        return
     claimed = Goal.objects.filter(
         Q(last_digest_week__isnull=True) | Q(last_digest_week__lt=covered),
         pk=goal.pk,
