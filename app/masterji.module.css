@@ -75,6 +75,29 @@
   margin: 2px 0 0;
 }
 
+/* The half of the old paragraph that answers a question instead of setting
+   the terms. Closed it is one line, so the box it belongs to stays near the
+   top of the screen; open it puts the words back exactly where they were. */
+.onboardMore {
+  margin-top: 8px;
+  color: var(--muted);
+}
+
+.onboardMore summary {
+  cursor: pointer;
+  font-size: 14px;
+  /* A control, so it is 44px of target on a phone even though it draws as one
+     line of text — the same floor every other tappable thing on this screen
+     has. Negative margin keeps the line where it looks like it is. */
+  padding: 12px 0;
+  margin: -12px 0;
+  list-style-position: inside;
+}
+
+.onboardMore p {
+  margin: 8px 0 0;
+}
+
 /* The one committed action, and the group starts here. */
 .onboardForm {
   display: flex;

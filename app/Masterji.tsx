@@ -1153,14 +1153,32 @@ export default function Masterji({ user }: { user: SessionUser }) {
                 "tested → dead", so the promise is about dying in front of
                 people, never about closing. */}
             <p className={styles.onboardSub}>
-              Masterji coaches one thing at a time. Pick the problem you&apos;ll
-              test first — not the idea you&apos;ll finish — then it&apos;s one
-              task each morning and proof of it each evening, about two minutes a
-              day. The first thing he asks for is one evening at your desk. You
-              can close it whenever you like, and an idea that dies in front of
-              real people reads as tested on your record — most first ones
-              should.
+              Pick the problem you&apos;ll test first — not the idea you&apos;ll
+              finish. Then it&apos;s one task each morning and proof of it each
+              evening, about two minutes a day.
             </p>
+            {/* Split rather than cut: every sentence below earned its place
+                against a real failure, and none of them is gone. What changed
+                is when they arrive. All five jobs used to land as one block at
+                the moment of least investment — 223px and 90 words at 390×844,
+                a quarter of the viewport, in front of somebody who has just
+                handed over a Google account and typed nothing — which is the
+                shape of a terms-and-conditions wall above the box.
+
+                The two that stay above are the two the commit is actually a
+                commitment to: test first rather than finish, and the daily
+                price. The rest is what a hesitating builder goes LOOKING for,
+                which is what a disclosure is for — closed it costs a line, and
+                the answer is one tap from the box it is about. */}
+            <details className={styles.onboardMore}>
+              <summary>What you&apos;re agreeing to</summary>
+              <p>
+                Masterji coaches one thing at a time. The first thing he asks
+                for is one evening at your desk. You can close it whenever you
+                like, and an idea that dies in front of real people reads as
+                tested on your record — most first ones should.
+              </p>
+            </details>
           </>
         )}
 
