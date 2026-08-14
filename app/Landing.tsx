@@ -164,9 +164,16 @@ export default function Landing({
                   <li className={app.stepTodo}>LAUNCH</li>
                   <li className={app.stepTodo}>TRACTION</li>
                 </ol>
-                {/* guidance.PHASE_HINT[VALIDATION], word for word. */}
+                {/* Word for word what the server serves a builder standing
+                    where this card says they are. The bar below reads 2 of 3,
+                    and VALIDATION's ask moves with the count
+                    (guidance.BEATS) — so the honest line here is the third
+                    rung's, not the phase's constant. It used to be
+                    PHASE_HINT[VALIDATION], which is now what a builder reads
+                    only once all three conversations are in. */}
                 <p className={app.phaseHint}>
-                  Talk to real customers. Bring notes, not opinions.
+                  Third conversation. Ask for something that costs them — an
+                  hour, an intro, money.
                 </p>
                 <div className={app.gateBar}>
                   <div className={app.gateFill} style={{ width: "66%" }} />

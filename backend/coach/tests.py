@@ -704,12 +704,25 @@ class GateTests(CoachTestCase):
 
     def test_refusal_names_the_next_action(self):
         """A refusal reaches the builder through the dashboard button with no
-        LLM in the loop. If it doesn't say what to do tonight, nothing does."""
+        LLM in the loop. If it doesn't say what to do tonight, nothing does.
+
+        The action is the one for the rung they are on (guidance.BEATS), which on
+        a phase with beats is never the phase's constant — a builder with one
+        person banked is refused for the second, so the second is what the
+        refusal has to ask for."""
         goal = self.make_goal(phase="VALIDATION")
         self.accept_proofs(goal, 1)
         _, message = gates.try_advance(goal)
         self.assertIn("1/3 accepted proofs", message)
-        self.assertIn(guidance.GATE_NUDGE[Phase.VALIDATION], message)
+        self.assertIn(guidance.gate_nudge(Phase.VALIDATION, 1), message)
+
+    def test_a_phase_without_beats_is_refused_in_its_own_constant_words(self):
+        """BUILD and LAUNCH escalate through Need.kinds instead, so they have no
+        BEATS entry and GATE_NUDGE stays the whole of their nudge. Pinned because
+        the fallthrough is what makes beats an addition rather than a rewrite."""
+        goal = self.make_goal(phase="BUILD")
+        _, message = gates.try_advance(goal)
+        self.assertIn(guidance.GATE_NUDGE[Phase.BUILD], message)
 
     def test_every_gated_phase_has_a_nudge(self):
         """PROOFS_REQUIRED and GATE_NUDGE have to cover the same phases — a
@@ -724,6 +737,189 @@ class GateTests(CoachTestCase):
         is the reading that makes builders without an audience quit here."""
         examples = guidance.PROOF_EXAMPLES[Phase.IDEA]
         self.assertGreaterEqual(len(examples), 2)
+
+
+class IntraPhaseBeatTests(CoachTestCase):
+    """The ask moves inside the phase; the gate does not move at all.
+
+    VALIDATION's bar is a count and its coaching was a constant, so evenings one,
+    two and three were byte-identical to the server: same PHASE_HINT, same
+    PROOF_HINT, same GATE_NUDGE. A builder on their third conversation was
+    coached exactly like one who had never spoken to anybody.
+
+    Every test here divides into the two halves of that fix. Either the beat
+    follows the banked count, or the gate is untouched by it — and the second
+    half is the one worth the most, because a beat that moved the bar would be a
+    second gate wearing coaching.
+    """
+
+    def bank(self, goal, n, subject="", start=0):
+        for i in range(n):
+            CheckIn.objects.create(
+                goal=goal,
+                date=date.today() - timedelta(days=start + i),
+                phase=goal.phase,
+                am_declaration="talk to someone",
+                pm_proof_text=f"notes {start + i}",
+                proof_status=CheckIn.ProofStatus.ACCEPTED,
+                subject=subject,
+            )
+
+    def test_the_beat_follows_the_banked_count(self):
+        """The issue, in one assertion: three counts, three different asks.
+
+        Both strings that reach a builder move together, because they are two
+        halves of one evening — the line under the goal title says what tonight
+        is for, and the refusal says what to do about it.
+        """
+        hints = [guidance.phase_hint(Phase.VALIDATION, n) for n in (0, 1, 2)]
+        nudges = [guidance.gate_nudge(Phase.VALIDATION, n) for n in (0, 1, 2)]
+        self.assertEqual(len(set(hints)), 3)
+        self.assertEqual(len(set(nudges)), 3)
+        # And they are the beats the issue asked for, in order: get into a room,
+        # then someone who is not the first person, then the commitment.
+        self.assertIn("One conversation", hints[0])
+        self.assertIn("Someone new", hints[1])
+        self.assertIn("costs them", hints[2])
+        # The second rung says the counting rule BEFORE a refusal can, which is
+        # the half of this issue that is about the refusal that annoys most.
+        self.assertIn("counts people rather than evenings", nudges[1])
+        # The third reaches for bar.BAR[VALIDATION]'s commitment part, which had
+        # been in the bar since it was written with nothing escalating to it.
+        self.assertIn("commitment", guidance.beat(Phase.VALIDATION, 2).press)
+
+    def test_the_beat_counts_people_not_evenings(self):
+        """Keyed to gates.accepted_proofs, which on this phase is DISTINCT people.
+
+        Two accepted nights about one hostelmate are one person. Keyed on rows
+        that builder would be told to go and ask for the commitment while the gate
+        is still waiting for a second person to exist.
+        """
+        goal = self.make_goal(phase=Phase.VALIDATION)
+        self.bank(goal, 2, subject="priya")
+        self.assertEqual(gates.accepted_proofs(goal), 1)
+        _, message = gates.try_advance(goal)
+        self.assertIn(guidance.gate_nudge(Phase.VALIDATION, 1), message)
+        self.assertNotIn(guidance.gate_nudge(Phase.VALIDATION, 2), message)
+
+    def test_the_gate_verdict_is_unchanged_across_the_beats(self):
+        """The important one. A beat changes what is asked, never what is refused.
+
+        Pinned as literals rather than against the module, because reading the
+        expected sentence out of the code under test would pass just as happily
+        if a beat had rewritten it. Every byte here is what this refusal said
+        before beats existed.
+        """
+        expected = {
+            0: "Not yet. 0/3 accepted proofs in VALIDATION — 3 more before "
+            "BUILD unlocks.",
+            1: "Not yet. 1/3 accepted proofs in VALIDATION — 2 more before "
+            "BUILD unlocks.",
+            2: "Not yet. 2/3 accepted proofs in VALIDATION — 1 more before "
+            "BUILD unlocks.",
+        }
+        goal = self.make_goal(phase=Phase.VALIDATION)
+        for have, refusal in expected.items():
+            with self.subTest(have=have):
+                self.assertEqual(
+                    gates.gate_status(goal),
+                    {
+                        "have": have,
+                        "need": 3,
+                        "next_phase": Phase.BUILD,
+                        "owed": [],
+                        "banked": have,
+                    },
+                )
+                advanced, message = gates.try_advance(goal)
+                self.assertFalse(advanced)
+                # The verdict sentence gates.py itself composes, byte for byte.
+                # What follows it is the beat, and that is the only difference
+                # between these three messages.
+                self.assertTrue(message.startswith(refusal), message)
+                self.assertEqual(
+                    message,
+                    f"{refusal} {guidance.gate_nudge(Phase.VALIDATION, have)}",
+                )
+                goal.refresh_from_db()
+                self.assertEqual(goal.phase, "VALIDATION")
+            self.bank(goal, 1, subject=f"person{have}", start=have)
+        # And the count met still opens the door, from the same walk.
+        self.assertTrue(gates.try_advance(goal)[0])
+
+    def test_the_bar_does_not_move_with_the_beat(self):
+        """The judge grades the same evening the same way at every count.
+
+        PROOF_HINT is what prompts.judge_bar_for hands the one model call gates.py
+        counts. A version of it that escalated with the count would refuse at 3/3
+        what it accepted at 1/3, which is the goalposts moving inside one phase —
+        so the beat is kept out of the bar, and out of the served proof hint the
+        builder was working to all evening.
+        """
+        for banked in (0, 1, 2, 3):
+            with self.subTest(banked=banked):
+                bundle = guidance.for_phase(Phase.VALIDATION, banked)
+                self.assertEqual(
+                    bundle["proof_hint"], guidance.PROOF_HINT[Phase.VALIDATION]
+                )
+                self.assertEqual(
+                    bundle["proof_examples"], guidance.PROOF_EXAMPLES[Phase.VALIDATION]
+                )
+        # And the coach carries the same bar at every rung it can be built at.
+        goal = self.make_goal(phase=Phase.VALIDATION)
+        for have in (0, 1, 2):
+            system = prompts.build_system_prompt(
+                goal, gates.gate_status(goal), 0, "state", "ENGLISH"
+            )
+            self.assertIn(prompts.bar_for(Phase.VALIDATION), system)
+            self.bank(goal, 1, subject=f"person{have}", start=have)
+
+    def test_the_coach_is_told_which_rung_tonight_is(self):
+        """The conversation escalates too, or two thirds of the product doesn't.
+
+        The block is absent for a phase with no beats, which is what makes this
+        an addition: BUILD's prompt is byte-for-byte the one it had before.
+        """
+        goal = self.make_goal(phase=Phase.VALIDATION)
+        presses = set()
+        for have in (0, 1, 2):
+            system = prompts.build_system_prompt(
+                goal, gates.gate_status(goal), 0, "state", "ENGLISH"
+            )
+            press = guidance.beat(Phase.VALIDATION, have).press
+            self.assertIn(press, system)
+            presses.add(press)
+            self.bank(goal, 1, subject=f"person{have}", start=have)
+        self.assertEqual(len(presses), 3)
+        # The count met, and the block is gone rather than stuck on the last
+        # rung: "the third is where this phase produces something" is not a
+        # sentence to hand a coach whose builder has had three.
+        met = gates.gate_status(goal)
+        self.assertEqual(prompts.beat_block(Phase.VALIDATION, met), "")
+
+        build = self.make_goal(user=self.bob, phase=Phase.BUILD)
+        self.assertEqual(prompts.beat_block(Phase.BUILD, gates.gate_status(build)), "")
+
+    def test_one_beat_per_rung_and_the_constant_above_the_bar(self):
+        """A tuple as long as the phase costs, checked against the gate itself.
+
+        Two failures this catches, and neither is visible by reading either file
+        alone: a phase whose Need.n grows past its beats would silently start
+        serving the constant on its new last rung, and a fourth beat added to a
+        three-proof phase would be dead copy nobody could ever reach. Above the
+        count the constant comes back, because "Third conversation" is a false
+        sentence said to a builder who has had three.
+        """
+        for phase, beats in guidance.BEATS.items():
+            with self.subTest(phase=phase):
+                self.assertEqual(len(beats), gates.PROOFS_REQUIRED[phase].n)
+                self.assertIsNone(guidance.beat(phase, len(beats)))
+                self.assertEqual(
+                    guidance.phase_hint(phase, len(beats)), guidance.PHASE_HINT[phase]
+                )
+                self.assertEqual(
+                    guidance.gate_nudge(phase, len(beats)), guidance.GATE_NUDGE[phase]
+                )
 
 
 class PhaseBriefTests(CoachTestCase):
@@ -2118,19 +2314,23 @@ class StateTests(CoachTestCase):
         self.make_goal(phase="VALIDATION")
         response = self.client.get("/api/coach/state/")
         served = response.data["guidance"]
-        self.assertEqual(served["phase_hint"], guidance.PHASE_HINT[Phase.VALIDATION])
+        # Nothing banked, so the hint is VALIDATION's first rung rather than the
+        # phase's constant — the count the meter in the same payload is showing.
+        self.assertEqual(served["phase_hint"], guidance.phase_hint(Phase.VALIDATION, 0))
         self.assertEqual(served["proof_hint"], guidance.PROOF_HINT[Phase.VALIDATION])
         self.assertTrue(served["proof_examples"])
 
     def test_guidance_covers_every_phase(self):
         """State is fetched for whatever phase the builder is in — a missing
-        key is a 500 on the dashboard, not a missing paragraph."""
+        key is a 500 on the dashboard, not a missing paragraph. Every count a
+        phase can be at, too: a rung with a hole in it is the same 500."""
         for phase in Phase:
-            with self.subTest(phase=phase):
-                bundle = guidance.for_phase(phase)
-                self.assertTrue(bundle["phase_hint"])
-                self.assertTrue(bundle["proof_hint"])
-                self.assertTrue(bundle["proof_examples"])
+            for banked in range(4):
+                with self.subTest(phase=phase, banked=banked):
+                    bundle = guidance.for_phase(phase, banked)
+                    self.assertTrue(bundle["phase_hint"])
+                    self.assertTrue(bundle["proof_hint"])
+                    self.assertTrue(bundle["proof_examples"])
 
     def test_checkin_is_stamped_with_the_phase_it_was_made_in(self):
         """The drill-in attributes proofs by this field, not by date math."""

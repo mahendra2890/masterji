@@ -12,9 +12,17 @@ Examples are written here, not harvested. The repo is public and the corpus a
 builder learns from should be as auditable as the gate that judges them.
 """
 
+from typing import NamedTuple
+
 from .models import Phase
 
 # One line under the goal title. What this phase is for, in the imperative.
+#
+# The phase's constant — true at every count, and what a builder reads once the
+# phase's own bar has been met. Below the bar a phase may have BEATS, and then
+# this line is replaced by the rung's; read it through phase_hint(), never
+# straight out of the dict, or a builder gets the phase in general on an evening
+# the product knows something more specific about.
 PHASE_HINT = {
     Phase.IDEA: "Write the problem statement, and where you'd find these people — no outreach yet.",
     Phase.VALIDATION: "Talk to real customers. Bring notes, not opinions.",
@@ -32,6 +40,14 @@ PHASE_HINT = {
 # is what suggest_proof is shaped from and what decides how many entries a list
 # is short. They are two faces of one bar and they have to be changed together
 # — bar.py's docstring says the same thing from the other side.
+#
+# Deliberately the one string in this module that BEATS does not touch, and the
+# reason is the whole of why beats are safe. prompts.judge_bar_for hands this to
+# the single model call gates.py counts, so a version of it that escalated with
+# the count would refuse at 3/3 what it accepted at 1/3 — the goalposts moving
+# between two evenings of one phase, which is the failure prompts.py:758-783
+# exists to have removed. A beat changes what is ASKED FOR; the bar is what
+# COUNTS, and it is the same at every rung.
 PROOF_HINT = {
     Phase.IDEA: (
         "What to submit: your one-paragraph problem statement, plus the route "
@@ -120,6 +136,10 @@ PROOF_EXAMPLES = {
 # standing alone: the dashboard's advance button hits the gate with no LLM in
 # the loop, so this is the only coaching a builder gets at the exact moment
 # quitting looks reasonable.
+#
+# The phase's constant, like PHASE_HINT above and read the same way — through
+# gate_nudge(), because a phase with BEATS has a better sentence for the rung the
+# builder is actually standing on.
 GATE_NUDGE = {
     Phase.IDEA: (
         "One paragraph: who has this problem, what they do about it today, "
@@ -151,6 +171,192 @@ GATE_NUDGE = {
         "concrete enough that doing it leaves a trace you can screenshot."
     ),
 }
+
+
+class Beat(NamedTuple):
+    """One rung inside a phase: what to ask for with N of the bar already banked.
+
+    A phase bar is a count, and a count is a constant — so the product said the
+    same three sentences to a builder on their third conversation as to one who
+    had never spoken to anybody. The work is not the same work. The first
+    conversation is a door problem; the second is a WHO problem; the third is an
+    ask problem, and the playbooks teach all three separately (see below).
+
+    What a beat is not: a second gate. It replaces PHASE_HINT and GATE_NUDGE for
+    one rung and adds `press` to the coach's prompt, and that is the whole of its
+    reach. It never touches PROOF_HINT, bar.BAR, PROOFS_REQUIRED or the judge's
+    prompt — nothing a beat says can make an evening's proof count for more or
+    less than it counted before. The comment on PROOF_HINT says why that line is
+    the one that must not move.
+    """
+
+    # Replaces PHASE_HINT[phase] at this rung. Same contract as that string: one
+    # line under the goal title, imperative, and it has to read as what the phase
+    # is for rather than as a progress report.
+    hint: str
+    # Replaces GATE_NUDGE[phase] at this rung. Same contract again: it is
+    # appended to a refusal that arrives with no LLM in the loop, so it has to
+    # name tonight's action while standing entirely alone.
+    nudge: str
+    # What the coach is told to press for, for prompts.beat_block. Never a bar
+    # and never a score to read out — see prompts.BEAT_BLOCK, which carries the
+    # guard rather than repeating it here.
+    press: str
+
+
+# One tuple per phase, indexed by what the phase has already banked, and only
+# where nothing else in the product already varies the ask.
+#
+# VALIDATION is the whole table today, and that is a decision rather than a
+# starting point. Every other multi-proof phase already escalates inside itself
+# through Need.kinds: BUILD's second evening is told "still needed: evidence a
+# real user touched it" by gates.kinds_owed, and LAUNCH's by the same route, so
+# their asks already move as the count does. VALIDATION's Need(n=3, people=True)
+# carries no kinds at all — the count IS the whole of its bar — which is exactly
+# why it was the phase with nothing to say. Beats fill that hole and are not a
+# second opinion next to one that already exists.
+#
+# So a phase earns a tuple here when its bar is a bare count, not when its bar is
+# above one. Adding one is a tuple and nothing else: every reader below falls
+# through to the phase's constant, which is what all five phases get today.
+#
+# The tuple covers the rungs BELOW the bar — one beat per proof the phase costs,
+# checked in the tests against PROOFS_REQUIRED — and at or above it a builder
+# gets the phase's constant back, because a count that is met has no next rung
+# and "third conversation" is a false sentence to a builder who has had three.
+#
+# The copy is not new advice. All three rungs are in VALIDATION's own four
+# playbooks and always have been; what did not exist was anything that reached
+# for the right one on the right evening. Sources, rung by rung:
+#   1  getting-the-conversation.md — ask for advice never pitch, a named day, and
+#      "silence is arithmetic: send five to get one", which is the sentence that
+#      keeps a builder from reading one unanswered message as a dead problem.
+#   2  people-you-know.md — "after two conversations with people you know, spend
+#      the next on somebody who has no reason to be nice to you", the intro as
+#      the real prize, and three flatmates as one data point in three shirts.
+#   3  customer-conversations.md's third rule, dig for commitment not
+#      compliments, plus reading-the-nos.md on sorting the pile by what it cost
+#      the other person.
+BEATS: dict[Phase, tuple[Beat, ...]] = {
+    Phase.VALIDATION: (
+        # 0 banked — the door. Nothing else in the phase happens until this does,
+        # and the failure here is not a bad conversation, it is no conversation:
+        # one message sent, no reply, and a builder concluding the problem isn't
+        # real. So the arithmetic is in the nudge, where the refusal will carry it
+        # at the exact moment that conclusion looks reasonable.
+        Beat(
+            hint="One conversation is the whole of tonight. Ask about last "
+            "time, not next time.",
+            nudge="One conversation. Ten minutes, someone who already has the "
+            "problem. Ask what they did the last time it happened — not "
+            "whether they'd use your app. Nobody replied yet? That is the "
+            "rate, not the verdict: send five tonight to get one back, and put "
+            "a day in the message so it's a decision they can make now. Notes "
+            "tonight.",
+            press="Nothing is banked in this phase yet, so tonight's whole job "
+            "is getting into one room — the first yes is the hard one, and "
+            "nothing else in this phase happens until it lands. Press for the "
+            "ask itself rather "
+            "than the plan around it: who they will message or go and stand in "
+            "front of, and which day they will name in it. If they have sent "
+            "messages and heard nothing, say the arithmetic out loud — five "
+            "sent to get one back — because a builder who sent one, heard "
+            "nothing and concluded the problem isn't real has tested nothing "
+            "at all. A clumsy first conversation with a flatmate beats a "
+            "fourth evening rewriting the message.",
+        ),
+        # 1 banked — the WHO. gates.accepted_proofs already counts distinct
+        # people here, and until now the only thing that ever said so was the
+        # refusal: a builder learned the rule by having a second night with the
+        # same person not count. Said here it is the instruction for the evening
+        # instead, which is the same fact arriving early enough to act on.
+        Beat(
+            hint="Someone new, and not someone like the first. Ask who has it worse.",
+            nudge="Someone new. This phase counts people rather than evenings, "
+            "so another night with the same person is honest work that buys no "
+            "ground here — and that is worth knowing now rather than from a "
+            "refusal later. Make it somebody with no reason to be kind to you. "
+            "The shortest route there is the first person's own answer to "
+            '"who do you know who has this worse than you?" — an intro opens '
+            "a door a cold message won't. Same ten minutes, same questions.",
+            press="One person is banked, and the second is the one that "
+            "decides whether this is a problem or a friendship. Press on WHO, "
+            "not on technique. This phase counts distinct people, so a second "
+            "night with the same person is real work that buys no ground here, "
+            "and three people from one corridor is one data point wearing "
+            "three shirts — say that now, while it is still an instruction. "
+            "Heard first from the gate, it arrives as two nights of work being "
+            "taken away. The move to put in front of them is the "
+            "introduction: ask the first person who they know who has this "
+            "worse than they do. An intro is both the route to a stranger and "
+            "a commitment in its own right.",
+        ),
+        # 2 banked — the ask. bar.BAR[VALIDATION] has carried a `commitment`
+        # part since the day it was written and nothing in the product ever
+        # escalated to it, so the one line in a builder's notes the other person
+        # had to pay for was the one nothing ever asked for by name.
+        Beat(
+            hint="Third conversation. Ask for something that costs them — an "
+            "hour, an intro, money.",
+            nudge="The third one, and it turns on the ask. End it with "
+            "something that costs them — an hour, an introduction, a look at "
+            "their books, money — and write down what you asked for and "
+            'whether you got it. "Sounds great, keep me posted" is a '
+            "rejection wearing a smile. Then read all three notes together: if "
+            "nobody gave anything up, that is this week's finding, and it "
+            "means the ask was too big, too vague, or aimed at the wrong "
+            "person.",
+            press="Two people are banked, and the third is where this phase "
+            "either produces something to act on or does not. The part of the "
+            "bar that has been in it all along and rarely arrives is the "
+            "commitment — what they asked this person to give up, and whether "
+            "they got it. Press for that ask before the conversation rather "
+            "than after: an hour, an introduction, a look at their books, a "
+            'deposit. Praise for the idea is not a commitment, and "keep me '
+            'posted" is a no wearing a smile. When the third is in, have them '
+            "read all three notes together — three people naming the same "
+            "workaround is a segment they can build for, and an empty "
+            "commitment column after three conversations is the week's finding "
+            "rather than a dead idea: it means the ask was too big, too vague, "
+            "or aimed at the wrong person.",
+        ),
+    ),
+}
+
+
+def beat(phase: Phase, banked: int) -> Beat | None:
+    """The rung this builder is standing on, or None for the phase's constant.
+
+    `banked` is gates.accepted_proofs(goal) — the phase's OWN count, which on
+    VALIDATION is distinct people and not rows. That distinction is the whole
+    reason this reads a number computed there instead of counting anything
+    itself: two accepted nights about one hostelmate are one person, and a beat
+    keyed on rows would send that builder to "ask for the commitment" while the
+    gate is still waiting for a second person to exist.
+
+    None above the bar as well as off it, so `banked` past the last rung falls
+    back to the phase's constant rather than clamping to the final beat.
+    """
+    beats = BEATS.get(phase)
+    if not beats or banked < 0 or banked >= len(beats):
+        return None
+    return beats[banked]
+
+
+def phase_hint(phase: Phase, banked: int) -> str:
+    """The line under the goal title, for the rung they are actually on."""
+    rung = beat(phase, banked)
+    return rung.hint if rung else PHASE_HINT[phase]
+
+
+def gate_nudge(phase: Phase, banked: int) -> str | None:
+    """What to go and do about a refusal tonight, for the rung they are on.
+
+    None-able exactly as GATE_NUDGE.get() was, because a phase without one is a
+    real case (TRACTION) and gates.try_advance already handles it.
+    """
+    rung = beat(phase, banked)
+    return rung.nudge if rung else GATE_NUDGE.get(phase)
 
 
 # Three things to say to Masterji, for a chat log that has nothing in it yet.
@@ -210,10 +416,40 @@ def people(n: int) -> str:
     return "1 person" if n == 1 else f"{n} people"
 
 
-def for_phase(phase: Phase) -> dict:
-    """The whole builder-facing bundle for one phase, for the API payload."""
+def for_phase(phase: Phase, banked: int) -> dict:
+    """The whole builder-facing bundle for one phase, for the API payload.
+
+    Same four keys it has always had, and only one of them moved. `banked` is
+    required rather than defaulted because a default here is a wrong answer that
+    looks like a right one: 0 is a real rung, so a caller who forgot to pass the
+    count would serve a builder on their third conversation the sentence written
+    for somebody who has never spoken to anybody.
+
+    What the client sees, decided rather than fallen into:
+
+    `phase_hint` is the beat. It is one line, it is rendered under the goal title
+    every day, and it is the only string in this bundle whose job is "what is
+    tonight for" rather than "what does this phase accept" — so it is the one the
+    escalation belongs in.
+
+    `proof_hint` is NOT, and its own comment says why: it is the bar, the judge
+    reads it, and a bar that moves with the count is the goalposts moving.
+
+    `proof_examples` is not either, and for the neighbouring reason. VALIDATION's
+    two are a conversation where the commitment was got and one where it was
+    refused and an intro came instead. Showing only the second at rung three
+    would narrow the bar to what that rung is pressing for, which is the failure
+    PROOF_EXAMPLES' own comment records about IDEA: one example gets read as the
+    bar.
+
+    `openers` is not either, and this one is a judgement rather than a rule.
+    VALIDATION's three are already the three freezes of this phase — how do I
+    stop them saying yes, where do I find one person, does a "they'd use it"
+    count — and they line up with the rungs closely enough that a per-rung set
+    would be four more strings buying no new information.
+    """
     return {
-        "phase_hint": PHASE_HINT[phase],
+        "phase_hint": phase_hint(phase, banked),
         "proof_hint": PROOF_HINT[phase],
         "proof_examples": PROOF_EXAMPLES[phase],
         "openers": OPENERS[phase],

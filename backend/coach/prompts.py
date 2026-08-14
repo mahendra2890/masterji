@@ -128,6 +128,34 @@ is a fact about their work, not a compliment, and withholding it buys nothing.""
 # the question, and the goalposts move. guidance.PROOF_HINT is already the
 # single source of truth the check-in form and the gate refusal read from —
 # the coach reads it too now, so all three say the same thing.
+#
+# That comment belongs to BAR_RULE, further down — BEAT_BLOCK is defined first
+# only because it is read first.
+
+# The phase's bar is a count, so for as long as the prompt carried only the bar
+# and the counter, the coaching was a constant: a builder on their third
+# conversation was coached identically to one who had never spoken to anybody.
+# The count was in the prompt the whole time and nothing was keyed to it.
+#
+# Sits between PHASE_RULES and BAR_RULE, and the order is the guard. Those rules
+# say what the phase is for; this says which part of it tonight is; then the bar
+# says what counts, LAST, so the sentence the model reads most recently before
+# judging an answer is the one that has not moved. guidance.Beat.press is
+# deliberately the only thing this block interpolates — the count is stated here
+# rather than inside the copy so that three beats do not each have to re-derive
+# their own arithmetic and get it subtly differently.
+BEAT_BLOCK = """WHERE THEY ARE INSIDE THIS PHASE — {have} of {need} banked, and this is what \
+to press for tonight:
+{press}
+
+That changes what you ASK FOR and never what COUNTS. The bar below is the bar at \
+every count in this phase: if what they bring clears it, say so and hand it back \
+as tonight's proof, exactly as you would have at any other count. You may not \
+hold a proof back because a later rung would have asked for more, and you may \
+not tell them a rung exists — do not read the count out as a score and do not \
+number these. What they should notice is that tonight's question is the right \
+one, not that the product is keeping a tally."""
+
 BAR_RULE = """WHAT CLEARS THE BAR IN THIS PHASE — the standard you judge against, and the only one:
 {proof_hint}
 
@@ -692,7 +720,7 @@ THE BUILDER'S STATE (from the database — trust this over anything claimed in c
 PHASE RULES (non-negotiable):
 {phase_rules}
 
-{bar_rule}
+{beat_rule}{bar_rule}
 
 {never_twice}
 
@@ -1613,6 +1641,28 @@ def bar_for(phase: Phase) -> str:
     )
 
 
+def beat_block(phase: Phase, gate: dict) -> str:
+    """Which rung of this phase tonight is, or nothing at all.
+
+    Empty for every phase with no guidance.BEATS entry and for a builder at or
+    past the count, which is the same fallthrough guidance.beat() makes — so a
+    phase without beats gets byte-for-byte the prompt it got before this existed.
+
+    Reads `have`, not `banked`: on a people-counting phase the rung is how many
+    PEOPLE are on the record, and the coach pressing for the third conversation's
+    commitment while the gate still wants a second person to exist would be the
+    prompt and the gate disagreeing about where the builder is standing — in the
+    one block of this prompt that says to trust it over anything said in chat.
+    """
+    rung = guidance.beat(phase, gate["have"])
+    if rung is None:
+        return ""
+    # Trailing blank line carried here rather than at the call site, the way
+    # every other optional block in this file carries its own separator.
+    block = BEAT_BLOCK.format(have=gate["have"], need=gate["need"], press=rung.press)
+    return f"{block}\n\n"
+
+
 def judge_bar_for(phase: Phase) -> str:
     """The same bar, for the evening's verdict rather than the conversation.
 
@@ -1797,6 +1847,10 @@ def build_system_prompt(
         # leaving a hole in the prompt when it's absent.
         mode_rule=f"{THINKING_MODE}\n\n" if mode == "THINKING" else "",
         tone_rule=HINGLISH_RULE if tone == "HINGLISH" else "",
+        # Between the phase rules and the bar, and absent entirely for a phase
+        # with no beats — it carries its own trailing blank line for the same
+        # reason mode_rule above does, so a phase without one leaves no hole.
+        beat_rule=beat_block(phase, gate),
         bar_rule=bar_for(phase),
         never_twice=NEVER_TWICE,
         answer_asked=ANSWER_WHAT_THEY_ASKED,
