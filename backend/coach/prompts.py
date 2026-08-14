@@ -16,7 +16,7 @@ from .models import Goal, Phase
 PLAYBOOKS_DIR = Path(__file__).resolve().parent / "playbooks"
 
 PLAYBOOKS_BY_PHASE = {
-    Phase.IDEA: ["problem-statement", "choosing-an-idea"],
+    Phase.IDEA: ["problem-statement", "choosing-an-idea", "narrowing-the-first-user"],
     Phase.VALIDATION: [
         "customer-conversations",
         "getting-the-conversation",
