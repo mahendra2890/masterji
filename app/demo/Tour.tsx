@@ -754,7 +754,8 @@ const SLIDES: Slide[] = [
         >
           the playbooks
         </a>{" "}
-        are about ten minutes of reading, and they credit their sources by name.
+        are about a quarter of an hour of reading for your phase, and they credit
+        their sources by name.
       </>
     ),
   },

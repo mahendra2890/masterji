@@ -1,15 +1,27 @@
 # The corpus — everything Masterji knows
 
-This folder is the coach's entire knowledge base: ten small markdown
-files. `prompts.py` assembles the system prompt per request from database
-state plus the playbooks mapped to the builder's current phase
+This folder is the coach's entire knowledge base: small markdown files,
+one method each. `prompts.py` assembles the system prompt per request from
+database state plus the playbooks mapped to the builder's current phase
 (`PLAYBOOKS_BY_PHASE`). There is no vector database and no retrieval
 step — relevance is an editorial decision, made once, per phase.
 
-That means you can read everything Masterji judges you on in about ten
-minutes. This is a feature, not a gap. When the gate refuses you, the
+That means you can read everything Masterji judges you on **tonight** in
+about a quarter of an hour: no phase's shelf runs longer than that, and
+your phase's shelf is all he is ever given. The whole corpus is under an
+hour. This is a feature, not a gap. When the gate refuses you, the
 reasoning traces to a sentence in this folder and a condition in
 [gates.py](../gates.py) — not to an embedding's opinion.
+
+Both of those are bounds rather than descriptions, and
+`CorpusReadingTimeTests` holds them against the actual folder. That is
+deliberate. This claim is the argument for having no vector database, and
+it had drifted three times before anyone measured it — from six files to
+ten to sixteen — because every playbook was admitted on its own merits and
+no diff that added one contained a sentence about the folder's size. A
+number kept true by hand is a number that goes quietly wrong; the next
+playbook that would break the bound fails CI instead, which puts the
+decision back where it belongs rather than leaving the promise behind.
 
 ## How a method earns its way in
 
