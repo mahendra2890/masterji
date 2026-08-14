@@ -2,8 +2,10 @@
 (transcriber's PUNCTUATION_PROMPT pattern). The system prompt is assembled
 per-request from database state — phase, goal, streak, proof progress —
 plus the playbooks that match the current phase. No vector search: the
-corpus is a handful of small self-authored docs and relevance is decided
-by the phase, so "retrieval" is a dict lookup.
+corpus is a small set of self-authored docs and relevance is decided
+by the phase, so "retrieval" is a dict lookup — and no phase's shelf is
+more than about a quarter of an hour's reading, which is the property that
+argument rests on. CorpusReadingTimeTests holds it.
 """
 
 import re

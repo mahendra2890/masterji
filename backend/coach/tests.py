@@ -4086,14 +4086,89 @@ class VoiceReachesEveryRoomTests(CoachTestCase):
         self.assertNotIn("in IDEA or\nVALIDATION, the answer is no", text)
 
 
+class CorpusReadingTimeTests(CoachTestCase):
+    """The promise that argues against a vector database, held against the tree.
+
+    playbooks/README.md, the root README and prompts.py all rest the "no vector
+    DB" argument on the same property: the corpus is small enough that a person
+    can read what the coach judges them on. That claim had drifted three times
+    before anyone measured it — six files at the 13 August review, ten at the
+    14 August one, sixteen the same afternoon, while six surfaces still said
+    "ten minutes" — because every playbook was admitted on its own merits and
+    no diff that added one carried a sentence about the folder's size.
+
+    So these are BOUNDS rather than the current measurement. A test pinned to
+    today's word count would fail on every honest admission and teach the next
+    session to edit the number until it passed, which is the drift again with
+    extra steps. A bound fails only when the claim in the docs stops being
+    true — and #261 settled that the corpus may keep growing, so the bound is
+    the tripwire that decision was left without.
+    """
+
+    # The rate the docs' minutes are quoted at. Ordinary prose reading; the
+    # playbooks are plain English with no code in them.
+    WORDS_PER_MINUTE = 200
+    # "about a quarter of an hour", per phase. What a builder is actually
+    # served: PLAYBOOKS_BY_PHASE[phase] is the whole of what reaches the model.
+    PHASE_MINUTES = 15
+    # "under an hour" for the lot — the reader who wants to audit the coach
+    # rather than tonight's shelf.
+    CORPUS_MINUTES = 60
+
+    def _minutes(self, words):
+        return words / self.WORDS_PER_MINUTE
+
+    def _words(self, name):
+        return len(prompts._playbook(name).split())
+
+    def test_no_phase_asks_for_more_than_a_quarter_of_an_hour(self):
+        for phase, names in prompts.PLAYBOOKS_BY_PHASE.items():
+            with self.subTest(phase=phase):
+                minutes = self._minutes(sum(self._words(n) for n in names))
+                self.assertLessEqual(
+                    minutes,
+                    self.PHASE_MINUTES,
+                    f"{phase} now needs ~{minutes:.0f} min of reading. Either the "
+                    f"shelf comes back under {self.PHASE_MINUTES}, or the claim in "
+                    "playbooks/README.md, README.md, prompts.py and Tour.tsx "
+                    "changes with it — see #261, which decided the corpus may "
+                    "grow and left this bound as the tripwire.",
+                )
+
+    def test_the_whole_corpus_stays_under_an_hour(self):
+        files = [p for p in prompts.PLAYBOOKS_DIR.glob("*.md") if p.stem != "README"]
+        minutes = self._minutes(sum(len(p.read_text().split()) for p in files))
+        self.assertLessEqual(
+            minutes,
+            self.CORPUS_MINUTES,
+            f"The corpus is now ~{minutes:.0f} min over {len(files)} files, and "
+            "three surfaces say it is under an hour.",
+        )
+
+    def test_every_playbook_on_a_shelf_is_a_file_that_exists(self):
+        """The bounds above are only worth something if they measure the same
+        files the coach is actually handed. A name in PLAYBOOKS_BY_PHASE with
+        no file behind it would raise at request time, not here."""
+        for phase, names in prompts.PLAYBOOKS_BY_PHASE.items():
+            for name in names:
+                with self.subTest(phase=phase, playbook=name):
+                    self.assertTrue((prompts.PLAYBOOKS_DIR / f"{name}.md").is_file())
+
+
 class CorpusCurationTests(CoachTestCase):
     """The curation policy is a promise this repo makes in public.
 
     playbooks/README.md tells the reader they can read everything the coach
-    judges them on in ten minutes, that borrowed authority is credited by
-    name, and that a playbook applying to every phase applies to none. Three
-    files landed at once — cold outreach, the money ask, and choosing between
-    ideas — and a corpus grows by exactly the route that stops being checked.
+    judges them on tonight in about a quarter of an hour, that borrowed
+    authority is credited by name, and that a playbook applying to every phase
+    applies to none. Three files landed at once — cold outreach, the money ask,
+    and choosing between ideas — and a corpus grows by exactly the route that
+    stops being checked.
+
+    The reading-time half of that promise is held by CorpusReadingTimeTests
+    below, which is new: this docstring used to restate the ten-minute claim
+    and then check three other things, so the one number in it was the one
+    thing nothing verified.
     """
 
     # The three that filled the thin shelves: VALIDATION carried the heaviest

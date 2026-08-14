@@ -226,9 +226,10 @@ The product's spine is a **server-enforced state machine**, not a prompt:
   *The Lean Startup* and *MAKE* by name) in
   [backend/coach/playbooks/](backend/coach/playbooks/). No vector DB:
   relevance is decided by the phase, so retrieval is a dict lookup. The
-  corpus is deliberately small enough to read in ten minutes; how a
-  method earns its way in — and why scraped tweets never will — is
-  written down in the
+  corpus is deliberately small enough to read: any one phase's playbooks
+  are about a quarter of an hour, the whole corpus under an hour, and a
+  test holds both. How a method earns its way in — and why scraped tweets
+  never will — is written down in the
   [curation policy](backend/coach/playbooks/README.md).
 - **Two ways of talking, both the builder's to set.** *Hinglish* — Masterji
   speaks natural Hindi-English if you want him to ("Kaam dikhao, baatein
