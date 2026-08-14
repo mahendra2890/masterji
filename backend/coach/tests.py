@@ -6596,6 +6596,51 @@ class WorkshopTests(CoachTestCase):
         self.assertTrue(card["refused"])
         self.assertEqual(len(card["candidates"]), 3)
 
+    def test_the_same_one_liner_twice_is_one_candidate(self):
+        """A repeat park costs a third of the pile and buys nothing. Refused in
+        server code beside the ceiling, and for the same reason: three is the
+        mechanism of this room, and a copy spends a slot on an idea the builder
+        already has."""
+        self.say(stream=self.park("hostellers miss dinner", "hostellers miss dinner"))
+        self.assertEqual(self.workshop().candidates, ["hostellers miss dinner"])
+        # Across turns too — the pile is read off the row, not off the turn.
+        self.say(stream=self.park("hostellers miss dinner"))
+        self.assertEqual(self.workshop().candidates, ["hostellers miss dinner"])
+
+    def test_a_repeat_is_the_same_words_not_the_same_string(self):
+        """_already_banked's flattening, deliberately reused: case and spacing
+        carry no more meaning in a one-liner than they do in a proof."""
+        self.say(stream=self.park("Hostellers miss dinner"))
+        self.say(stream=self.park("  hostellers   MISS dinner "))
+        self.assertEqual(self.workshop().candidates, ["Hostellers miss dinner"])
+
+    def test_two_ideas_that_merely_rhyme_are_two_candidates(self):
+        """Exact after flattening and no looser. Near-matching here would drop
+        a second idea for resembling the first, which in this room is deleting
+        the builder's thinking rather than tidying it."""
+        self.say(stream=self.park("hostellers miss dinner", "hostellers miss lunch"))
+        self.assertEqual(
+            self.workshop().candidates,
+            ["hostellers miss dinner", "hostellers miss lunch"],
+        )
+
+    def test_a_repeat_park_is_not_reported_as_a_refusal(self):
+        """`refused` paints "three is the limit — nothing else got parked",
+        which is for a builder watching a suggestion fail to appear. A repeat
+        appeared: it is on screen, in the pile."""
+        self.say(stream=self.park("one"))
+        _, events = self.say(stream=self.park("one"))
+        self.assertEqual([e for e in events if e["t"] == "candidates"], [])
+
+    def test_a_repeat_at_a_full_pile_is_still_silent(self):
+        """Ordered before the ceiling: a pile of three that already holds this
+        sentence turned nothing away, so "drop one to make room" would be the
+        app arguing with what the builder can see."""
+        self.say(stream=self.park("one", "two", "three"))
+        _, events = self.say(stream=self.park("two"))
+        self.assertEqual([e for e in events if e["t"] == "candidates"], [])
+        self.assertEqual(self.workshop().candidates, ["one", "two", "three"])
+
     def test_the_prompt_flips_to_a_forced_choice_at_three(self):
         full = prompts.parking_state(["one", "two", "three"], Workshop.MAX_CANDIDATES)
         self.assertIn("FULL", full)

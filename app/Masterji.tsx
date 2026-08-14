@@ -1750,8 +1750,17 @@ export default function Masterji({ user }: { user: SessionUser }) {
                   </button>
                 </li>
               )}
-              {ws.candidates.map((c) => (
-                <li key={c}>
+              {/* By position, the way the same strings are keyed where they
+                  are shown again after the goal closes (ClosedIdea's
+                  "considered"). The list is append-only and never reordered or
+                  filtered, so a position is a stable identity for as long as
+                  the row lives, and the one-liner is not: the server refuses a
+                  repeat park now, but rooms that took one before it did still
+                  hold two identical strings, and keying by the text there is
+                  two children with one key — a React warning, and a
+                  reconciler free to duplicate or drop a card. */}
+              {ws.candidates.map((c, i) => (
+                <li key={i}>
                   <button
                     type="button"
                     className={styles.parkedItem}
