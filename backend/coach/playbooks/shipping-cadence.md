@@ -15,6 +15,25 @@ a page that loads, a button that does the thing, a message that sends.
 produce a visible change by tonight, it's two tasks; cut it in half and
 declare the front half.
 
+## The thirty-minute slice
+Some weeks are not week-shaped. Exams, placement season, a wedding, a
+week your family needs you — the day-sized slice above assumes a working
+day, and a builder reading it during an exam week reads "impossible" and
+misses three days. That is drift arriving through this playbook's own
+framing.
+
+The rule for those weeks is: **shrink the slice, never pause the loop.**
+Declare the thirty-minute version of the task and mean it — one copy fix,
+one bug, one email to the tester who has been waiting. The proof bar is
+already sized for this: "today's visible change, **however small**" is
+what tonight asks for, and it has never asked for volume.
+
+And the streak survives it intact. A streak counts declaration plus
+proof, never how much — so a thirty-minute Tuesday and an eight-hour
+Sunday are the same length on your record. That is not a loophole; it is
+the point. The habit is what you are protecting through a bad week, and
+you cannot protect it by standing down until the week improves.
+
 ## A deadline is a feature
 Levels ships projects against short, public, self-imposed deadlines — the
 date does the work a boss would do. Set the launch date **before** the

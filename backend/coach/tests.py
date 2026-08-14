@@ -3250,6 +3250,9 @@ class CorpusCurationTests(CoachTestCase):
         "first-touch": (Phase.BUILD, "Steve Blank"),
         "people-you-know": (Phase.VALIDATION, "Rob Fitzpatrick"),
         "reading-the-nos": (Phase.VALIDATION, "Ash Maurya"),
+        # LAUNCH said WHERE to post and never how to write it, which is the
+        # step the week goes quiet on.
+        "writing-the-post": (Phase.LAUNCH, "Harry Dry"),
     }
 
     def test_each_new_playbook_is_wired_to_exactly_one_phase(self):

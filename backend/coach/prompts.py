@@ -24,7 +24,7 @@ PLAYBOOKS_BY_PHASE = {
         "reading-the-nos",
     ],
     Phase.BUILD: ["over-engineering", "mvp-scoping", "shipping-cadence", "first-touch"],
-    Phase.LAUNCH: ["launch-checklist", "the-first-rupee"],
+    Phase.LAUNCH: ["launch-checklist", "the-first-rupee", "writing-the-post"],
     Phase.TRACTION: ["first-users"],
 }
 
