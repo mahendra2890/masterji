@@ -30,6 +30,19 @@ from .models import CheckIn, Goal, PhaseTransition
 
 DAYS = 7
 
+# How far back a return is allowed to reach for the week it picks up from.
+#
+# A bound is needed because the sentence this produces is "picking up from the
+# week of 4 Aug", and that is only true while it is still the same stretch of
+# work. The gaps this exists for are the ones the builder comes back from —
+# exams, placement season — and those run two to three weeks; a month leaves
+# room above that. Past it a builder is starting again rather than picking up,
+# the week says nothing about the cadence `shipping-cadence.md` watches, and the
+# absence is already handled where it belongs: `streaks.days_since_complete`
+# reaches the prompt on every turn, and WHEN_THEY_DOUBT_THE_IDEA is the rule for
+# what to do about it.
+LOOK_BACK_WEEKS = 4
+
 
 def week_start(day: date) -> date:
     """The Monday of the week `day` falls in.
@@ -93,6 +106,82 @@ def summary(goal: Goal, start: date) -> dict:
     }
 
 
+def worked_week(
+    goal: Goal, covered: date, considered: date | None = None
+) -> date | None:
+    """The Monday of the most recent week that had check-ins in it, or None.
+
+    One indexed query rather than a walk backwards a week at a time: the most
+    recent `CheckIn.date` in range decides the week, and `week_start` turns it
+    into one. This runs on the busiest authenticated endpoint in the product on
+    the load that finds an empty week, so the cost must not scale with how long
+    the builder was away.
+
+    `considered` is the caller's floor — the last week already passed over — and
+    it is what keeps a digest from being written twice. Without it a builder who
+    read Monday's digest about the week of 20 Jul and then vanished would find
+    the search reaching back past their own marker and handing them that same
+    week again on their return. The prompt has no such marker and passes
+    nothing, which is right: it restates the same fact every turn rather than
+    claiming it once.
+    """
+    floor = covered - timedelta(days=DAYS * (LOOK_BACK_WEEKS - 1))
+    if considered is not None:
+        floor = max(floor, considered + timedelta(days=DAYS))
+    last = (
+        CheckIn.objects.filter(
+            goal=goal, date__gte=floor, date__lte=covered + timedelta(days=DAYS - 1)
+        )
+        .order_by("-date")
+        .values_list("date", flat=True)
+        .first()
+    )
+    return week_start(last) if last else None
+
+
+def week_read_back(
+    goal: Goal, today: date, considered: date | None = None
+) -> tuple[date | None, dict]:
+    """Which week to read back on a visit made `today`, and what it holds.
+
+    Returns the week's Monday and its summary — and the Monday is None when the
+    window is the week that just ended, because that is the case where naming a
+    date would be noise. So the first element is exactly the `week_of` both
+    callers pass downstream, not a window they have to compare against anything.
+
+    The fallback fires only when the week just gone is empty. A builder who
+    shows up most weeks never reaches it and reads the same message they always
+    did; a builder who worked a week and then disappeared gets that week rather
+    than the blank one their return happens to land after. One message either
+    way — the alternative, a digest per missed week, hands somebody who just
+    came back a wall of three, two of them saying nothing was accepted, which is
+    the shape #185 rejected for the What's-new dot.
+    """
+    covered = week_start(today) - timedelta(days=DAYS)
+    held = summary(goal, covered)
+    if held["filed"]:
+        return None, held
+    worked = worked_week(goal, covered, considered)
+    if worked is None:
+        # Nothing to read back anywhere in reach. `held` is empty and every
+        # caller already drops an empty week, so it is returned as-is rather
+        # than signalled a second way.
+        return None, held
+    return worked, summary(goal, worked)
+
+
+def on(day: date) -> str:
+    """A week's Monday, as the builder reads dates everywhere else.
+
+    "4 Aug", the shape `Masterji.tsx`'s formatDate shows and `views` already
+    builds for STOCK_DUPLICATE. Built rather than strftime'd for the reason
+    given there: the directive that drops the leading zero is a platform
+    extension, not a guarantee. No year — this reaches at most LOOK_BACK_WEEKS
+    back, so the month is never ambiguous.
+    """
+    return f"{day.day} {day:%b}"
+
+
 # What the builder reads on the first morning of a new week.
 #
 # In both tones, for the reason STOCK_OFFER_ACCEPT is: this one is on the happy
@@ -106,6 +195,12 @@ def summary(goal: Goal, start: date) -> dict:
 COPY = {
     "ENGLISH": {
         "head": "Last week, by the record: {facts}.",
+        # Said instead when the window is not the week that just ended. Naming
+        # the date is the whole of what makes this safe: the same counts under
+        # the ordinary head would be read as last week's, and a builder back
+        # from two weeks away would be told they had worked six days while they
+        # were gone.
+        "head_gap": "Picking up from the week of {week_of} — {facts}.",
         "days": "{days} of {total} days complete",
         "accepted": "{n} accepted toward the phase",
         "accepted_one": "1 accepted toward the phase",
@@ -123,6 +218,10 @@ COPY = {
     },
     "HINGLISH": {
         "head": "Pichhle hafte ka record: {facts}.",
+        # The date is left in the same "4 Aug" that STOCK_DUPLICATE puts into
+        # its Hinglish line, for the same reason: it is the shape on the record
+        # card the builder is looking at.
+        "head_gap": "{week_of} wale hafte se aage badhte hain — {facts}.",
         "days": "{total} mein se {days} din poore",
         "accepted": "{n} phase ke liye count hue",
         "accepted_one": "1 phase ke liye count hua",
@@ -151,7 +250,7 @@ def _people(n: int, tone: str) -> str:
     return guidance.people(n)
 
 
-def digest(summary: dict, tone: str = "ENGLISH") -> str:
+def digest(summary: dict, tone: str = "ENGLISH", week_of: date | None = None) -> str:
     """The week as the builder reads it.
 
     One short paragraph, and the shape is the constraint rather than a
@@ -163,6 +262,12 @@ def digest(summary: dict, tone: str = "ENGLISH") -> str:
     The people clause is omitted when there is nobody to name rather than
     printed as a zero — a builder in IDEA has spoken to no one by design, and
     restating a phase's own bar is not this message's job.
+
+    `week_of` is the window's Monday when it is not the week that just ended,
+    and None when it is — `week_read_back` returns it in exactly that form. The
+    counts below are the same either way; only the sentence they hang off
+    changes, because the one thing a returning builder must not be able to
+    misread is which week is being counted.
     """
     copy = COPY.get(tone, COPY["ENGLISH"])
     facts = [copy["days"].format(days=summary["days"], total=DAYS)]
@@ -179,7 +284,10 @@ def digest(summary: dict, tone: str = "ENGLISH") -> str:
         facts.append(copy["people"].format(people=_people(summary["people"], tone)))
     if summary["advanced_to"]:
         facts.append(copy["moved"].format(phase=summary["advanced_to"]))
-    text = copy["head"].format(facts=", ".join(facts))
+    if week_of is None:
+        text = copy["head"].format(facts=", ".join(facts))
+    else:
+        text = copy["head_gap"].format(week_of=on(week_of), facts=", ".join(facts))
     if summary["days"] and not summary["accepted"]:
         text += copy["flat"]
     return text

@@ -7204,6 +7204,88 @@ class WeeklyDigestTests(CoachTestCase):
         self.assertIn("4 of 7 days complete", block)
         self.assertIn("2 accepted", block)
 
+    def test_the_week_they_worked_is_the_one_read_back_after_a_gap(self):
+        """The builder this used to do nothing for. Six days and two proofs,
+        two weeks away, then a return — and the window their visit lands after
+        is empty, so the old rule wrote nothing and moved the marker past the
+        week they were proud of, permanently. It now reads back the last week
+        that had check-ins in it, and names the date: the same counts under
+        "Last week" would tell somebody just back from exams that they had
+        worked six days while they were gone."""
+        goal = self.make_goal()
+        worked = self.last_week() - timedelta(days=14)
+        for i in range(6):
+            self.day(goal, worked + timedelta(days=i), accepted=i < 2, subject=f"p{i}")
+        for _ in range(3):
+            self.client.get("/api/coach/state/")
+        digests = goal.messages.filter(role=Message.Role.SYSTEM)
+        # One message, not one per missed week — the shape #185 rejected.
+        self.assertEqual(digests.count(), 1)
+        said = digests.get().content
+        self.assertIn(f"Picking up from the week of {worked.day} {worked:%b}", said)
+        self.assertIn("6 of 7 days complete", said)
+        self.assertIn("2 accepted", said)
+        self.assertNotIn("Last week", said)
+        # And the marker still moves to the window the visit is in, so this
+        # stays once a week rather than once per week missed.
+        goal.refresh_from_db()
+        self.assertEqual(goal.last_digest_week, self.last_week())
+
+    def test_a_week_already_read_back_is_not_read_back_again(self):
+        """Why the search floor is the marker and not the calendar. This
+        builder read the digest about the week they worked and then vanished;
+        with no floor the search would reach back past their own marker and
+        hand them that same week a second time, weeks later, as news."""
+        goal = self.make_goal()
+        worked = self.last_week() - timedelta(days=14)
+        for i in range(6):
+            self.day(goal, worked + timedelta(days=i))
+        Goal.objects.filter(pk=goal.pk).update(last_digest_week=worked)
+        self.client.get("/api/coach/state/")
+        self.assertFalse(goal.messages.filter(role=Message.Role.SYSTEM).exists())
+        goal.refresh_from_db()
+        self.assertEqual(goal.last_digest_week, self.last_week())
+
+    def test_a_week_older_than_the_look_back_is_left_where_it_is(self):
+        """`LOOK_BACK_WEEKS` is a claim about the copy rather than a cost
+        bound — the query is one indexed read either way. "Picking up from"
+        stops being true once the builder is starting again instead of
+        continuing, and past that line the absence belongs to the coach, who
+        already has it through `days_since_complete`."""
+        goal = self.make_goal()
+        stale = self.last_week() - timedelta(days=7 * weekly.LOOK_BACK_WEEKS)
+        for i in range(6):
+            self.day(goal, stale + timedelta(days=i))
+        self.client.get("/api/coach/state/")
+        self.assertFalse(goal.messages.filter(role=Message.Role.SYSTEM).exists())
+
+    def test_the_named_week_is_said_in_both_tones(self):
+        """Owed in Hinglish for the reason STOCK_OFFER_ACCEPT is: this is on
+        the happy path and it recurs, so an English-only clause would meet a
+        builder who asked for Hinglish on the one morning they came back."""
+        summary = {"filed": 6, "days": 6, "accepted": 2, "people": 0, "advanced_to": ""}
+        week_of = date(2026, 8, 3)
+        self.assertIn(
+            "Picking up from the week of 3 Aug",
+            weekly.digest(summary, "ENGLISH", week_of),
+        )
+        self.assertIn(
+            "3 Aug wale hafte se", weekly.digest(summary, "HINGLISH", week_of)
+        )
+        # The ordinary week is still the ordinary sentence, and still undated.
+        self.assertIn("Last week", weekly.digest(summary, "ENGLISH"))
+        self.assertIn("Pichhle hafte", weekly.digest(summary, "HINGLISH"))
+
+    def test_the_prompt_names_the_week_it_was_handed(self):
+        """The digest is a SYSTEM row and SYSTEM rows are excluded from the
+        transcript, so the coach never sees the message the builder just read.
+        A block still saying "Last week" over an older window would be a false
+        line in the one block the prompt tells the model to trust over
+        anything said in chat."""
+        summary = {"days": 6, "accepted": 2, "people": 0, "advanced_to": "", "filed": 6}
+        self.assertIn("- Last week:", prompts.week_block(summary))
+        self.assertIn("- Week of 3 Aug:", prompts.week_block(summary, date(2026, 8, 3)))
+
 
 class WorkshopSurvivesTheCommitTests(CoachTestCase):
     """What the room worked out, on the goal it produced.

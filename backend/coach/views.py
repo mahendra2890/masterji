@@ -827,26 +827,38 @@ def _read_the_week_back(goal: Goal, user, today: date) -> None:
     # to match nothing. The row is already in hand.
     if goal.last_digest_week is not None and goal.last_digest_week >= covered:
         return
+    # Held before the claim moves it. This is the last week already passed over,
+    # which is the floor the search below must not reach past, and the UPDATE is
+    # a queryset write that leaves `goal` in hand stale rather than refreshed —
+    # so reading it afterwards would work today and break the day somebody adds
+    # a refresh_from_db above.
+    considered = goal.last_digest_week
     claimed = Goal.objects.filter(
         Q(last_digest_week__isnull=True) | Q(last_digest_week__lt=covered),
         pk=goal.pk,
     ).update(last_digest_week=covered)
     if not claimed:
         return
-    summary = weekly.summary(goal, covered)
+    # The marker still moves to `covered` above whatever this returns, so the
+    # question stays asked once a week. What changes is only which week gets
+    # read back when the one just gone is empty: the last week the builder
+    # actually worked, named by date so it cannot be taken for the blank one
+    # their return landed after.
+    week_of, summary = weekly.week_read_back(goal, today, considered)
     if not summary["filed"]:
-        # Nothing was declared in that week, so there is no week to read back.
-        # A goal committed on Sunday must not be handed a report card on Monday
-        # morning saying it did nothing, and a builder coming back after a month
-        # away must not walk into a wall of empty weeks. The marker has moved
-        # regardless, so this is asked once a week and not on every load.
+        # Nothing was declared in that week and nothing within reach behind it,
+        # so there is no week to read back. A goal committed on Sunday must not
+        # be handed a report card on Monday morning saying it did nothing, and a
+        # builder coming back after a month away must not walk into a wall of
+        # empty weeks. The marker has moved regardless, so this is asked once a
+        # week and not on every load.
         return
     Message.objects.create(
         goal=goal,
         role=Message.Role.SYSTEM,
         kind=Message.Kind.DIGEST,
         phase=goal.phase,
-        content=weekly.digest(summary, user.tone),
+        content=weekly.digest(summary, user.tone, week_of),
     )
 
 
@@ -2223,6 +2235,10 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
         # a cycle is proved and closed its notes are spent, and reading them
         # back would have him chasing pieces of a proof already on the record.
         target = _offer_target(goal, today)
+        # No marker passed: the digest claims a week once and so must never
+        # reach back past its own, but this states a fact every turn and has
+        # nothing to claim. Handed the same window either way — see below.
+        week_of, week = weekly.week_read_back(goal, today)
         system = prompts.build_system_prompt(
             goal,
             gates.gate_status(goal),
@@ -2245,10 +2261,13 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
             days_since_complete=streaks.days_since_complete(goal, today),
             # The same seven days the builder read back on Monday, from the same
             # function — so the coach and the digest cannot come to different
-            # numbers about the week they are both describing.
-            week=weekly.summary(
-                goal, weekly.week_start(today) - timedelta(days=weekly.DAYS)
-            ),
+            # numbers about the week they are both describing. That is why the
+            # fallback belongs on both: a digest naming the week of 20 Jul beside
+            # a prompt drawn on the empty week just gone is exactly the
+            # divergence this line was written to prevent, and the builder would
+            # find it by replying to the message they just read.
+            week=week,
+            week_of=week_of,
             # What they said THIS phase would produce, which is the one thing
             # the coach could never tell from PHASE_HINT: that sentence is the
             # same for every builder forever, and this one is about the thing
