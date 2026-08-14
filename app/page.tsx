@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
+import { firstPaintFor } from "@/lib/first-paint";
 import Home from "./Home";
 import Landing from "./Landing";
 
@@ -34,9 +35,16 @@ export default async function Page({
   //
   // The question being asked is only "was somebody using this browser
   // recently?", because the cost of guessing wrong is a paint: guess "app"
-  // for a stranger and they get a blank screen while we ask Django; guess
-  // "signedOut" for a returning builder and they watch a landing page flash
-  // past on the way to their own dashboard.
+  // for a stranger and they get the dashboard's empty frame while we ask
+  // Django, then the landing; guess "signedOut" for a returning builder and
+  // they watch a landing page flash past on the way to their own dashboard.
+  //
+  // That first cost used to be a blank screen rather than a frame, and it was
+  // paid by everyone the guess got RIGHT as well: "app" rendered nothing at
+  // all until the JS had landed and Django had answered, so a returning
+  // builder's first paint was 39 characters of <title>. It is a server-rendered
+  // shell now (Home passes it to AuthGate), which is why the wrong guess is
+  // cheap enough to keep making from a cookie nobody has validated (#239).
   //
   // ?error is the one case where a stale cookie doesn't get the benefit of
   // the doubt. Whoever is holding it just came back from Google without a
@@ -47,7 +55,10 @@ export default async function Page({
   return (
     <Home
       landing={<Landing error={error} next={safeNext(next)} />}
-      firstPaint={usedRecently && !error ? "app" : "signedOut"}
+      firstPaint={firstPaintFor({
+        hasAccessCookie: usedRecently,
+        hasError: Boolean(error),
+      })}
     />
   );
 }

@@ -12,6 +12,7 @@ import Changelog from "@/components/Changelog";
 import TakeTheRecord from "@/components/TakeTheRecord";
 import NudgeSwitch from "@/components/NudgeSwitch";
 import ClosedIdea from "./ClosedIdea";
+import DashboardShell from "./DashboardShell";
 import DayDetail from "./DayDetail";
 import { updatePrefs, type SessionUser } from "@/lib/auth-client";
 import { useDialogFocus } from "@/lib/dialog-focus";
@@ -1294,9 +1295,13 @@ export default function Masterji({ user }: { user: SessionUser }) {
     }
   };
 
-  if (!state) {
-    return <main className={styles.loading}>Masterji is on his way…</main>;
-  }
+  // The same frame AuthGate was already painting, so the handover from "we are
+  // asking who you are" to "we are fetching your goal" changes nothing on
+  // screen. This used to be a centred line of text in a full-width <main>,
+  // which React reuses as the dashboard's <main> — one element, two classes,
+  // and an 80px sideways jump of the whole viewport when the second one won.
+  // That was every bit of this route's 0.0625 CLS (#241).
+  if (!state) return <DashboardShell />;
 
   // Null until the builder's first turn: reading state never opens a room. It
   // is the pre-goal room on the onboarding screen and this goal's one

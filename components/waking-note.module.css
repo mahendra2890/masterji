@@ -1,7 +1,17 @@
 /* Wraps the note wherever it appears — the /admin/ interstitial and the
    app's own gate both centre it on an otherwise empty screen. */
+/* Same 1120px centred box as the app's .app, and that is about layout shift
+   rather than looks. On a cold backend the gate paints the dashboard shell,
+   then this, then the dashboard — all three are <main>, so React reuses one DOM
+   node and swaps the class on it. Full-width here and 1120px centred there made
+   that single element jump 80px sideways at 1280px, twice, which is 0.0625 of
+   CLS each time. Nothing visible moves from the cap: everything inside is
+   centred and the card is 480px, so a centred box inside a centred box lands
+   where it already was. */
 .screen {
   min-height: 100dvh;
+  max-width: 1120px;
+  margin: 0 auto;
   display: flex;
   flex-direction: column;
   align-items: center;

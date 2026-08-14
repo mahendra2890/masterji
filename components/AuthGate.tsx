@@ -58,10 +58,22 @@ export default function AuthGate({
    * decides from the auth cookie; this only decides what to draw first, and
    * the answer below still overrules it either way. */
   firstPaint = "app",
+  /** What "app" paints while it waits. It used to paint nothing, and nothing
+   * is what made this route's first paint wait on the whole client bundle and
+   * a round trip to Django: 39 visible characters of HTML for a returning
+   * builder against 3,575 for a stranger, measured on a production build
+   * (#239).
+   *
+   * A node rather than a component, and optional, because what to draw while
+   * you wait is the caller's question — "/" hands down a dashboard shell,
+   * /cohort has no signed-out page at all and redirects instead, so it passes
+   * nothing and this stays as it was. */
+  loading,
 }: {
   children: (user: SessionUser) => React.ReactNode;
   signedOut?: React.ReactNode;
   firstPaint?: "app" | "signedOut";
+  loading?: React.ReactNode;
 }) {
   const [user, setUser] = useState<SessionUser | null>(null);
   const [waking, setWaking] = useState(false);
@@ -141,5 +153,7 @@ export default function AuthGate({
       </main>
     );
   }
-  return null;
+  // Still asking. `loading` is the shell for a route that has one; a route
+  // without one is unchanged, and draws nothing.
+  return <>{loading ?? null}</>;
 }

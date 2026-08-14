@@ -2,12 +2,17 @@
    column + chat side by side. Mobile (≤820px): one at a time, picked by
    the pane switcher — see the responsive block at the bottom. */
 
-.loading {
-  min-height: 100dvh;
-  display: grid;
-  place-items: center;
-  color: var(--muted);
-}
+/* `.loading` used to live here — a full-width centred "Masterji is on his way…"
+   that Masterji rendered until the coach state arrived. It was the whole of
+   this route's CLS.
+
+   React renders <main> in that branch and <main> in the dashboard branch, so it
+   reuses the same DOM node and only swaps the class. `.loading` had no
+   max-width and `.app` has 1120px with `margin: 0 auto`, so at 1280px that one
+   element went from {x:0, w:1280} to {x:80, w:1120} — a full-viewport box
+   moving 80px sideways, which is 80/1280 = 0.0625 of layout shift and exactly
+   the 0.0625 measured on the signed-in path. It is DashboardShell now, inside
+   this same .app container, so nothing moves at all (#241). */
 
 /* --- onboarding ---------------------------------------------------------- */
 
@@ -321,6 +326,66 @@
   display: flex;
   align-items: center;
   gap: 14px;
+}
+
+/* --- the first-paint shell ------------------------------------------------
+   DashboardShell's own rules, and nothing else uses them. They live here,
+   against the layout they stand in for, because that is the pair that has to
+   stay in step: every box below is sized to the real thing above it, and the
+   two drift apart the moment they are read in different files.
+
+   Only the bars are new. Every container the shell draws — .app, .header,
+   .headerRight, .panes, .columns, .side, .card, .chat, .messages — is the
+   real class, so the frame is not a copy of the dashboard's geometry, it is
+   the dashboard's geometry. */
+
+.shellBar {
+  display: block;
+  background: var(--surface-2);
+  border-radius: 6px;
+  height: 13px;
+}
+
+/* A word in the header. 13px is .signOut's and .tourLink's font-size, so these
+   sit on the same line the real labels will. */
+.shellWord {
+  height: 13px;
+}
+
+/* Two of these stand in for the goal title: 21px type, the 12px below it from
+   .goalTitle's margin-bottom. */
+.shellTitle {
+  height: 21px;
+  margin-bottom: 12px;
+}
+
+/* The five phase pills. */
+.shellStepper {
+  height: 30px;
+  margin: 0 0 12px;
+}
+
+/* A line of the card's prose or facts. */
+.shellLine {
+  height: 14px;
+  margin-bottom: 10px;
+}
+
+/* The proofs meter, which is 6px of track. */
+.shellMeter {
+  height: 6px;
+  margin-bottom: 16px;
+}
+
+/* The composer box on the Today card. */
+.shellBox {
+  height: 66px;
+  margin-bottom: 12px;
+}
+
+/* A message in the log. Taller than a line because a bubble is a paragraph. */
+.shellMsg {
+  height: 44px;
 }
 
 /* The run, on the goal card beside the days-in-phase line — see .cardFacts.
