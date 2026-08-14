@@ -1,0 +1,17 @@
+# The build context is backend/ (see render.yaml dockerContext). Render builds
+# from a fresh clone where most of these do not exist, so nothing here changes
+# what ships today — it changes what a *local* `docker build` produces, which
+# until now was not the same image. `COPY . .` runs after `uv sync`, so a host
+# .venv lands on top of the image's own, and the host one's python is a symlink
+# into /opt/homebrew that does not exist in the container.
+#
+# The rest is the same idea: a dev database, a real .env and a stale
+# staticfiles/ are all things that would otherwise be baked into an image and
+# shipped.
+.venv/
+db*.sqlite3
+.env*
+__pycache__/
+*.pyc
+staticfiles/
+.DS_Store
