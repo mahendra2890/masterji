@@ -984,3 +984,83 @@ class ChangelogEntry(SoftDeleteModel):
 
     def __str__(self):
         return f"{self.shipped_on} {self.title}"
+
+
+class ModelCall(SoftDeleteModel):
+    """One call to the model: what it spent, and whose turn caused it.
+
+    Every other row in this file is the builder's record. This one is the
+    operator's, and it is the only place in the product where money appears.
+
+    Before this existed the seam wrote its token counts as OpenTelemetry span
+    attributes and nothing else, so with `OTEL_EXPORTER_OTLP_ENDPOINT` unset —
+    the default, and what production runs — they were discarded at the process
+    boundary. Nothing computed cost anywhere. "What has this cost, and who
+    spent it" had no answer that did not involve attaching an exporter by hand.
+
+    A row per call rather than a per-user running total, because the questions
+    worth asking are about shape rather than sum: which call kind carries the
+    spend, whether one builder is an outlier, what a chat turn costs against
+    the judgement under it. A counter cannot be asked any of those after the
+    fact. The cost is that this table only grows — see the note on the index.
+    """
+
+    class Kind(models.TextChoices):
+        # What the seam did, not what the product meant by it. `complete` is
+        # reached by a retirement summary and by the evening's verdict alike,
+        # and guessing intent from the model name would be a lie the day
+        # LLM_JUDGE_MODEL is set to LLM_MODEL — which is its default.
+        CHAT = "CHAT", "Chat turn (streamed)"
+        COMPLETION = "COMPLETION", "Completion"
+        VISION = "VISION", "Completion with an image"
+
+    # Nullable, and that is a real state rather than a gap. The nudge cron,
+    # management commands and the shell all reach the seam with no request and
+    # therefore no builder; their spend is the operator's own and still counts.
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="model_calls",
+    )
+    kind = models.CharField(max_length=12, choices=Kind.choices)
+    # The string that was actually sent, not settings.LLM_MODEL read back at
+    # display time: the setting is what the NEXT call will use, and a ledger
+    # that rewrites its own history the day the model is switched is worthless
+    # for the one comparison it exists to support.
+    model = models.CharField(max_length=120)
+    prompt_tokens = models.PositiveIntegerField(default=0)
+    completion_tokens = models.PositiveIntegerField(default=0)
+    total_tokens = models.PositiveIntegerField(default=0)
+    # Null when nobody can price it — see spend.cost_usd. Decimal rather than
+    # float because these get summed, and eight places because a cheap model's
+    # single call lands below a micro-dollar and must not round to nothing.
+    cost_usd = models.DecimalField(
+        max_digits=14, decimal_places=8, null=True, blank=True
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta(SoftDeleteModel.Meta):
+        # DELIBERATELY NO `ordering`. This is the one table in the project
+        # whose whole purpose is aggregation, and a default ordering joins the
+        # GROUP BY on `.values()` — which silently splits a per-user total
+        # into one row per call and sorts every bulk read on the way. The
+        # house has already been bitten by exactly that. Callers that want an
+        # order say so; `-created_at` is what the admin asks for.
+        indexes = [
+            # The two questions this table exists to answer are both
+            # per-builder and both recent-first: what has this builder spent,
+            # and what did they spend it on. Partial on the live rows for the
+            # same reason ChangelogEntry's index is — `objects` filters
+            # soft-deleted rows out of every read, so an index carrying them
+            # holds rows no query can return.
+            models.Index(
+                fields=["user", "-created_at"],
+                condition=models.Q(deleted_at__isnull=True),
+                name="coach_modelcall_user_idx",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.model} {self.total_tokens}t {self.kind}"

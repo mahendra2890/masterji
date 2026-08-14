@@ -13,7 +13,8 @@ from . import llm
 
 
 class LlmBudgetMiddleware:
-    """Starts this request's wall-clock budget for model calls.
+    """Starts this request's wall-clock budget for model calls, and says whose
+    turn is paying for them.
 
     Deliberately does NOT clear it on the way out. The two longest paths in
     the product return a StreamingHttpResponse, whose body is consumed after
@@ -34,4 +35,10 @@ class LlmBudgetMiddleware:
 
     def __call__(self, request: HttpRequest) -> HttpResponse:
         llm.begin_budget()
+        # The request itself, NOT request.user.id. Authentication is DRF's
+        # CookieJWTAuthentication and runs inside the view, so nobody is
+        # signed in yet at this point in the stack — reading an id here would
+        # book every row to nobody. llm._current_actor resolves it when the
+        # ledger row is actually written, and its comment carries the detail.
+        llm.set_actor(request)
         return self.get_response(request)

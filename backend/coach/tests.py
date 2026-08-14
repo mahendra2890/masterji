@@ -240,8 +240,14 @@ def _recorded(span):
     return dict(call.args for call in span.set_attribute.call_args_list)
 
 
-class LlmAccountingTests(SimpleTestCase):
+class LlmAccountingTests(TestCase):
     """What a call cost, on the call's own span.
+
+    A TestCase rather than a SimpleTestCase since the ledger landed: the seam
+    now writes a ModelCall row for any call that reports usage, and two of the
+    tests below report some. spend.record swallows its own failures, so under
+    SimpleTestCase these would still pass — while logging a database error per
+    run and proving nothing about the row. The database is the honest fixture.
 
     A span per call and not attributes on coach.turn, because one request can
     make several calls and the parent would keep only the last — a silent
@@ -9713,3 +9719,290 @@ class VapidKeyFormatTests(SimpleTestCase):
         header, footer = "-----BEGIN PRIVATE KEY-----", "-----END PRIVATE KEY-----"
         with self.assertRaises(Exception):
             Vapid.from_string(f"{header}\nnot-a-key\n{footer}\n")
+
+
+class ModelSpendLedgerTests(TestCase):
+    """Every model call lands in the database with what it spent and who spent
+    it — the question that had no answer before, because the seam wrote its
+    token counts as span attributes that a default deploy discards.
+
+    The rule underneath all of these: accounting may never cost a builder
+    their turn. Several tests below break the ledger on purpose and assert the
+    call still returns.
+    """
+
+    def setUp(self):
+        from . import llm
+
+        llm.clear_actor()
+        self.addCleanup(llm.clear_actor)
+
+    def _complete(self, usage, model=None):
+        from . import llm
+
+        with (
+            mock.patch("coach.llm.tracer.start_span", return_value=mock.Mock()),
+            mock.patch("coach.llm.litellm.completion", return_value=_ok_response(usage)),
+        ):
+            return llm.complete("system", "user", model=model)
+
+    def test_a_call_is_written_down(self):
+        from .models import ModelCall
+
+        self._complete(_tokens(1200, 80, 1280))
+        row = ModelCall.objects.get()
+        self.assertEqual(row.prompt_tokens, 1200)
+        self.assertEqual(row.completion_tokens, 80)
+        self.assertEqual(row.total_tokens, 1280)
+        self.assertEqual(row.kind, ModelCall.Kind.COMPLETION)
+        self.assertEqual(row.model, settings.LLM_MODEL)
+
+    def test_the_row_holds_the_model_that_was_actually_called(self):
+        """Not settings.LLM_MODEL read back later. The setting is what the NEXT
+        call will use, and a ledger that rewrites its history the day the model
+        is switched cannot answer the one comparison it exists for."""
+        from .models import ModelCall
+
+        self._complete(_tokens(10, 5, 15), model="anthropic/claude-sonnet-5")
+        self.assertEqual(ModelCall.objects.get().model, "anthropic/claude-sonnet-5")
+
+    def test_a_priced_model_gets_a_cost(self):
+        from .models import ModelCall
+
+        self._complete(_tokens(1000, 500, 1500), model="openai/gpt-5.4-mini")
+        self.assertGreater(ModelCall.objects.get().cost_usd, 0)
+
+    def test_an_unpriced_model_still_gets_a_row(self):
+        """litellm raises on a model it has no price for. The tokens are still
+        a fact, and a zero written into the cost column would be a lie that
+        sums silently into a total somebody trusts."""
+        from .models import ModelCall
+
+        self._complete(_tokens(10, 5, 15), model="openai/not-a-real-model-at-all")
+        row = ModelCall.objects.get()
+        self.assertIsNone(row.cost_usd)
+        self.assertEqual(row.total_tokens, 15)
+
+    def test_a_call_that_reported_nothing_writes_nothing(self):
+        """Absent usage is not zero usage. A row of zeros is indistinguishable
+        from a call that genuinely cost nothing."""
+        from .models import ModelCall
+
+        self.assertEqual(self._complete(None), "ok")
+        self.assertEqual(ModelCall.objects.count(), 0)
+
+    def test_a_stream_writes_exactly_one_row(self):
+        """_note_usage is called on EVERY chunk, so the obvious implementation
+        writes a row per chunk. The usage arrives once, on a final chunk of its
+        own, and the ledger row is booked once when the call closes."""
+        from . import llm
+        from .models import ModelCall
+
+        spoken = mock.Mock(
+            choices=[mock.Mock(delta=mock.Mock(content="hi", tool_calls=None))],
+            usage=None,
+        )
+        final = mock.Mock(choices=[], usage=_tokens(5, 2, 7))
+        with (
+            mock.patch("coach.llm.tracer.start_span", return_value=mock.Mock()),
+            mock.patch(
+                "coach.llm.litellm.completion", return_value=iter([spoken, final])
+            ),
+        ):
+            list(llm.stream_chat("system", []))
+        row = ModelCall.objects.get()
+        self.assertEqual(row.kind, ModelCall.Kind.CHAT)
+        self.assertEqual(row.total_tokens, 7)
+
+    def test_a_call_that_died_still_books_what_it_had_already_spent(self):
+        """The money left the account whether or not the stream finished, and
+        a failure part-way is exactly the case worth watching."""
+        from . import llm
+        from .models import ModelCall
+
+        final = mock.Mock(choices=[], usage=_tokens(9, 1, 10))
+
+        def chunks():
+            yield final
+            raise RuntimeError("provider hung up")
+
+        with (
+            mock.patch("coach.llm.tracer.start_span", return_value=mock.Mock()),
+            mock.patch("coach.llm.litellm.completion", return_value=chunks()),
+            self.assertRaises(RuntimeError),
+        ):
+            list(llm.stream_chat("system", []))
+        self.assertEqual(ModelCall.objects.get().total_tokens, 10)
+
+    def test_a_broken_ledger_does_not_break_the_turn(self):
+        """The seam is built so a provider wobble costs a verdict and not the
+        app. An accounting row that cannot insert must not become the outage
+        accounting was added to prevent."""
+        from .models import ModelCall
+
+        with mock.patch(
+            "coach.models.ModelCall.objects.create",
+            side_effect=RuntimeError("database gone"),
+        ):
+            self.assertEqual(self._complete(_tokens(1, 1, 2)), "ok")
+        self.assertEqual(ModelCall.objects.count(), 0)
+
+    def test_a_refused_call_books_nothing(self):
+        """The breaker refuses before reaching a provider, so nothing was
+        spent. A row here would inflate the total with calls never made."""
+        from . import llm
+        from .models import ModelCall
+
+        with mock.patch("coach.llm._breaker_is_open", return_value=True):
+            with self.assertRaises(llm.LlmUnavailable):
+                llm.complete("system", "user")
+        self.assertEqual(ModelCall.objects.count(), 0)
+
+    def test_the_kinds_the_seam_uses_are_the_kinds_the_model_stores(self):
+        """spend names them without importing the ORM, so only this stops the
+        two drifting — and a kind that is not a valid choice fails on write,
+        in production, at the moment somebody wanted the number."""
+        from . import spend
+        from .models import ModelCall
+
+        self.assertEqual(
+            {spend.KIND_CHAT, spend.KIND_COMPLETION, spend.KIND_VISION},
+            set(ModelCall.Kind.values),
+        )
+
+    def test_the_ledger_has_no_default_ordering(self):
+        """Meta.ordering joins the GROUP BY on .values(), which would split a
+        per-user total into one row per call — on the one table in this project
+        whose whole purpose is being aggregated."""
+        from .models import ModelCall
+
+        self.assertFalse(ModelCall._meta.ordering)
+
+
+class ModelSpendAttributionTests(APITestCase):
+    """Whose turn paid for it.
+
+    The trap this exists to catch: authentication here is a DRF class and runs
+    INSIDE the view, so at middleware time request.user is AnonymousUser on
+    every API request. Reading the id there books every row to nobody — and
+    the feature ships green having recorded nothing.
+    """
+
+    def setUp(self):
+        from . import llm
+
+        llm.clear_actor()
+        self.addCleanup(llm.clear_actor)
+        self.user = get_user_model().objects.create_user(
+            username="spender", email="spender@example.com", password="pw"
+        )
+
+    def test_a_signed_in_builders_call_is_booked_to_them(self):
+        from . import llm
+        from .models import ModelCall
+
+        request = mock.Mock()
+        request.user = self.user
+        llm.set_actor(request)
+        with (
+            mock.patch("coach.llm.tracer.start_span", return_value=mock.Mock()),
+            mock.patch(
+                "coach.llm.litellm.completion",
+                return_value=_ok_response(_tokens(3, 1, 4)),
+            ),
+        ):
+            llm.complete("system", "user")
+        self.assertEqual(ModelCall.objects.get().user, self.user)
+
+    def test_an_anonymous_request_is_booked_to_nobody(self):
+        from django.contrib.auth.models import AnonymousUser
+
+        from . import llm
+        from .models import ModelCall
+
+        request = mock.Mock()
+        request.user = AnonymousUser()
+        llm.set_actor(request)
+        with (
+            mock.patch("coach.llm.tracer.start_span", return_value=mock.Mock()),
+            mock.patch(
+                "coach.llm.litellm.completion",
+                return_value=_ok_response(_tokens(3, 1, 4)),
+            ),
+        ):
+            llm.complete("system", "user")
+        self.assertIsNone(ModelCall.objects.get().user)
+
+    def test_a_payer_who_no_longer_exists_books_to_nobody(self):
+        """The one route by which accounting could cost a builder their turn.
+
+        `_actor_request` holds a request for the life of the thread — it cannot
+        be cleared on the way out or a streamed turn would lose attribution
+        mid-flight — so it can name a user id that has since gone. A dangling
+        foreign key is checked at COMMIT, not at INSERT, so the create returns
+        happily, spend.record's own `except` never fires, and the IntegrityError
+        lands on the way out of the builder's request and rolls it back.
+
+        Found by the suite rather than by reading: two accounting tests began
+        erroring only when run after a test whose user had been rolled away.
+        """
+        from . import llm
+        from .models import ModelCall
+
+        ghost = get_user_model().objects.create_user(
+            username="ghost", email="ghost@example.com", password="pw"
+        )
+        request = mock.Mock()
+        request.user = ghost
+        llm.set_actor(request)
+        ghost.delete()
+
+        with (
+            mock.patch("coach.llm.tracer.start_span", return_value=mock.Mock()),
+            mock.patch(
+                "coach.llm.litellm.completion",
+                return_value=_ok_response(_tokens(3, 1, 4)),
+            ),
+        ):
+            self.assertEqual(llm.complete("system", "user"), "ok")
+
+        row = ModelCall.objects.get()
+        self.assertIsNone(row.user_id)
+        # The money was still spent, so the operator's total must still hold it.
+        self.assertEqual(row.total_tokens, 4)
+
+    def test_no_request_at_all_still_records_the_spend(self):
+        """The nudge cron, a management command and a shell all reach the seam
+        with nobody behind them. That spend is the operator's own."""
+        from . import llm
+        from .models import ModelCall
+
+        with (
+            mock.patch("coach.llm.tracer.start_span", return_value=mock.Mock()),
+            mock.patch(
+                "coach.llm.litellm.completion",
+                return_value=_ok_response(_tokens(3, 1, 4)),
+            ),
+        ):
+            llm.complete("system", "user")
+        row = ModelCall.objects.get()
+        self.assertIsNone(row.user)
+        self.assertEqual(row.total_tokens, 4)
+
+    def test_the_middleware_hands_over_the_request_not_an_id(self):
+        """If it resolved the id itself it would resolve AnonymousUser, since
+        DRF has not authenticated yet at that point in the stack."""
+        from django.test import RequestFactory
+
+        from . import llm
+        from .middleware import LlmBudgetMiddleware
+
+        seen = {}
+
+        def view(request):
+            seen["actor"] = llm._actor_request.get()
+            return mock.Mock()
+
+        LlmBudgetMiddleware(view)(RequestFactory().get("/"))
+        self.assertIsNotNone(seen["actor"])
+        self.assertEqual(seen["actor"].path, "/")

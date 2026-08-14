@@ -13,6 +13,7 @@ from .models import (
     GoalRetirement,
     LaunchCommitment,
     Message,
+    ModelCall,
     PhaseTransition,
     ProofAttempt,
     Workshop,
@@ -257,3 +258,33 @@ class ChangelogEntryAdmin(SoftDeleteAdmin):
     @admin.display(description="body")
     def excerpt(self, obj):
         return Truncator(obj.body).chars(120)
+
+
+@admin.register(ModelCall)
+class ModelCallAdmin(SoftDeleteAdmin):
+    """The operator's window onto model spend, per builder.
+
+    Read-only on purpose: every row here is a record of something that already
+    happened and was already paid for. Editing one would not un-spend it, and
+    a ledger somebody can hand-correct is not evidence of anything.
+    """
+
+    list_display = ["created_at", "user", "kind", "model", "total_tokens", "cost_usd"]
+    list_filter = ["kind", "model"]
+    search_fields = ["user__username", "user__email"]
+    date_hierarchy = "created_at"
+    # Named here rather than as Meta.ordering — see the comment on the model
+    # for why this table deliberately has no default ordering.
+    ordering = ["-created_at"]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def get_queryset(self, request):
+        # The FK is followed on every row of the list display; without this the
+        # page is one query per row, which is the exact shape #150 was filed
+        # about on the dashboard.
+        return super().get_queryset(request).select_related("user")
