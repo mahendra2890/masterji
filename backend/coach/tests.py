@@ -1695,6 +1695,37 @@ class ProofImageTests(CoachTestCase):
         self.assertEqual(response.status_code, 404)
 
 
+class _BodyIsATrap:
+    """A response whose body cannot be read without failing the test.
+
+    `links` is allowed a status code and nothing else, which is one of the two
+    properties #136 rests on. A `Mock` would let a future body read pass in
+    silence — every accessor invents itself — so this stands in instead and every
+    way of bringing content back raises.
+    """
+
+    def __init__(self, status_code=200):
+        self.status_code = status_code
+        self.closed = False
+
+    def close(self):
+        self.closed = True
+
+    def _read(self, *args, **kwargs):
+        raise AssertionError(
+            "links read a response body. That is one of the two properties "
+            "keeping #136 a decision rather than a bug — see the comment in "
+            "links._fetch before changing this."
+        )
+
+    content = property(_read)
+    text = property(_read)
+    raw = property(_read)
+    iter_content = _read
+    iter_lines = _read
+    json = _read
+
+
 class LinkCheckTests(SimpleTestCase):
     """What one HTTP answer is taken to mean, and which targets are never asked.
 
@@ -1777,13 +1808,58 @@ class LinkCheckTests(SimpleTestCase):
     def test_a_public_name_that_resolves_inward_is_refused(self):
         """The interesting half of the same attack: the host is public, its DNS
         answer is not. Resolution happens here so the decision is made on the
-        address rather than on the spelling."""
-        with (
-            mock.patch("coach.links._resolve", return_value=["169.254.169.254"]),
-            mock.patch("coach.links._fetch") as fetch,
+        address rather than on the spelling.
+
+        The mixed answer is the one worth spelling out, because it is the case a
+        plausible reading of this code gets wrong: a name answering with one
+        public address and one private one must not pass on the public one. Which
+        address `requests` would then pick is not ours to choose, so every
+        address has to clear the bar or none of them do.
+        """
+        for addresses in (
+            ["169.254.169.254"],
+            ["93.184.216.34", "169.254.169.254"],
+            ["93.184.216.34", "10.0.0.5"],
         ):
-            self.assertIsNone(links.check("https://harmless.example.com/"))
-        fetch.assert_not_called()
+            with self.subTest(addresses=addresses):
+                with (
+                    mock.patch("coach.links._resolve", return_value=addresses),
+                    mock.patch("coach.links._fetch") as fetch,
+                ):
+                    self.assertIsNone(links.check("https://harmless.example.com/"))
+                fetch.assert_not_called()
+
+    def test_neither_request_follows_a_redirect_or_reads_a_body(self):
+        """The two properties #136 decided to rest on, pinned so they cannot be
+        removed quietly.
+
+        `check` validates an address and then `requests` resolves the name a
+        second time, so a name answering publicly on the first lookup and
+        privately on the second still reaches a socket. #136 weighed pinning the
+        connection against leaving that open and left it open — a judgement that
+        holds only while what comes back is one status code. A followed redirect
+        would reach an address nothing validated; a read body would carry that
+        address's contents back out. Both are one keyword away, and both fail
+        silently into `_fetch`'s blanket `except`, so a test has to hold them
+        rather than the comment that explains them.
+
+        Deliberately through the real `_fetch`, and through the GET retry, so the
+        second request is covered as well as the first.
+        """
+        responses = [_BodyIsATrap(405), _BodyIsATrap(200)]
+        with (
+            self.public_name(),
+            mock.patch("coach.links.requests.request", side_effect=responses) as request,
+        ):
+            self.assertIs(links.check("https://tiffin.example.com/"), True)
+        self.assertEqual([call.args[0] for call in request.call_args_list], ["HEAD", "GET"])
+        for call in request.call_args_list:
+            with self.subTest(method=call.args[0]):
+                self.assertIs(call.kwargs["allow_redirects"], False)
+                self.assertIs(call.kwargs["stream"], True)
+        # Closed, not left to a garbage collector: `stream=True` is what keeps the
+        # body unread, and it holds the connection open until someone closes it.
+        self.assertTrue(all(response.closed for response in responses))
 
 
 class ProofLinkTests(CoachTestCase):
