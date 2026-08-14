@@ -2330,6 +2330,7 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
         line = lambda obj: json.dumps(obj) + "\n"  # noqa: E731
         parts: list[str] = []
         advance_proposed = False
+        close_proposed = False
         offered = missing = ""
         labels = bar.Labels(subject="", parts=[])
         broke = False
@@ -2342,6 +2343,11 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
                     history,
                     tools=[
                         prompts.PROPOSE_ADVANCE_TOOL,
+                        # Opens the retire box on the goal card, and that is the
+                        # whole of it — see PROPOSE_GOAL_CLOSE_TOOL, which says
+                        # at length why this one has no server half. Nothing
+                        # below closes a goal.
+                        prompts.PROPOSE_GOAL_CLOSE_TOOL,
                         # Shaped by the phase, because the arguments ARE the
                         # phase's bar — a list per part that has a count on it.
                         prompts.suggest_proof_tool(Phase(goal.phase)),
@@ -2354,6 +2360,11 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
                         name = payload.get("name")
                         if name == "propose_phase_advance":
                             advance_proposed = True
+                        elif name == "propose_goal_close":
+                            # A flag and nothing else. The close itself is
+                            # RetireView, reached from the box this opens, with
+                            # a reason and an outcome only the builder has.
+                            close_proposed = True
                         elif name == "suggest_proof":
                             # The model sends the parts; bar.read does the
                             # counting, and what is still owed is arithmetic
@@ -2479,6 +2490,24 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
                 # stream got that far — but the flag is cleared here rather
                 # than relied upon not to matter.
                 notice = False
+            # The close box, opened. No verdict rides along and nothing is
+            # written, because nothing happened: the goal is still ACTIVE here
+            # and stays that way until the builder writes a reason and presses
+            # an exit (PROPOSE_GOAL_CLOSE_TOOL).
+            #
+            # Deliberately unlike the gate above, which appends its detail to
+            # the transcript. That line is the SERVER answering something, and
+            # it earns its place. Here the server answered nothing, so a line
+            # saying so would be the app narrating an action next to the one
+            # sentence the coach was told to say in his own words — the exact
+            # register this whole change exists to take away from him. A turn
+            # that opens the box and says nothing therefore saves no row; the
+            # box is on screen, which is the honest amount of noise for a turn
+            # in which the server did not act.
+            if close_proposed:
+                span.set_attribute("close.proposed", True)
+                logger.info(f"Close box proposed on goal {goal.id}")
+                yield line({"t": "close"})
             if content:
                 Message.objects.create(
                     goal=goal,

@@ -3503,6 +3503,115 @@ class DoubtingTheIdeaTests(CoachTestCase):
         self.assertNotIn("problem statement", block)
 
 
+class ClosingIsTheirsTests(CoachTestCase):
+    """A builder typed `close` twice and was told "Done. This goal is closed."
+    on a goal that was still ACTIVE, at 0/1 proofs, with no GoalRetirement row.
+
+    Its neighbour above is what produced the offer, and correctly: closing IS
+    free and the coach should keep saying so. What was missing was the other
+    two thirds — a way to do it, and a rule against saying he had. The tests
+    here are those two, and the second one is the bug itself pinned: a close
+    proposed from the chat turn must leave the record exactly where it was.
+    """
+
+    def system_for(self, goal=None, **kwargs):
+        goal = goal or self.make_goal()
+        return prompts.build_system_prompt(
+            goal, gates.gate_status(goal), 0, "no declaration yet", "ENGLISH", **kwargs
+        )
+
+    def test_the_guard_reaches_every_phase(self):
+        """One string serves all four, and a builder asks to get out from any
+        of them — most often from VALIDATION, where the phase's whole job is
+        finding out the answer is no."""
+        goal = self.make_goal()
+        for phase in Phase:
+            with self.subTest(phase=phase):
+                goal.phase = phase
+                goal.save(update_fields=["phase"])
+                self.assertIn(prompts.CLOSING_IS_THEIRS, self.system_for(goal))
+
+    def test_it_holds_in_the_mode_built_for_thinking(self):
+        """THINKING takes its own branch through the format call, and it is
+        the room the reported transcript happened in."""
+        self.assertIn(prompts.CLOSING_IS_THEIRS, self.system_for(mode="THINKING"))
+
+    def test_it_forbids_the_sentence_that_was_false(self):
+        """The whole content of the rule. Everything else in it is directions."""
+        self.assertIn("NEVER say a goal is closed", prompts.CLOSING_IS_THEIRS)
+
+    def test_it_takes_nothing_away_from_the_doors(self):
+        """The offer was right and stays. A guard that made the coach hedge on
+        whether closing is allowed would trade a false sentence for a cowardly
+        one, on the turn where this product's argument is that closing honestly
+        is fine."""
+        self.assertIn("closing is free", prompts.CLOSING_IS_THEIRS)
+        self.assertIn(
+            prompts.WHEN_THEY_DOUBT_THE_IDEA, self.system_for()
+        )
+
+    def test_the_tool_is_only_ever_a_reply(self):
+        """Same condition its neighbour carries, and it matters more here: a
+        sentence that raises the doubt can be argued with, and a box that opens
+        on the card in place of the two doors cannot."""
+        self.assertIn("Only ever when they have asked to get out", prompts.CLOSING_IS_THEIRS)
+        self.assertIn(
+            "ONLY when the builder has said they want out",
+            prompts.PROPOSE_GOAL_CLOSE_TOOL["function"]["description"],
+        )
+
+    def test_the_reopened_room_is_not_told_about_a_tool_it_lacks(self):
+        """That room is handed no tools at all, and describing propose_goal_close
+        to it would be the first half of this bug again — a model told to reach
+        for something that isn't there."""
+        room = prompts.build_reopened_prompt(
+            "Tiffin app", "VALIDATION", 4, 2, None, 1, 6, "ENGLISH"
+        )
+        self.assertNotIn("propose_goal_close", room)
+        self.assertIn(prompts.WHEN_THEY_DOUBT_THE_IDEA, room)
+
+    def test_the_chat_turn_is_actually_handed_the_tool(self):
+        """The half of this that a mocked stream cannot see. Every other test
+        here feeds the tool call in by hand, so the tool could be missing from
+        the list the model is given and they would all still pass — while in
+        production Masterji is back to being told to offer a door with no
+        function behind it, which is two thirds of the reported bug."""
+        seen = {}
+
+        def capture(system, messages, **kwargs):
+            seen["tools"] = kwargs.get("tools") or []
+            yield "delta", "ok"
+
+        self.make_goal()
+        with mock.patch("coach.views.llm.stream_chat", side_effect=capture):
+            b"".join(
+                self.client.post(
+                    "/api/coach/chat/", {"content": "I want out"}
+                ).streaming_content
+            )
+        names = [t["function"]["name"] for t in seen["tools"]]
+        self.assertIn("propose_goal_close", names)
+
+    def test_a_proposed_close_opens_the_box_and_closes_nothing(self):
+        """The bug, pinned. propose_goal_close OPENS THE CONTROL — the wire
+        event is its entire effect. Both of a close's inputs are the builder's
+        (RetireView 400s without a reason; the outcome is a button they press),
+        so a turn that closed the goal here would be inventing the record."""
+        goal = self.make_goal()
+        events = [
+            ("delta", "Opened the close box on your card."),
+            ("tool_call", {"name": "propose_goal_close", "arguments": {}}),
+        ]
+        with mock.patch("coach.views.llm.stream_chat", return_value=iter(events)):
+            response = self.client.post("/api/coach/chat/", {"content": "close"})
+            body = b"".join(response.streaming_content).decode()
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('"t": "close"', body)
+        goal.refresh_from_db()
+        self.assertEqual(goal.status, Goal.Status.ACTIVE)
+        self.assertEqual(GoalRetirement.objects.filter(goal=goal).count(), 0)
+
+
 class TheCoachCanSeeTheCalendarTests(CoachTestCase):
     """The state block held counts and no dates.
 

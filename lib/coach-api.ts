@@ -1081,6 +1081,13 @@ export async function prove(
 export type ChatEvents = {
   onDelta: (text: string) => void;
   onGate: (gate: { advanced: boolean; phase: Phase; detail: string }) => void;
+  /** Masterji proposed closing the goal — open the retire box on the card.
+   *
+   * Carries no payload because nothing happened on the server: unlike the gate
+   * above, which arrives with an answer the server computed, this one is a
+   * request to move the UI and the goal is still active behind it. Closing is
+   * `retireGoal`, from a reason and an exit the builder supplies themselves. */
+  onCloseProposed: () => void;
   onError: (detail: string) => void;
 };
 
@@ -1136,6 +1143,7 @@ export async function streamChat(
       const event = JSON.parse(raw);
       if (event.t === "delta") events.onDelta(event.text);
       else if (event.t === "gate") events.onGate(event);
+      else if (event.t === "close") events.onCloseProposed();
       else if (event.t === "error") events.onError(event.detail);
     }
   }
