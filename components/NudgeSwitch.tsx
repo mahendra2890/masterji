@@ -18,10 +18,10 @@ import {
  *
  * Both control rows in Masterji.tsx carry a comment saying they are at their
  * limit, and the second one was measured at 320px of 320px before the language
- * switch was moved out of it. A sixth control would put them back on three
+ * switch was moved out of it. A fifth control would put them back on three
  * lines. More than that, the row is account chrome — sign out, the changelog,
- * delete account — and this is not a setting about the account. It is a
- * setting about tonight's box, which is what this card is.
+ * the tour — and this is not a setting about the account. It is a setting
+ * about tonight's box, which is what this card is.
  *
  * So it sits under the thing it is about, where the sentence explains itself
  * without a caption or a disclosure, and the row stays a row of controls.

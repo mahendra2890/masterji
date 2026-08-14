@@ -32,13 +32,21 @@ class MeView(APIView):
     def delete(self, request):
         """Leave, and take the account with you.
 
+        Nothing in the product calls this. The control and its panel were
+        taken off the dashboard in #242 and the client function went with
+        them, deliberately: deletion stays possible on request, and the
+        erasure it performs stays exercised by the tests below, but the app
+        no longer offers a door to it.
+
         No confirmation field and no password check, deliberately. There is no
         password on these accounts — sign-in is Google — so the only thing a
         typed confirmation could prove is that the request came from the
         screen that asked for it, which the session cookie already proves.
-        The two-press control and the export offer live on that screen, where
-        a person can still change their mind; by the time it reaches here the
-        decision has been made twice and this endpoint's job is to honour it.
+        That reasoning was written when a two-press control and an export
+        offer stood in front of this, and they are what made a bare endpoint
+        safe. They are gone, so the safety is gone with them — whoever puts a
+        caller back owes the second press and the record offer somewhere, on
+        the screen or here, before this is reachable by a single click again.
 
         The cookies are cleared on the way out for the same reason logout
         clears them: the browser must not be left holding credentials for an
