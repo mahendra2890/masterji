@@ -36,9 +36,10 @@ export async function signOutAndLeave() {
  *
  * While the backend is still booting there is no answer to act on, so the
  * gate waits behind the cold-start note and keeps asking. Rendering nothing
- * — the old behaviour — left a blank screen for the two minutes a Render
- * free instance takes to start; bouncing them elsewhere would be worse still,
- * since a signed-in visitor would look signed out.
+ * — the old behaviour — left a blank screen for the length of a cold start;
+ * bouncing them elsewhere would be worse still, since a signed-in visitor
+ * would look signed out. That blank screen was two minutes on Render and is
+ * about half a minute now, which makes it less bad and not acceptable.
  *
  * `signedOut` is the page to show when there turns out to be no session. Given
  * one, nobody is redirected anywhere: a stranger arriving at "/" is the normal
