@@ -68,6 +68,9 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    # Last, so it runs closest to the view: it only starts a clock, and the
+    # clock should not include time spent in session lookup or auth.
+    "coach.middleware.LlmBudgetMiddleware",
 ]
 
 ROOT_URLCONF = "config.urls"
@@ -301,6 +304,44 @@ LLM_VISION_MODEL = os.environ.get("LLM_VISION_MODEL", LLM_JUDGE_MODEL)
 # fallback, so timing out is always safe: the caller degrades, the thread
 # comes back.
 LLM_TIMEOUT_S = int(os.environ.get("LLM_TIMEOUT_S", "60"))
+
+# Ceiling on all the model calls in ONE request, not just each of them.
+#
+# LLM_TIMEOUT_S bounds a single call and nothing bounded their sum: one prove
+# is a link check (2 × LINK_CHECK_TIMEOUT_S) plus up to two model calls at 60s
+# with num_retries=2, which is roughly 180 seconds of worst case on a box that
+# runs --workers 1 --threads 12. Twelve of those and the process answers
+# nobody, so the graceful per-call fallback was being reached slowly enough
+# that the app was unreachable while it worked.
+#
+# 120 is chosen to be generous for the honest case and fatal for the stacked
+# one: two full-length calls fit, a retry storm does not. A call that starts
+# with less than this left gets the remainder as its timeout rather than a
+# fresh 60 — that is the "cannot stack past it" property, and it is the whole
+# point of a budget over a per-call limit.
+LLM_REQUEST_BUDGET_S = int(os.environ.get("LLM_REQUEST_BUDGET_S", "120"))
+
+# The breaker: after this many consecutive failures, stop paying the timeout.
+#
+# Consecutive, so one good answer clears it — a provider having a bad minute
+# should not trip anything an hour later. Four is above the noise floor of a
+# single flaky call (litellm already retries twice inside one of ours) and well
+# under the number it takes to fill twelve threads.
+LLM_BREAKER_FAILURES = int(os.environ.get("LLM_BREAKER_FAILURES", "4"))
+
+# How long the breaker stays open, and how long the failure count survives.
+#
+# Short on purpose. This is not a circuit breaker protecting a fragile
+# downstream; it is a device for not spending twelve threads on a provider that
+# is currently down. Thirty seconds is long enough to shed a wobble and short
+# enough that recovery costs one builder one refusal, which they see as the
+# UNJUDGED floor the product already has.
+#
+# Counted in the default cache, so with CACHE_URL set (see CACHES) a bad
+# afternoon is noticed once for the deployment rather than once per process.
+# Unset, the LocMemCache fallback makes it per-process — still strictly better
+# than no breaker, and the same honest limitation the throttles carry.
+LLM_BREAKER_COOLDOWN_S = int(os.environ.get("LLM_BREAKER_COOLDOWN_S", "30"))
 
 # --- Proof screenshots: Cloudflare R2 (S3-compatible) -----------------------
 # Entirely optional. With these unset, screenshot proofs are simply off and

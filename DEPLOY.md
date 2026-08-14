@@ -50,6 +50,12 @@ dropped connections.
    `rediss://…` URL, and nothing else in the stack changes) and the counters
    are shared. The client library is already in the image, so this is a
    dashboard value and a restart, not a deploy.
+
+   It now decides one more thing: the provider breaker in `coach/llm.py` counts
+   consecutive model-call failures in the same cache. Shared, a bad afternoon at
+   the provider is noticed once for the deployment; unshared, once per worker.
+   Either way it works and either way the builder gets the same degraded
+   verdict — the difference is only how many threads are spent finding out.
 3. Note the API URL: `https://masterji-api-XXXX.onrender.com`. Check
    `/api/health/` and `/admin/`.
 

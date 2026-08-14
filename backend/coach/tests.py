@@ -13,6 +13,7 @@ import tempfile
 from datetime import date, timedelta
 from io import StringIO
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 from django.apps import apps
@@ -20,11 +21,11 @@ from django.conf import settings
 from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.db import IntegrityError, connection
 from django.db.migrations.loader import MigrationLoader
-from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APITestCase
@@ -200,6 +201,290 @@ class LlmSeamTests(SimpleTestCase):
         self.assertEqual(
             call.call_args.kwargs["model"], "anthropic/claude-sonnet-5"
         )
+
+
+class LlmMeterTests(SimpleTestCase):
+    """litellm returns `usage` on every response and nothing read it, so what
+    a builder costs, which prompt is expensive and whether an account is
+    abusive were all unanswerable. Recorded as span events rather than
+    attributes because a request can make more than one call and attributes
+    would have each one overwrite the last."""
+
+    def recording_span(self):
+        span = mock.Mock()
+        span.is_recording.return_value = True
+        return span
+
+    def fake_response(self, prompt=1200, completion=300):
+        message = mock.Mock()
+        message.content = "ok"
+        response = mock.Mock()
+        response.choices = [mock.Mock(message=message)]
+        response.usage = SimpleNamespace(
+            prompt_tokens=prompt, completion_tokens=completion
+        )
+        return response
+
+    def test_a_finished_call_records_what_it_cost(self):
+        from django.conf import settings as s
+
+        from . import llm
+
+        span = self.recording_span()
+        with (
+            mock.patch(
+                "coach.llm.litellm.completion", return_value=self.fake_response()
+            ),
+            mock.patch("coach.llm.trace.get_current_span", return_value=span),
+        ):
+            llm.complete("system", "user")
+
+        span.add_event.assert_called_once_with(
+            "llm.call",
+            {
+                "llm.model": s.LLM_MODEL,
+                "llm.prompt_tokens": 1200,
+                "llm.completion_tokens": 300,
+            },
+        )
+
+    def test_two_calls_in_one_request_both_survive(self):
+        """The reason these are events. The evening's verdict is two calls, and
+        on attributes the second would erase the first — which is the reading
+        most likely to be quietly wrong."""
+        from . import llm
+
+        span = self.recording_span()
+        with (
+            mock.patch(
+                "coach.llm.litellm.completion",
+                side_effect=[self.fake_response(100, 10), self.fake_response(900, 40)],
+            ),
+            mock.patch("coach.llm.trace.get_current_span", return_value=span),
+        ):
+            llm.complete("system", "one")
+            llm.complete("system", "two")
+
+        self.assertEqual(span.add_event.call_count, 2)
+        self.assertEqual(
+            [c.args[1]["llm.prompt_tokens"] for c in span.add_event.call_args_list],
+            [100, 900],
+        )
+
+    def test_the_streamed_half_is_metered_too(self):
+        """Chat turns are the volume and they stream, so a meter that could not
+        see them would be measuring the cheap half of the bill."""
+        from . import llm
+
+        span = self.recording_span()
+        # The usage total rides a final chunk with no choices on it — the shape
+        # stream_options={"include_usage": True} asks for.
+        tail = mock.Mock()
+        tail.choices = []
+        tail.usage = SimpleNamespace(prompt_tokens=4000, completion_tokens=250)
+
+        with (
+            mock.patch(
+                "coach.llm.litellm.completion", return_value=iter([tail])
+            ) as call,
+            mock.patch("coach.llm.trace.get_current_span", return_value=span),
+        ):
+            list(llm.stream_chat("system", []))
+
+        self.assertTrue(call.call_args.kwargs["stream_options"]["include_usage"])
+        self.assertEqual(span.add_event.call_args.args[1]["llm.prompt_tokens"], 4000)
+
+    def test_a_usage_only_chunk_does_not_crash_the_stream(self):
+        """That final chunk carries no choices. Indexing straight into
+        chunk.choices[0] would end every conversation with an IndexError at the
+        moment it finished successfully."""
+        from . import llm
+
+        tail = mock.Mock()
+        tail.choices = []
+        tail.usage = SimpleNamespace(prompt_tokens=10, completion_tokens=1)
+        with mock.patch("coach.llm.litellm.completion", return_value=iter([tail])):
+            self.assertEqual(list(llm.stream_chat("system", [])), [])
+
+    def test_nothing_is_built_when_nobody_is_tracing(self):
+        """Local dev and the test suite pay nothing — the same bargain
+        config/tracing.py makes."""
+        from . import llm
+
+        span = mock.Mock()
+        span.is_recording.return_value = False
+        with (
+            mock.patch(
+                "coach.llm.litellm.completion", return_value=self.fake_response()
+            ),
+            mock.patch("coach.llm.trace.get_current_span", return_value=span),
+        ):
+            llm.complete("system", "user")
+        span.add_event.assert_not_called()
+
+
+class LlmBudgetAndBreakerTests(SimpleTestCase):
+    """A provider wobble used to take the whole app down rather than just the
+    verdict: every request paid full timeout before reaching the UNJUDGED
+    floor, and twelve of those fill every thread the box has."""
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+        # A ContextVar outlives the test that set it, and these run in the same
+        # thread as everything after them.
+        from . import llm
+
+        self.addCleanup(llm.set_deadline, None)
+
+    def fake_response(self):
+        message = mock.Mock()
+        message.content = "ok"
+        response = mock.Mock()
+        response.choices = [mock.Mock(message=message)]
+        response.usage = None
+        return response
+
+    def test_refusal_is_a_runtime_error_so_every_caller_already_handles_it(self):
+        """The fast failure has to land in the same degraded path the slow one
+        did — ProofStatus.UNJUDGED, the stock fallback — or this trades an
+        outage for a 500."""
+        from . import llm
+
+        self.assertTrue(issubclass(llm.ProviderUnavailable, RuntimeError))
+
+    def test_a_call_gets_what_is_left_of_the_budget_not_a_fresh_timeout(self):
+        """The whole difference between a budget and a per-call limit: retries
+        cannot stack past the request's own ceiling."""
+        from . import llm
+
+        llm.set_deadline(5)
+        with mock.patch(
+            "coach.llm.litellm.completion", return_value=self.fake_response()
+        ) as call:
+            llm.complete("system", "user")
+        self.assertLessEqual(call.call_args.kwargs["timeout"], 5)
+
+    def test_a_spent_budget_refuses_before_the_network(self):
+        from . import llm
+
+        llm.set_deadline(0)
+        with mock.patch("coach.llm.litellm.completion") as call:
+            with self.assertRaises(llm.ProviderUnavailable):
+                llm.complete("system", "user")
+        call.assert_not_called()
+
+    def test_no_budget_means_the_per_call_ceiling_as_before(self):
+        """Anything reaching the seam outside a request — a shell, a management
+        command — behaves exactly as it did."""
+        from django.conf import settings as s
+
+        from . import llm
+
+        llm.set_deadline(None)
+        with mock.patch(
+            "coach.llm.litellm.completion", return_value=self.fake_response()
+        ) as call:
+            llm.complete("system", "user")
+        self.assertEqual(call.call_args.kwargs["timeout"], float(s.LLM_TIMEOUT_S))
+
+    def test_the_breaker_opens_after_consecutive_failures(self):
+        from django.conf import settings as s
+
+        from . import llm
+
+        with mock.patch(
+            "coach.llm.litellm.completion", side_effect=RuntimeError("provider down")
+        ):
+            for _ in range(s.LLM_BREAKER_FAILURES):
+                with self.assertRaises(RuntimeError):
+                    llm.complete("system", "user")
+
+        # The next one is refused without a call going out at all — that is the
+        # thread this exists to give back.
+        with mock.patch("coach.llm.litellm.completion") as call:
+            with self.assertRaises(llm.ProviderUnavailable):
+                llm.complete("system", "user")
+        call.assert_not_called()
+
+    def test_one_good_answer_clears_the_count(self):
+        """Consecutive, not cumulative. A provider having a bad minute must not
+        trip a breaker an hour later."""
+        from django.conf import settings as s
+
+        from . import llm
+
+        with mock.patch(
+            "coach.llm.litellm.completion", side_effect=RuntimeError("wobble")
+        ):
+            for _ in range(s.LLM_BREAKER_FAILURES - 1):
+                with self.assertRaises(RuntimeError):
+                    llm.complete("system", "user")
+
+        with mock.patch(
+            "coach.llm.litellm.completion", return_value=self.fake_response()
+        ):
+            llm.complete("system", "user")
+
+        # Back to zero, so one more failure is nowhere near the threshold.
+        with mock.patch(
+            "coach.llm.litellm.completion", side_effect=RuntimeError("wobble")
+        ):
+            with self.assertRaises(RuntimeError):
+                llm.complete("system", "user")
+        with mock.patch(
+            "coach.llm.litellm.completion", return_value=self.fake_response()
+        ) as call:
+            llm.complete("system", "user")
+        call.assert_called_once()
+
+    def test_a_stream_that_dies_mid_flight_counts_as_a_failure(self):
+        """A stream fails while it is read, not when it is opened, so the
+        breaker has to be told from inside the loop as well."""
+        from django.conf import settings as s
+
+        from . import llm
+
+        def dying_stream():
+            raise RuntimeError("provider hung up")
+            yield  # pragma: no cover
+
+        for _ in range(s.LLM_BREAKER_FAILURES):
+            with mock.patch(
+                "coach.llm.litellm.completion", return_value=dying_stream()
+            ):
+                with self.assertRaises(RuntimeError):
+                    list(llm.stream_chat("system", []))
+
+        with mock.patch("coach.llm.litellm.completion") as call:
+            with self.assertRaises(llm.ProviderUnavailable):
+                list(llm.stream_chat("system", []))
+        call.assert_not_called()
+
+
+class LlmBudgetMiddlewareTests(SimpleTestCase):
+    """Set per request rather than lazily, because a ContextVar lives as long
+    as its thread and start.sh runs --threads 12: a lazily-initialised deadline
+    would be inherited by whoever that thread served next."""
+
+    def test_every_request_starts_a_fresh_clock(self):
+        from django.conf import settings as s
+
+        from . import llm
+        from .middleware import LlmBudgetMiddleware
+
+        self.addCleanup(llm.set_deadline, None)
+        seen = []
+
+        def view(request):
+            seen.append(llm._remaining())
+            return "response"
+
+        llm.set_deadline(0)  # a spent budget left over from an earlier request
+        self.assertEqual(LlmBudgetMiddleware(view)(mock.Mock()), "response")
+
+        self.assertEqual(len(seen), 1)
+        self.assertGreater(seen[0], s.LLM_REQUEST_BUDGET_S - 5)
 
 
 class ModelTierTests(SimpleTestCase):
