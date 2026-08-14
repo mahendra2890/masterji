@@ -6746,18 +6746,23 @@ class WorkshopSurvivesTheCommitTests(CoachTestCase):
     URL = "/api/coach/workshop/chat/"
 
     ROOM = {
-        "title": "Tiffin for Block C",
         "problem": "Hostellers miss dinner when labs run late and end up on Maggi",
         "place": "the Block C mess queue at 8pm",
     }
 
-    def say(self, arguments):
-        """One workshop turn whose only event is a suggest_goal call."""
-        stream = [("tool_call", {"name": "suggest_goal", "arguments": arguments})]
+    def turn(self, name, arguments):
+        """One workshop turn whose only event is the named tool call."""
+        stream = [("tool_call", {"name": name, "arguments": arguments})]
         with mock.patch("coach.views.llm.stream_chat", return_value=iter(stream)):
             response = self.client.post(self.URL, {"content": "this one, then"})
             b"".join(response.streaming_content)
         return Workshop.objects.get(user=self.alice)
+
+    def say(self, arguments):
+        """The room turning up parts of IDEA's bar. sketch_idea_bar is the one
+        collector: it is maintained through the conversation, so it catches a
+        room that talks an idea through and never reaches a title."""
+        return self.turn("sketch_idea_bar", arguments)
 
     def commit(self, title="Tiffin for Block C"):
         response = self.client.post("/api/coach/goals/", {"title": title})
@@ -6780,11 +6785,23 @@ class WorkshopSurvivesTheCommitTests(CoachTestCase):
         self.assertNotIn("why_there", brief["parts"])
         self.assertNotIn("first_conversation", brief["parts"])
 
-    def test_a_title_alone_writes_no_brief(self):
-        """Every room that spent its turns on the tiebreak rather than on the
-        body of the idea. A normal workshop, not a failure — and it must leave
-        the goal exactly as it was before any of this existed."""
-        self.assertEqual(self.say({"title": "Tiffin for Block C"}).brief, {})
+    def test_the_meter_and_the_brief_cannot_describe_different_rooms(self):
+        """One tool call writes both, which is why suggest_goal stopped
+        carrying these four arguments: two tools built from the same bar entry
+        meant the forecast on screen and the brief on the goal could be written
+        at different moments, from different calls, and disagree."""
+        workshop = self.say(self.ROOM)
+        self.assertEqual(workshop.sketch_parts, workshop.brief["parts"])
+        self.assertEqual(workshop.sketch_parts, ["problem", "place"])
+
+    def test_the_tiebreak_carries_a_title_and_nothing_else(self):
+        """suggest_goal fills the commit box and that is the whole of its job.
+        A room that reached a title and never sketched leaves the goal exactly
+        as it was before any of this existed."""
+        workshop = self.turn("suggest_goal", {"title": "Tiffin for Block C"})
+        self.assertEqual(workshop.suggested_title, "Tiffin for Block C")
+        self.assertEqual(workshop.brief, {})
+        self.assertEqual(workshop.sketch_parts, [])
         self.assertEqual(self.commit().brief, {})
 
     def test_an_undeclared_text_argument_cannot_become_the_paragraph(self):
