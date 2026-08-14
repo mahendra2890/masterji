@@ -276,22 +276,35 @@ def _active_goal(user) -> Goal | None:
 # from the transcript the builder can see.
 WORKSHOP_TURNS = 15
 
+# And the reopened room's, which is a different room and gets a different one.
+# Five because "should I keep going" is a shorter conversation than "what should
+# I build" — the goal, the phase and the record all already exist and are handed
+# to it as facts. A long version of this conversation is the drift the meter is
+# here to refuse, on a day the builder is already looking for a reason to stop.
+REOPENED_TURNS = 5
+
 
 def _open_workshop(user, create: bool = False) -> Workshop | None:
-    """The builder's open workshop, if the room is available to them at all.
+    """The room this builder can be in right now, whichever of the two it is.
 
-    Available only while no goal is active — the exact inverse of the "Set a
-    goal first." guard on ChatView, DeclareView and ProveView, and the reason
-    this room exists: those three are why a builder's first contact with
-    Masterji is the welcome message written after the commit that frightened
-    them.
+    Before the goal: the OPEN room, which exists because ChatView, DeclareView
+    and ProveView all refuse with "Set a goal first" — that is why a builder's
+    first contact with Masterji used to be the welcome message written after the
+    commit that frightened them.
+
+    After it: the REOPENED room for that goal, once. The first room answered "I
+    don't have an idea yet" and never answered "I have one and I no longer
+    believe in it", which is the same sentence four days later — and the only
+    way to get a room for it was to retire the goal, so burying the idea was the
+    cheapest route to reconsidering it.
 
     `create` is off by default so reads never open a room. A workshop is a row
     with a turn budget attached, and one should exist because a builder started
     talking, not because a dashboard polled.
     """
-    if _active_goal(user) is not None:
-        return None
+    goal = _active_goal(user)
+    if goal is not None:
+        return _reopened_workshop(goal, create=create)
     workshop = Workshop.objects.filter(
         user=user, status=Workshop.Status.OPEN
     ).first()
@@ -307,6 +320,41 @@ def _open_workshop(user, create: bool = False) -> Workshop | None:
         return Workshop.objects.filter(
             user=user, status=Workshop.Status.OPEN
         ).first()
+
+
+def _reopened_workshop(goal: Goal, create: bool = False) -> Workshop | None:
+    """This goal's one reopening, if it has been started.
+
+    Once per goal is a database constraint (one_workshop_per_goal), not a count
+    kept here: the meter is what makes this a room rather than a hiding place,
+    and a meter a builder can reset by leaving and coming back is not one. A
+    spent reopening therefore still occupies the slot and this still returns it
+    — the client needs the row to draw the closed door.
+    """
+    workshop = Workshop.objects.filter(goal=goal).first()
+    if workshop is not None or not create:
+        return workshop
+    try:
+        return Workshop.objects.create(
+            user=goal.user, goal=goal, status=Workshop.Status.REOPENED
+        )
+    except IntegrityError:
+        return Workshop.objects.filter(goal=goal).first()
+
+
+def _turn_budget(workshop: Workshop) -> int:
+    """How many turns this room gets, which is a fact about which room it is.
+
+    The reopened room is smaller on purpose. Fifteen turns is what it takes to
+    get from nothing to a candidate worth committing to; deciding whether to
+    keep going on a goal that already exists is a shorter conversation, and a
+    long one is the drift the meter exists to refuse.
+    """
+    return (
+        REOPENED_TURNS
+        if workshop.status == Workshop.Status.REOPENED
+        else WORKSHOP_TURNS
+    )
 
 
 def _turns_used(workshop: Workshop) -> int:
@@ -350,17 +398,23 @@ def _workshop_payload(workshop: Workshop | None) -> dict | None:
     if workshop is None:
         return None
     used = _turns_used(workshop)
+    total = _turn_budget(workshop)
     return {
         "id": workshop.id,
+        # Which of the two rooms this is. The client draws one differently from
+        # the other — the pre-goal room has a pile and a forecast and the
+        # reopened one has neither — and asking it to infer that from the
+        # presence of candidates would make an empty first room look reopened.
+        "status": workshop.status,
         "candidates": list(workshop.candidates or []),
         "max_candidates": Workshop.MAX_CANDIDATES,
         "suggested_title": workshop.suggested_title,
         "sketch": _sketch_payload(list(workshop.sketch_parts or [])),
         "turns_used": used,
-        "turns_total": WORKSHOP_TURNS,
+        "turns_total": total,
         # Sent computed rather than left to the client, so the meter on screen
         # and the refusal from the server can never disagree about what's left.
-        "turns_left": max(WORKSHOP_TURNS - used, 0),
+        "turns_left": max(total - used, 0),
         "messages": WorkshopMessageSerializer(
             workshop.messages.all(), many=True
         ).data,
@@ -379,6 +433,17 @@ WORKSHOP_SPENT = (
     "You don't need a better idea; you need one you can test. Pick the one you "
     "could ask somebody about this week, put it in the box, and commit. The "
     "first thing it asks for is one evening at your desk."
+)
+
+# The reopened room's version. Same shape and the same rule about the number,
+# and a different exit, because the door out of this one is not the commit box:
+# it is the three things that were always available, said once more without a
+# recommendation attached.
+REOPENED_SPENT = (
+    "That's this room done — {turns} turns, once per goal. Nothing here changed "
+    "your record and nothing was supposed to. You have the same three moves you "
+    "walked in with: finish the bar in front of you, sharpen the wording, or "
+    "close it today and pick again. Whichever it is, it's yours to make."
 )
 
 
@@ -754,6 +819,14 @@ class StateView(APIView):
         return Response(
             {
                 "goal": GoalSerializer(goal).data,
+                # This goal's one reopening, if it has been started. Null until
+                # then, and read without creating for the same reason as the
+                # room before the goal: a room is a turn budget, and one should
+                # exist because a builder started talking, never because a
+                # dashboard polled. The door beside "close this goal" is drawn
+                # from `workshop_turns` below, which is sent regardless.
+                "workshop": _workshop_payload(_open_workshop(request.user)),
+                "workshop_turns": REOPENED_TURNS,
                 "gate": _gate_payload(goal),
                 "streak": streaks.current_streak(goal, today),
                 # The run that was, next to the run that is. A builder who
@@ -2131,28 +2204,36 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
 
 
 class WorkshopChatView(throttles.VoicedThrottleMixin, APIView):
-    """The room before the goal (models.Workshop).
+    """Both workshops (models.Workshop): the room before the goal, and the one
+    reopened once per goal after it.
 
-    Streams NDJSON like ChatView, and is guarded by the INVERSE condition: this
-    endpoint 400s while a goal IS active, where ChatView 400s while one is not.
-    Between them there is now no state a builder can be in where Masterji
-    cannot speak.
+    Streams NDJSON like ChatView. It used to be guarded by the inverse of
+    ChatView's condition — 400 while a goal IS active — and that guard is gone,
+    because the sentence it was refusing turned out to be a real one: "I have an
+    idea and I no longer believe in it" is the day-four version of "I don't have
+    an idea yet", and the only room for it was the one you got by burying the
+    goal. Which room a turn lands in is decided by _open_workshop from the
+    builder's own state; neither is reachable by asking for it.
 
-    Three things are enforced here in server code, with no model in the loop:
-    the turn cap, the three-candidate ceiling, and the fact that a suggested
-    title only ever fills the commit box. Nothing in this view writes a CheckIn,
-    a proof or a phase — gates.py has nothing here to read, which is what makes
-    the room safe to give away.
+    Everything that made the first room safe to give away is enforced here in
+    server code with no model in the loop, and holds for the second: the turn
+    cap (a smaller one), the three-candidate ceiling, and the fact that a
+    suggested title only ever fills the commit box. The reopened room is handed
+    no tools at all. Nothing in this view writes a CheckIn, a proof or a phase —
+    gates.py has nothing here to read.
     """
 
     permission_classes = [IsAuthenticated]
     throttle_classes = throttles.THROTTLES
     # Draws from the chat bucket rather than one of its own. Every turn in here
-    # is the same paid call a chat turn is, and a builder cannot be in both
-    # rooms — one endpoint refuses while a goal exists and the other refuses
-    # while none does — so there is no hour in which the two ceilings could be
-    # spent against each other. A second scope would have been a second budget
-    # for the same spending, reachable by retiring a goal.
+    # is the same paid call a chat turn is, and a second scope would have been a
+    # second budget for the same spending.
+    #
+    # That argument used to rest on the two endpoints refusing each other, which
+    # stopped being true when the room learned to reopen: a builder with a goal
+    # can now be in both. The shared bucket is what makes that safe rather than
+    # something to worry about — the hour's ceiling is on the spending, not on
+    # which room it was spent in, so reopening cannot buy a second allowance.
     throttle_scope = "chat"
     throttle_message = (
         "That's a lot of thinking out loud for one hour. Sit with what he's "
@@ -2160,14 +2241,6 @@ class WorkshopChatView(throttles.VoicedThrottleMixin, APIView):
     )
 
     def post(self, request):
-        # The mirror of "Set a goal first." — and worth saying in the same
-        # register, because a builder who lands here with a goal is a client
-        # out of date rather than somebody doing something wrong.
-        if _active_goal(request.user) is not None:
-            return Response(
-                {"detail": "You have a goal — the workshop is for before that."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
         content = (request.data.get("content") or "").strip()
         if not content:
             return Response(
@@ -2179,31 +2252,54 @@ class WorkshopChatView(throttles.VoicedThrottleMixin, APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         workshop = _open_workshop(request.user, create=True)
-        if workshop is None:  # a goal appeared between the guard and here
+        if workshop is None:  # nothing to open, and nothing to say about it
             return Response(
-                {"detail": "You have a goal — the workshop is for before that."},
+                {"detail": "There's no room open right now."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        reopened = workshop.status == Workshop.Status.REOPENED
+        total = _turn_budget(workshop)
         # The cap, refused in code and voiced. Checked BEFORE the row is
         # written, so a refused turn costs nothing and the count the builder
         # sees is the count the server used.
-        if _turns_used(workshop) >= WORKSHOP_TURNS:
+        if _turns_used(workshop) >= total:
             logger.info(f"Workshop {workshop.id} spent — turn refused")
+            refusal = REOPENED_SPENT if reopened else WORKSHOP_SPENT
             return Response(
-                {"detail": WORKSHOP_SPENT.format(turns=WORKSHOP_TURNS)},
+                {"detail": refusal.format(turns=total)},
                 status=status.HTTP_429_TOO_MANY_REQUESTS,
             )
         WorkshopMessage.objects.create(
             workshop=workshop, role=WorkshopMessage.Role.USER, content=content
         )
-        system = prompts.build_workshop_prompt(
-            candidates=list(workshop.candidates or []),
-            turns_used=_turns_used(workshop),
-            turns_total=WORKSHOP_TURNS,
-            maximum=Workshop.MAX_CANDIDATES,
-            tone=request.user.tone,
-            sketch=list(workshop.sketch_parts or []),
-        )
+        if reopened:
+            goal = workshop.goal
+            system = prompts.build_reopened_prompt(
+                title=goal.title,
+                phase=goal.phase,
+                # _client_day rather than the server's, for the same reason
+                # every other read of the loop's date uses it: "day 4 of BUILD"
+                # is off by one for every builder ahead of UTC otherwise, and
+                # this room's whole subject is how long this has been going on.
+                days_in_phase=streaks.days_in_phase(goal, _client_day(request)),
+                accepted=gates.accepted_proofs_total(goal),
+                # The same list the coach next door is handed, from the same
+                # function: a builder deciding whether this was worth it should
+                # be talking to somebody who can see what they already did.
+                banked=_banked(goal),
+                turns_used=_turns_used(workshop),
+                turns_total=total,
+                tone=request.user.tone,
+            )
+        else:
+            system = prompts.build_workshop_prompt(
+                candidates=list(workshop.candidates or []),
+                turns_used=_turns_used(workshop),
+                turns_total=total,
+                maximum=Workshop.MAX_CANDIDATES,
+                tone=request.user.tone,
+                sketch=list(workshop.sketch_parts or []),
+            )
         # Same exclusion as ChatView, for the same reason: a SYSTEM row is the
         # app talking about a turn that failed, and feeding it back as
         # "assistant" hands the model its own outage as something it said.
@@ -2218,14 +2314,20 @@ class WorkshopChatView(throttles.VoicedThrottleMixin, APIView):
             for m in list(turns)[::-1]
         ]
         response = StreamingHttpResponse(
-            self._events(workshop, system, history),
+            self._events(workshop, system, history, reopened=reopened),
             content_type="application/x-ndjson",
         )
         response["Cache-Control"] = "no-cache"
         response["X-Accel-Buffering"] = "no"
         return response
 
-    def _events(self, workshop: Workshop, system: str, history: list[dict]):
+    def _events(
+        self,
+        workshop: Workshop,
+        system: str,
+        history: list[dict],
+        reopened: bool = False,
+    ):
         line = lambda obj: json.dumps(obj) + "\n"  # noqa: E731
         parts: list[str] = []
         candidates = list(workshop.candidates or [])
@@ -2241,16 +2343,38 @@ class WorkshopChatView(throttles.VoicedThrottleMixin, APIView):
                 for kind, payload in llm.stream_chat(
                     system,
                     history,
-                    tools=[
-                        prompts.PARK_CANDIDATE_TOOL,
-                        prompts.suggest_goal_tool(),
-                        prompts.sketch_idea_bar_tool(),
-                    ],
+                    # None of the three in the reopened room, and the absence is
+                    # the design rather than an omission: there is no pile to
+                    # park into, no title to suggest for a goal that exists, and
+                    # no IDEA bar to rehearse for a phase already committed to
+                    # and possibly long past. A room whose only output is the
+                    # conversation is exactly what "banks nothing" means when
+                    # you write it down in code.
+                    tools=(
+                        []
+                        if reopened
+                        else [
+                            prompts.PARK_CANDIDATE_TOOL,
+                            prompts.suggest_goal_tool(),
+                            prompts.sketch_idea_bar_tool(),
+                        ]
+                    ),
                 ):
                     if kind == "delta":
                         parts.append(payload)
                         yield line({"t": "delta", "text": payload})
                     elif kind == "tool_call":
+                        # Sent none, and honours none. The tool list above is
+                        # already empty for this room, so this can only fire on
+                        # a model inventing a call — and "banks nothing" is a
+                        # promise this view keeps in code rather than one the
+                        # schema happens to make unlikely. Same division of
+                        # labour as the fourth candidate.
+                        if reopened:
+                            logger.info(
+                                f"Workshop {workshop.id} reopened — tool call dropped"
+                            )
+                            continue
                         name = payload.get("name")
                         arguments = payload.get("arguments", {})
                         if name == "park_candidate":

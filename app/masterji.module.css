@@ -1724,6 +1724,18 @@
   cursor: pointer;
 }
 
+/* The two ways out of a goal you have stopped believing in, side by side and
+   the same weight. Reconsidering used to cost a retirement, which made the
+   honest move — killing the idea — the cheapest route to merely doubting it.
+   They wrap on a narrow card rather than shrinking: both are 29px targets and
+   neither is a control to make harder to hit. */
+.doors {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 14px;
+}
+
 .retireLink:hover {
   color: var(--text);
 }

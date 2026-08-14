@@ -187,6 +187,10 @@ export type Guidance = {
  * budget and one should exist because somebody started talking. */
 export type Workshop = {
   id: number;
+  /** Which of the two rooms this is: the one before the goal, or the one
+   * reopened once per goal after it. Sent by the server rather than inferred
+   * from whether there are candidates — an empty first room has none either. */
+  status: "OPEN" | "REOPENED" | "SPENT";
   /** One-liners parked so far, oldest first. Capped server-side. */
   candidates: string[];
   maxCandidates: number;
@@ -357,6 +361,7 @@ type ServerWorkshopMessage = {
 };
 type ServerWorkshop = {
   id: number;
+  status?: "OPEN" | "REOPENED" | "SPENT";
   candidates?: string[];
   max_candidates?: number;
   suggested_title?: string;
@@ -374,6 +379,7 @@ type ServerWorkshop = {
 
 const fromServerWorkshop = (w: ServerWorkshop): Workshop => ({
   id: w.id,
+  status: w.status ?? "OPEN",
   candidates: w.candidates ?? [],
   maxCandidates: w.max_candidates ?? 3,
   suggestedTitle: w.suggested_title ?? "",
@@ -967,7 +973,11 @@ export async function streamWorkshopChat(
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ content }),
+    // The date goes with it for the reopened room, which tells the coach how
+    // many days into the phase this is — "day 4 of BUILD" is off by one for
+    // every builder ahead of UTC without it, and how long this has been going
+    // on is most of what that room is about. The pre-goal room ignores it.
+    body: JSON.stringify({ content, date: localDate() }),
   });
   if (res.status === 401) {
     if (!retried && (await refreshSession()))

@@ -436,8 +436,13 @@ class Workshop(SoftDeleteModel):
     to refuse, all of it enforced in server code and none of it in a prompt:
 
     - ONE open workshop per user, the conditional-unique pattern Goal already
-      uses for one_active_goal_per_user, and available only while no goal is
-      active — the exact inverse of the guard above.
+      uses for one_active_goal_per_user. The pre-goal room is available only
+      while no goal is active — the exact inverse of the guard above — and the
+      REOPENED room is its mirror: available only while one IS, once per goal,
+      with a smaller meter. The room answered "I don't have an idea yet"; it
+      did not answer "I have one and I no longer believe in it", which is the
+      same sentence four days later, and the only way to get a room back for it
+      was to bury the goal first.
     - A hard turn cap (views.WORKSHOP_TURNS) counted off WorkshopMessage rows.
       Turns spent means the only door left is Commit.
     - At most three parked candidates. An unbounded backlog of ideas is a
@@ -456,10 +461,25 @@ class Workshop(SoftDeleteModel):
 
     class Status(models.TextChoices):
         OPEN = "OPEN", "Open"
+        # The room a builder comes back to once the goal exists and has stopped
+        # convincing them. A different room, not the same one unlocked: fewer
+        # turns, no candidates, no suggested title, and one per goal ever.
+        REOPENED = "REOPENED", "Reopened"
         SPENT = "SPENT", "Spent"
 
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="workshops"
+    )
+    # Null for the room before the goal, which is every OPEN and SPENT row: that
+    # room exists precisely because there is nothing to hang it off. Set on a
+    # REOPENED row, which is what makes "once per goal" a database fact rather
+    # than a count somebody has to remember to take.
+    goal = models.ForeignKey(
+        "Goal",
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="workshops",
     )
     status = models.CharField(
         max_length=8, choices=Status.choices, default=Status.OPEN
@@ -511,7 +531,20 @@ class Workshop(SoftDeleteModel):
                 fields=["user"],
                 condition=models.Q(status="OPEN", deleted_at__isnull=True),
                 name="one_open_workshop_per_user",
-            )
+            ),
+            # And one reopened room per GOAL, ever — not one at a time. The
+            # meter is what makes the room a room rather than a hiding place,
+            # and a meter you can reset by walking out and back in is not one.
+            # Keyed on the goal rather than on (goal, status) for exactly that
+            # reason: a spent reopening must still occupy the slot.
+            #
+            # Nullable FKs do not collide in a unique index, so every pre-goal
+            # room — all of them goal-less — is untouched by this.
+            models.UniqueConstraint(
+                fields=["goal"],
+                condition=models.Q(deleted_at__isnull=True),
+                name="one_workshop_per_goal",
+            ),
         ]
 
     def __str__(self):

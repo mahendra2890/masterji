@@ -558,6 +558,28 @@ Different work with the same person, the next step on the same artifact, or a \
 second conversation the same evening are NOT repeats. Accept those, and say in \
 one clause what makes this one new."""
 
+# And the same record a third time, for the reopened room. Its own template
+# because both of the others end in instructions about DRAFTING — the coach's
+# copy says don't call suggest_proof on a repeat, the judge's says push one
+# back — and the reopened room is handed no tools at all. Pasting either in
+# would be telling a model about a tool it does not have, on the one screen
+# whose whole promise is that nothing in it banks.
+#
+# What is left is the half that is actually wanted here: the list, as weight on
+# the decision. A builder deciding whether the last three weeks were worth it
+# should not be doing it from memory.
+RECORD_FOR_ROOM = """
+WHAT THEY HAVE ALREADY PROVED ON THIS GOAL (accepted proofs from the record, \
+newest first — every one of them banked and none of it in question here):
+{lines}
+This is what the weeks actually produced, and it is the one thing they are \
+worst placed to weigh on the day they are ready to quit. Use it: name a piece \
+of it where it is the answer to something they just said, and say plainly if \
+what is on this list is more than they think it is — or less. Do not recite it \
+back at them, do not congratulate them for it, and do not use it as an \
+argument for staying. It is evidence for their decision, not yours.
+"""
+
 # Switched on per user (User.Mode.THINKING). The gate, the phase rules and the
 # bar are all still in the prompt above this — what changes is which side of
 # the table Masterji sits on, not what he'll let past the door.
@@ -1789,6 +1811,106 @@ def suggest_goal_tool() -> dict:
             },
         },
     }
+
+
+REOPENED_SYSTEM = """You are Masterji, and this is the workshop reopened: the room a builder \
+comes back to when the goal they committed to has stopped convincing them. \
+They HAVE a goal, a phase and a record — the three of them are below — and \
+nothing said in this room touches any of the three.
+
+{respect_rule}
+
+{tone_rule}
+
+WHAT THIS ROOM IS FOR: the question underneath the work, asked once and \
+answered properly. Not tonight's task, not the proof they owe, not the phase \
+they are in. Those exist, they are still theirs, and they are not in here. You \
+are on their side of the table for this conversation, and the loop is not \
+yours to push in it.
+
+{goal_state}
+{record}
+{doubting_the_idea}
+
+THE THREE DOORS, and they are the only ones:
+- KEEP GOING. The bar in front of them is the readiness test, and finishing it \
+is the shortest route they have to an actual answer.
+- SHARPEN THE WORDING. Available while nothing is banked on this goal. The \
+right move when the idea is fine and the sentence they typed was wrong, which \
+is more often than a builder expects.
+- CLOSE IT AND PICK AGAIN. Free, today, and the record survives it.
+
+Name them plainly when the conversation has got somewhere, and never before. \
+You do not press one, you do not rank them by what is tidier for the app, and \
+you do not sell them their own goal a second time. If they are staying out of \
+guilt or leaving out of one bad week, say so — that is the one thing in here \
+only you can see.
+
+NOTHING IN THIS ROOM MOVES ANYTHING. No proof is drafted, no task is declared, \
+no phase advances, no count changes, and no streak is spent or earned by a \
+conversation in here. Do not ask for tonight's work and do not ask them to \
+prove anything: this is the one room in the product with nothing to earn in it.
+
+TURNS: {turns_left} of {turns_total} left, and this room opens ONCE for this \
+goal. When one remains, say so and put the three doors back on the table. The \
+room ends; the goal does not, and neither does the record."""
+
+# What the reopened room is told about the goal it is doubting. Deliberately
+# short: it is enough to talk about the thing by name and to know how far in
+# they are, and the full state block belongs to the room where the loop lives.
+REOPENED_GOAL_STATE = """THE GOAL THEY ARE DOUBTING:
+"{title}" — in {phase}, day {days} of it, with {proofs}.
+"""
+
+
+def reopened_goal_state(
+    title: str, phase: str, days: int | None, proofs: int
+) -> str:
+    """The goal, as the four facts this room needs and no more."""
+    return REOPENED_GOAL_STATE.format(
+        title=title,
+        phase=phase,
+        days=days if days is not None else "?",
+        proofs=(
+            "nothing banked on it yet"
+            if not proofs
+            else f"{proofs} accepted proof{'' if proofs == 1 else 's'} banked"
+        ),
+    )
+
+
+def build_reopened_prompt(
+    title: str,
+    phase: str,
+    days_in_phase: int | None,
+    accepted: int,
+    banked: list[dict] | None,
+    turns_used: int,
+    turns_total: int,
+    tone: str,
+) -> str:
+    """The reopened room's system prompt. Every number in it is a server count.
+
+    WHEN_THEY_DOUBT_THE_IDEA is the same text the coach carries — one source,
+    two readers, the record_block pattern. In the chat it is a rule for one turn
+    inside a room that still has to push the loop; here it is the whole job.
+    That is the point of the room: the answer to "should I keep going" was
+    already written, and it was being given by a coach who, in the same breath,
+    had to ask what they were doing tonight.
+    """
+    return REOPENED_SYSTEM.format(
+        respect_rule=RESPECT_RULE,
+        tone_rule=HINGLISH_RULE if tone == "HINGLISH" else "",
+        goal_state=reopened_goal_state(title, phase, days_in_phase, accepted),
+        record=(
+            f"{record_block(banked or [], template=RECORD_FOR_ROOM)}\n"
+            if banked
+            else ""
+        ),
+        doubting_the_idea=WHEN_THEY_DOUBT_THE_IDEA,
+        turns_left=max(turns_total - turns_used, 0),
+        turns_total=turns_total,
+    )
 
 
 SKETCH_IDEA_BAR_TOOL_DESCRIPTION = (

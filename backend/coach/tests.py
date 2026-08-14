@@ -5256,23 +5256,28 @@ class WorkshopTests(CoachTestCase):
     def workshop(self) -> Workshop:
         return Workshop.objects.get(user=self.alice)
 
-    # --- the guard, inverted -------------------------------------------------
+    # --- which room a turn lands in ------------------------------------------
 
-    def test_the_room_is_open_only_while_no_goal_is(self):
-        """The exact inverse of ChatView's "Set a goal first." — and the whole
-        reason the room exists, since that guard is why a builder's first contact
-        with Masterji arrives after the commit that frightened them."""
+    def test_the_builders_own_state_picks_the_room(self):
+        """Neither room is reachable by asking for it. Before the goal the turn
+        opens the room that exists because ChatView refuses without one; after
+        it, the same endpoint opens that goal's one reopening — the day-four
+        version of the same sentence, which used to cost a retirement."""
         response, _ = self.say()
         self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.workshop().status, Workshop.Status.OPEN)
 
-        self.make_goal()
-        response, _ = self.say()
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("workshop is for before that", response.json()["detail"])
+        goal = self.make_goal()
+        response, _ = self.say("I don't think this is going anywhere")
+        self.assertEqual(response.status_code, 200)
+        reopened = Workshop.objects.get(goal=goal)
+        self.assertEqual(reopened.status, Workshop.Status.REOPENED)
+        self.assertEqual(reopened.user, self.alice)
 
     def test_chat_and_workshop_are_never_both_shut(self):
         """Between the two endpoints there is no state a builder can be in where
-        Masterji cannot speak. That was the finding this issue answers."""
+        Masterji cannot speak. That was the finding the room answered, and it is
+        now true in the stronger direction too: with a goal, both are open."""
         with mock.patch(
             "coach.views.llm.stream_chat", return_value=iter([("delta", "ok")])
         ):
@@ -5284,7 +5289,9 @@ class WorkshopTests(CoachTestCase):
             )
 
             self.make_goal()
-            self.assertEqual(self.client.post(self.URL, {"content": "hi"}).status_code, 400)
+            with_goal_room = self.client.post(self.URL, {"content": "hi"})
+            list(with_goal_room.streaming_content)
+            self.assertEqual(with_goal_room.status_code, 200)
             with_goal = self.client.post("/api/coach/chat/", {"content": "hi"})
             list(with_goal.streaming_content)
             self.assertEqual(with_goal.status_code, 200)
@@ -5493,6 +5500,138 @@ class WorkshopTests(CoachTestCase):
         )
         self.assertIn("box is right there", full)
         self.assertNotIn("Still open", full)
+
+    # --- the room that reopens -----------------------------------------------
+
+    def reopen(self, content="I don't believe in this any more", stream=None):
+        """One turn in the reopened room. Assumes a goal is already active."""
+        return self.say(content, stream=stream)
+
+    def test_the_reopening_is_once_per_goal_and_the_database_says_so(self):
+        """The meter is what makes this a room rather than a hiding place, and a
+        meter you can reset by walking out and back in is not one. So the slot
+        is keyed on the goal and a spent reopening still occupies it."""
+        goal = self.make_goal()
+        self.reopen()
+        with self.assertRaises(IntegrityError):
+            Workshop.objects.create(
+                user=self.alice, goal=goal, status=Workshop.Status.REOPENED
+            )
+
+    def test_the_reopened_room_gets_five_turns_not_fifteen(self):
+        """A different room, not the first one unlocked. Deciding whether to
+        keep going is a shorter conversation than deciding what to build."""
+        self.make_goal()
+        for i in range(views.REOPENED_TURNS):
+            response, _ = self.reopen(f"turn {i}")
+            self.assertEqual(response.status_code, 200)
+
+        refused = self.client.post(self.URL, {"content": "one more"})
+        self.assertEqual(refused.status_code, 429)
+        detail = refused.json()["detail"]
+        self.assertIn(str(views.REOPENED_TURNS), detail)
+        # The exit out of THIS room is the three doors, not the commit box —
+        # there is already a goal, so "put it in the box and commit" would be
+        # the wrong sentence entirely.
+        self.assertIn("close it today", detail)
+        self.assertNotIn("commit", detail.lower())
+        payload = self.client.get("/api/coach/state/").json()["workshop"]
+        self.assertEqual(payload["turns_total"], views.REOPENED_TURNS)
+        self.assertEqual(payload["turns_left"], 0)
+        self.assertEqual(payload["status"], Workshop.Status.REOPENED)
+
+    def test_the_reopened_room_is_handed_no_tools_and_honours_none(self):
+        """Banks nothing, in code rather than by the schema happening to make it
+        unlikely. It has no pile to park into, no title to suggest for a goal
+        that exists, and no IDEA bar to rehearse for a phase already committed
+        to — so a call that arrives anyway is dropped."""
+        self.make_goal()
+        with mock.patch(
+            "coach.views.llm.stream_chat", return_value=iter([("delta", "ok")])
+        ) as streamed:
+            self.client.post(self.URL, {"content": "hi"}).streaming_content.__iter__()
+            list(self.client.post(self.URL, {"content": "hi"}).streaming_content)
+        self.assertEqual(streamed.call_args.kwargs["tools"], [])
+
+        self.reopen(
+            stream=self.park("a shinier idea")
+            + self.sketch(problem="p")
+            + [
+                (
+                    "tool_call",
+                    {"name": "suggest_goal", "arguments": {"title": "something else"}},
+                )
+            ]
+        )
+        workshop = Workshop.objects.get(goal__isnull=False)
+        self.assertEqual(workshop.candidates, [])
+        self.assertEqual(workshop.sketch_parts, [])
+        self.assertEqual(workshop.suggested_title, "")
+
+    def test_the_reopened_room_moves_nothing_it_is_asked_about(self):
+        """It exists so that reconsidering costs less than burying. Which means
+        it must cost nothing else either: no proof, no phase, no count."""
+        goal = self.make_goal()
+        state = lambda: (  # noqa: E731
+            Goal.objects.get(id=goal.id).phase,
+            gates.accepted_proofs(goal),
+            CheckIn.objects.count(),
+            # Not one row in the goal's own transcript either: this room writes
+            # WorkshopMessage, and the two logs are separate on purpose.
+            Message.objects.count(),
+        )
+        before = state()
+        self.reopen("is this even worth it")
+        self.reopen("I think I want to keep going")
+        self.assertEqual(state(), before)
+
+    def test_a_new_goal_gets_its_own_room(self):
+        """Once per goal, not once per user: the builder who pivots is a builder
+        who used the room correctly, and the next idea gets its own."""
+        first = self.make_goal()
+        self.reopen()
+        self.client.post(f"/api/coach/goals/{first.id}/retire/", {"reason": "no"})
+        self.say("starting again")
+        second = self.client.post("/api/coach/goals/", {"title": "Second"}).json()
+        self.reopen()
+        self.assertEqual(
+            Workshop.objects.filter(goal__isnull=False).count(), 2
+        )
+        self.assertTrue(Workshop.objects.filter(goal_id=second["id"]).exists())
+
+    def test_the_reopened_prompt_is_the_doubt_rule_without_the_loop(self):
+        """The answer to "should I keep going" was already written — it was just
+        being given by a coach who had to ask what they were doing tonight in
+        the same breath. One source, two readers, the record_block pattern."""
+        text = prompts.build_reopened_prompt(
+            title="Tiffin for Block C",
+            phase=Phase.VALIDATION,
+            days_in_phase=9,
+            accepted=2,
+            banked=[
+                {
+                    "date": "2026-08-10",
+                    "phase": "VALIDATION",
+                    "declared": "talk to Priya",
+                    "proof": "she pays 40 a meal",
+                }
+            ],
+            turns_used=1,
+            turns_total=views.REOPENED_TURNS,
+            tone="ENGLISH",
+        )
+        self.assertIn(prompts.WHEN_THEY_DOUBT_THE_IDEA, text)
+        # The goal it is doubting, by name and by how far in they are.
+        self.assertIn("Tiffin for Block C", text)
+        self.assertIn("VALIDATION", text)
+        self.assertIn("day 9", text)
+        # And what they already did, so the room is not asking them to weigh it
+        # up from memory.
+        self.assertIn("she pays 40 a meal", text)
+        # None of the loop. This is the whole point: no task, no proof tonight.
+        self.assertNotIn("suggest_proof", text)
+        self.assertIn("NOTHING IN THIS ROOM MOVES ANYTHING", text)
+        self.assertIn(f"{views.REOPENED_TURNS - 1} of {views.REOPENED_TURNS}", text)
 
     # --- nothing here reaches the gate ---------------------------------------
 
