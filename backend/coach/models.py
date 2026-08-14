@@ -491,6 +491,17 @@ class Workshop(SoftDeleteModel):
     # verdict: nothing here is judged, nothing banks, and IDEA's one proof is
     # owed in full the same evening either way.
     brief = models.JSONField(default=dict, blank=True)
+    # The same four parts, counted as the conversation goes rather than once at
+    # the tiebreak — the forecast the room shows the builder ("2 of the 4 pieces
+    # IDEA asks for"), which `brief` cannot be because suggest_goal fires once,
+    # at the end, when the room is nearly over.
+    #
+    # Keys only, never the values, for the same reason CheckIn.proof_parts holds
+    # keys: the values are what the builder said and what they said is already
+    # on the transcript rows. A forecast, not a bank — gates.py does not read
+    # it, PROOFS_REQUIRED does not know it exists, and committing spends the
+    # workshop this hangs off, so the count dies with the room.
+    sketch_parts = models.JSONField(default=list, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

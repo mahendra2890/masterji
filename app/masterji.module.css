@@ -2414,6 +2414,32 @@
   white-space: nowrap;
 }
 
+/* The forecast. Deliberately not a card and not a chip: those are things you
+   pick up, and there is nothing here to press. It reads as a line of the
+   room's own quiet type, one step louder on the count than on what is left,
+   because the count is the sentence a builder came for. */
+.sketch {
+  margin-bottom: 12px;
+  padding: 9px 11px;
+  border-left: 2px solid var(--accent);
+  background: var(--surface-2);
+  border-radius: 0 8px 8px 0;
+}
+
+.sketchCount {
+  margin: 0;
+  color: var(--text);
+  font-size: 13.5px;
+  line-height: 1.4;
+}
+
+.sketchOwed {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
 /* The openers are the chat pane's block, reused here. Two things it brings
    with it are wrong in this room, and both were visible:
    the 38px indent, which exists in chat to clear the coach's avatar — there is

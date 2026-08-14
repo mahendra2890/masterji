@@ -319,6 +319,26 @@ def _turns_used(workshop: Workshop) -> int:
     return workshop.messages.filter(role=WorkshopMessage.Role.USER).count()
 
 
+def _sketch_payload(parts: list[str]) -> dict:
+    """The pre-commit forecast: how much of IDEA's bar this room has turned up.
+
+    Sent as the count AND the two lists, both computed here, because the screen
+    that renders it must never be the place the subtraction happens — the whole
+    point of the tool is that the model extracts and the server counts, and a
+    client doing its own arithmetic is a second answer waiting to disagree.
+
+    A forecast, not a gate: gates.py has never read a workshop and does not
+    start here, and PROOFS_REQUIRED[IDEA] is still one proof filed after the
+    commit, against these same four parts.
+    """
+    return {
+        "parts": parts,
+        "have": len(parts),
+        "need": len(bar.BAR[Phase.IDEA].parts),
+        "owed": bar.owed(Phase.IDEA, parts),
+    }
+
+
 def _workshop_payload(workshop: Workshop | None) -> dict | None:
     """The room, for the no-goal screen. None means there is no room to show —
     either a goal is active, or nothing has been said yet.
@@ -335,6 +355,7 @@ def _workshop_payload(workshop: Workshop | None) -> dict | None:
         "candidates": list(workshop.candidates or []),
         "max_candidates": Workshop.MAX_CANDIDATES,
         "suggested_title": workshop.suggested_title,
+        "sketch": _sketch_payload(list(workshop.sketch_parts or [])),
         "turns_used": used,
         "turns_total": WORKSHOP_TURNS,
         # Sent computed rather than left to the client, so the meter on screen
@@ -2181,6 +2202,7 @@ class WorkshopChatView(throttles.VoicedThrottleMixin, APIView):
             turns_total=WORKSHOP_TURNS,
             maximum=Workshop.MAX_CANDIDATES,
             tone=request.user.tone,
+            sketch=list(workshop.sketch_parts or []),
         )
         # Same exclusion as ChatView, for the same reason: a SYSTEM row is the
         # app talking about a turn that failed, and feeding it back as
@@ -2211,6 +2233,7 @@ class WorkshopChatView(throttles.VoicedThrottleMixin, APIView):
         suggested = ""
         brief: dict | None = None
         refused_park = False
+        sketched: list[str] | None = None
         broke = False
         with tracer.start_as_current_span("coach.workshop") as span:
             span.set_attribute("llm.model", settings.LLM_MODEL)
@@ -2221,6 +2244,7 @@ class WorkshopChatView(throttles.VoicedThrottleMixin, APIView):
                     tools=[
                         prompts.PARK_CANDIDATE_TOOL,
                         prompts.suggest_goal_tool(),
+                        prompts.sketch_idea_bar_tool(),
                     ],
                 ):
                     if kind == "delta":
@@ -2262,6 +2286,28 @@ class WorkshopChatView(throttles.VoicedThrottleMixin, APIView):
                             drafted = _brief_from_workshop(arguments)
                             if drafted is not None:
                                 brief = drafted
+                                # The tiebreak's four parts are also the fullest
+                                # answer the room will give, so the forecast
+                                # moves with them rather than being left showing
+                                # a smaller count than the commit is carrying.
+                                sketched = list(drafted.get("parts") or []) or sketched
+                        elif name == "sketch_idea_bar":
+                            # The transfer this room borrows from bar.py: the
+                            # model extracted, and the counting is a list
+                            # comprehension over what it sent. bar.labels drops
+                            # anything that is not one of IDEA's four keys, so
+                            # an invented part cannot inflate the forecast, and
+                            # it returns keys rather than the values — which is
+                            # the whole of what #211 settled, and the reason
+                            # this row can hold a rehearsal without holding a
+                            # copy of the conversation.
+                            found = bar.labels(Phase.IDEA, arguments).parts
+                            if found:
+                                # Last call wins, same as suggest_goal above:
+                                # the tool is told to send the whole of what it
+                                # has, so a later call is a fuller picture and
+                                # not an addition to the earlier one.
+                                sketched = found
             except Exception as e:
                 logger.error(f"Workshop stream failed: {e}")
                 broke = True
@@ -2275,6 +2321,8 @@ class WorkshopChatView(throttles.VoicedThrottleMixin, APIView):
                 fields.append("suggested_title")
             if brief is not None:
                 fields.append("brief")
+            if sketched is not None:
+                fields.append("sketch_parts")
             if fields:
                 if parked:
                     workshop.candidates = candidates
@@ -2282,6 +2330,8 @@ class WorkshopChatView(throttles.VoicedThrottleMixin, APIView):
                     workshop.suggested_title = suggested
                 if brief is not None:
                     workshop.brief = brief
+                if sketched is not None:
+                    workshop.sketch_parts = sketched
                 workshop.save(update_fields=[*fields, "updated_at"])
                 span.set_attribute("workshop.candidates", len(candidates))
                 logger.info(
@@ -2303,6 +2353,11 @@ class WorkshopChatView(throttles.VoicedThrottleMixin, APIView):
                         "refused": refused_park,
                     }
                 )
+            # A row for the same reason the two above are rows: the client
+            # refetches when the turn ends, and a meter that only existed in
+            # the stream would reset itself under a builder who was reading it.
+            if sketched is not None:
+                yield line({"t": "sketch", **_sketch_payload(sketched)})
             notice = False
             if broke and not content:
                 content = STREAM_BROKE

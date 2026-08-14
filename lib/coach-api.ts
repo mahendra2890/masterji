@@ -198,7 +198,24 @@ export type Workshop = {
   /** Computed by the server, not here, so the meter on screen and the
    * refusal from the server can never disagree about what is left. */
   turnsLeft: number;
+  /** How much of IDEA's bar this conversation has already turned up. */
+  sketch: WorkshopSketch;
   messages: WorkshopMessage[];
+};
+
+/** The pre-commit forecast: what committing would cost, in the phase's own
+ * four parts. Every field of it is the server's arithmetic — `have` is a
+ * count of part keys and `owed` is the subtraction, both done there, because
+ * a client doing its own is a second answer waiting to disagree with the one
+ * the coach was given. It is a forecast and never a gate: nothing is banked
+ * here, and IDEA's one proof is still filed and judged after the commit. */
+export type WorkshopSketch = {
+  /** IDEA's part keys the room has turned up — keys, never the values. */
+  parts: string[];
+  have: number;
+  need: number;
+  /** The parts still open, in the builder's words rather than as keys. */
+  owed: string[];
 };
 
 export type WorkshopMessage = {
@@ -346,6 +363,12 @@ type ServerWorkshop = {
   turns_used?: number;
   turns_total?: number;
   turns_left?: number;
+  sketch?: {
+    parts?: string[];
+    have?: number;
+    need?: number;
+    owed?: string[];
+  };
   messages?: ServerWorkshopMessage[];
 };
 
@@ -357,6 +380,12 @@ const fromServerWorkshop = (w: ServerWorkshop): Workshop => ({
   turnsUsed: w.turns_used ?? 0,
   turnsTotal: w.turns_total ?? 0,
   turnsLeft: w.turns_left ?? 0,
+  sketch: {
+    parts: w.sketch?.parts ?? [],
+    have: w.sketch?.have ?? 0,
+    need: w.sketch?.need ?? 0,
+    owed: w.sketch?.owed ?? [],
+  },
   messages: (w.messages ?? []).map((m) => ({
     id: m.id,
     role: m.role,

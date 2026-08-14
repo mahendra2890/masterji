@@ -1645,6 +1645,25 @@ You may park at most {max_candidates}. That is a hard limit the server keeps, \
 not a target: three is the point at which collecting stops being thinking. \
 {parking_state}
 
+REHEARSING THE BAR:
+The phase on the other side of the door is IDEA, and IDEA asks for four things, \
+one evening long. Interrogate the candidate part by part as it firms up — can \
+you name the room, why do you believe they are there, how would you get one \
+conversation out of it this week — and as their answers turn those things up, \
+call sketch_idea_bar with everything you have so far. Each call replaces the \
+last, so send the whole of it, never the newest piece alone. Only what they \
+actually said: this is not a form for you to fill in on their behalf.
+
+{sketch_state}
+
+It is a forecast and it is never a gate. Nothing here is banked, nothing is \
+owed tonight, and the count dies with this room — after they commit, IDEA's \
+proof is still theirs to file and still judged, against these same four parts. \
+So never hold the door shut until all four are full: two of four is a good \
+place to commit from, and a builder who can write none of them yet is exactly \
+who the questions are for. How many of the four are there is the server's \
+arithmetic over what you sent — do not put that number in your reply.
+
 CHOOSING, AND THE DOOR:
 The tiebreak is the route, not the passion: which of these could you walk into \
 a room and ask somebody about THIS WEEK? Whose user can you name? Market size \
@@ -1772,6 +1791,90 @@ def suggest_goal_tool() -> dict:
     }
 
 
+SKETCH_IDEA_BAR_TOOL_DESCRIPTION = (
+    "Write down what this conversation has already turned up of IDEA's bar — "
+    "the four things the phase they are about to commit into will ask them "
+    "for. Call it as soon as any one of them is real, and again every time "
+    "another lands; each call replaces the last, so always send the whole of "
+    "what you have, not the newest piece alone. Only what the builder actually "
+    "said, never what you expect them to say. It banks nothing, refuses "
+    "nothing and does not survive the commit: it draws a forecast on their "
+    "screen so they can see what committing would cost. How many of the four "
+    "are there is counted by the server from these arguments — do not state "
+    "that number yourself."
+)
+
+
+def sketch_idea_bar_tool() -> dict:
+    """IDEA's bar as arguments, one screen before the phase that asks for it.
+
+    Built the same way suggest_proof_tool builds its schema, out of the same
+    bar.BAR entry, for the same reason: the arguments ARE the parts, so filling
+    one in is an act of enumeration and the count that comes back is a len()
+    over what arrived rather than an opinion about whether an idea is ready.
+    Two lists of what IDEA wants would drift apart within a week, so there is
+    only ever the one, in bar.py.
+
+    What it does NOT have is a `text` argument, and the absence is the whole
+    difference from suggest_proof: that tool drafts a proof a builder can file
+    and a judge can accept, and this one drafts nothing. There is no evidence
+    in this room to write down — only four questions being answered early.
+    """
+    return {
+        "type": "function",
+        "function": {
+            "name": "sketch_idea_bar",
+            "description": SKETCH_IDEA_BAR_TOOL_DESCRIPTION,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    part.key: {"type": "string", "description": part.ask}
+                    for part in bar.BAR[Phase.IDEA].parts
+                },
+                # Nothing is required, because a call carrying one part is the
+                # common case: they arrive one at a time, and a schema that
+                # demanded all four would teach the model to invent the rest.
+                "required": [],
+            },
+        },
+    }
+
+
+# The forecast as a fact in the prompt, for the same reason parking_state is
+# one: "you have two of four" and "the two still open are these" are different
+# facts, and only the second one tells the coach what to ask next.
+SKETCH_EMPTY = (
+    "Nothing of IDEA's bar has surfaced yet — 0 of {need}. That is the normal "
+    "state of a room this early and not a thing to report to them."
+)
+SKETCH_SOME = """Of IDEA's bar they could already write {have} of {need}: {have_labels}. \
+Still open: {owed_labels}. Ask about those, one at a time, when the candidate \
+they are on is worth the questions."""
+SKETCH_FULL = """All {need} of IDEA's parts have surfaced — {have_labels}. There is \
+nothing left in here to sharpen: say plainly that the first evening's proof is \
+already sitting in this conversation, and that the box is right there."""
+
+
+def sketch_state(parts: list[str], phase: Phase = Phase.IDEA) -> str:
+    """What the rehearsal has turned up, as the count and the two lists.
+
+    Every number in it is arithmetic over the part keys the server stored, the
+    same as every other number in this prompt.
+    """
+    total = bar.BAR[phase].parts
+    have = [part.label for part in total if part.key in set(parts)]
+    still_owed = bar.owed(phase, parts)
+    if not have:
+        return SKETCH_EMPTY.format(need=len(total))
+    template = SKETCH_FULL if not still_owed else SKETCH_SOME
+    return template.format(
+        have=len(have),
+        need=len(total),
+        have_labels="; ".join(have),
+        owed_labels="; ".join(still_owed),
+    )
+
+
 def parking_state(candidates: list[str], maximum: int) -> str:
     """What the pile looks like, and whether it is closed."""
     if not candidates:
@@ -1787,6 +1890,7 @@ def build_workshop_prompt(
     turns_total: int,
     maximum: int,
     tone: str,
+    sketch: list[str] | None = None,
 ) -> str:
     """The workshop's system prompt. Every number in it is a server count."""
     return WORKSHOP_SYSTEM.format(
@@ -1794,6 +1898,7 @@ def build_workshop_prompt(
         tone_rule=HINGLISH_RULE if tone == "HINGLISH" else "",
         max_candidates=maximum,
         parking_state=parking_state(candidates, maximum),
+        sketch_state=sketch_state(list(sketch or [])),
         # Clamped at zero: the view refuses the turn that would take it
         # negative, but a prompt that says "-1 turns left" is the app talking
         # nonsense to a builder in the one room where it has no other footing.

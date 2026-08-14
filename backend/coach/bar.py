@@ -318,6 +318,20 @@ def label_for(phase: str, key: str) -> str:
     return key
 
 
+def owed(phase: str, parts: list[str]) -> list[str]:
+    """What the bar still wants, given the part keys it already has.
+
+    The same subtraction read() does over a live tool call, done instead over
+    the keys that outlived it. Both exist because of #211's answer: keys are
+    all that survives a turn, so anything reading a bar back later — a screen
+    refetching its state, a room a builder came back to — has only these and
+    still has to be able to say what is left. A part is owed or it is not;
+    counts do not enter, because the caller has no entries to count.
+    """
+    have = set(parts)
+    return [part.label for part in BAR[Phase(phase)].parts if part.key not in have]
+
+
 def read(phase: str, arguments: dict) -> Draft:
     """A suggest_proof call, counted.
 

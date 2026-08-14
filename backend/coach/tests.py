@@ -5403,6 +5403,97 @@ class WorkshopTests(CoachTestCase):
         payload = self.client.get("/api/coach/state/").json()["workshop"]
         self.assertEqual(payload["suggested_title"], "Tiffin for Block C")
 
+    # --- the rehearsal -------------------------------------------------------
+
+    def sketch(self, **parts):
+        return [("tool_call", {"name": "sketch_idea_bar", "arguments": parts})]
+
+    def test_the_forecast_is_counted_by_the_server_not_claimed_by_the_model(self):
+        """bar.py's transfer, one screen earlier: the model extracts and the
+        server counts. What comes back is a len() over the arguments that
+        arrived, so there is nowhere in it to round two up to four — and a part
+        the model invented is not one of IDEA's, because bar.labels walks the
+        bar rather than the payload."""
+        _, events = self.say(
+            stream=self.sketch(
+                problem="hostellers miss dinner when labs run late",
+                place="the Block C mess queue at 9pm",
+                readiness="this idea is basically ready",
+            )
+        )
+        self.assertEqual(self.workshop().sketch_parts, ["problem", "place"])
+        card = [e for e in events if e["t"] == "sketch"][0]
+        self.assertEqual(card["have"], 2)
+        self.assertEqual(card["need"], 4)
+
+    def test_the_rehearsal_holds_keys_and_never_the_values(self):
+        """#211's answer, applied to the room one screen before the row it was
+        written about. What the builder said is already the transcript; a second
+        structured copy of it on the workshop would be a private diary of a
+        conversation this table can already show you in full."""
+        said = "the Block C mess queue at 9pm"
+        self.say(stream=self.sketch(place=said))
+        workshop = self.workshop()
+        self.assertEqual(workshop.sketch_parts, ["place"])
+        self.assertNotIn(said, json.dumps(views._workshop_payload(workshop)))
+
+    def test_a_later_call_replaces_the_earlier_one(self):
+        """The tool is told to send the whole of what it has, so a second call
+        is a fuller picture and never an addition to the first. It is also how a
+        part the builder walked back stops being counted."""
+        self.say(stream=self.sketch(problem="p", place="q"))
+        self.say(stream=self.sketch(problem="p"))
+        self.assertEqual(self.workshop().sketch_parts, ["problem"])
+
+    def test_the_forecast_survives_the_tab_and_says_what_is_still_open(self):
+        """Stored for the same reason the parked candidates are: the client
+        refetches when a turn ends, and a meter that lived only in the stream
+        would reset itself under a builder who was reading it."""
+        self.say(stream=self.sketch(problem="hostellers miss dinner"))
+        sketch = self.client.get("/api/coach/state/").json()["workshop"]["sketch"]
+        self.assertEqual((sketch["have"], sketch["need"]), (1, 4))
+        self.assertEqual(sketch["owed"], bar.owed(Phase.IDEA, ["problem"]))
+        self.assertEqual(len(sketch["owed"]), 3)
+
+    def test_four_of_four_still_owes_ideas_proof_after_the_commit(self):
+        """The forecast is not a bank and cannot become one. A room that turned
+        up all four parts advances nothing, seeds nothing, and dies with the
+        commit — IDEA's one proof is still the builder's to file afterwards and
+        still judged, against these same four parts."""
+        self.say(
+            stream=self.sketch(
+                problem="p", place="q", why_there="r", first_conversation="s"
+            )
+        )
+        self.assertEqual(len(self.workshop().sketch_parts), 4)
+        self.assertEqual(CheckIn.objects.count(), 0)
+
+        created = self.client.post("/api/coach/goals/", {"title": "Tiffin app"}).json()
+        goal = Goal.objects.get(id=created["id"])
+        self.assertEqual(goal.phase, Phase.IDEA)
+        self.assertEqual(gates.accepted_proofs(goal), 0)
+        advanced, _ = gates.try_advance(goal)
+        self.assertFalse(advanced)
+        # And the count went with the room it was drawn in.
+        self.assertEqual(self.workshop().status, Workshop.Status.SPENT)
+
+    def test_the_prompt_names_the_parts_that_are_still_open(self):
+        """"You have two of four" and "the two still open are these" are
+        different facts, and only the second one tells the coach what to ask
+        next — the same reason parking_state says which three are parked."""
+        empty = prompts.sketch_state([])
+        self.assertIn("0 of 4", empty)
+
+        some = prompts.sketch_state(["problem"])
+        self.assertIn("1 of 4", some)
+        self.assertIn(bar.label_for(Phase.IDEA, "place"), some)
+
+        full = prompts.sketch_state(
+            ["problem", "place", "why_there", "first_conversation"]
+        )
+        self.assertIn("box is right there", full)
+        self.assertNotIn("Still open", full)
+
     # --- nothing here reaches the gate ---------------------------------------
 
     def test_no_checkin_or_proof_can_exist_without_a_goal(self):

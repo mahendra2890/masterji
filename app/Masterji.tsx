@@ -1358,6 +1358,35 @@ export default function Masterji({ user }: { user: SessionUser }) {
             </div>
           )}
 
+          {/* What committing would cost, in IDEA's own four parts. It sits
+              under the cards because it is about the candidate they are
+              circling, and it is a readout rather than a control: every number
+              in it was counted by the server off what the coach extracted, the
+              same transfer bar.py makes one screen later.
+
+              Only once something has surfaced. The turn meter above is on
+              screen from turn zero because it is a budget being spent and a
+              hard end nobody warned you about is a trapdoor; this is the
+              opposite quantity — progress accruing — and "0 of 4" over an
+              empty room is a checklist a builder is failing before they have
+              said anything. It appears when the first piece lands.
+
+              It never gates. Commit stays the only filled control on the
+              screen and works at 0 of 4 exactly as it does at 4. */}
+          {ws && ws.sketch.have > 0 && (
+            <div className={styles.sketch}>
+              <p className={styles.sketchCount}>
+                You could already write {ws.sketch.have} of the{" "}
+                {ws.sketch.need} pieces IDEA asks for.
+              </p>
+              <p className={styles.sketchOwed}>
+                {ws.sketch.owed.length > 0
+                  ? `Still open: ${ws.sketch.owed.join("; ")}.`
+                  : "All four. The first evening's proof is already in this conversation."}
+              </p>
+            </div>
+          )}
+
           {/* Openers, while the room is still silent. Same bargain as the
               phase openers in chat: tapping fills the box and leaves the
               sending — and the editing — with the builder. Tapping the first
