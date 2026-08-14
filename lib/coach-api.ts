@@ -169,6 +169,30 @@ export type Retirement = {
   bestStreak: number;
   coachReaction: string;
   createdAt: string;
+  /** The public link's slug, or null while the record is private — which is
+   * the default and the state every record starts in. Only ever sent to the
+   * owner; the public page has no idea an owner exists. */
+  shareSlug: string | null;
+};
+
+/** One closed goal, as a stranger holding the link may read it. Computed
+ * facts only — the verdict, the counts, the phase timeline — and never the
+ * builder's prose: not the reason they closed it, not a proof text, not a
+ * check-in, not their name. Off by default and revocable. */
+export type SharedRecord = {
+  title: string;
+  outcome: "ABANDONED" | "COMPLETED";
+  /** Computed from earned proofs by the server, never self-reported. */
+  readsAs: "ACHIEVED" | "UNVERIFIED" | "INVALIDATED" | "UNTESTED";
+  phaseReached: Phase;
+  acceptedProofs: number;
+  /** The VALIDATION-onward subset — the ones that needed a real person. */
+  contactProofs: number;
+  daysActive: number;
+  bestStreak: number;
+  startedOn: string;
+  closedOn: string;
+  timeline: { toPhase: Phase; on: string }[];
 };
 
 /** Per-phase builder-facing copy, served rather than duplicated here: the
@@ -338,6 +362,7 @@ type ServerTransition = {
   created_at: string;
 };
 type ServerRetirement = {
+  share_slug?: string | null;
   id: number;
   goal: number;
   title: string;
@@ -498,6 +523,7 @@ const fromServerRetirement = (r: ServerRetirement): Retirement => ({
   bestStreak: r.best_streak,
   coachReaction: r.coach_reaction,
   createdAt: r.created_at,
+  shareSlug: r.share_slug ?? null,
 });
 
 const fromServerTransition = (t: ServerTransition): PhaseTransition => ({
@@ -931,6 +957,57 @@ export async function setLaunchDate(
     moves: data.moves,
     first: data.first,
   };
+}
+
+/** Read a shared record by its slug. No auth: this is the one endpoint in the
+ * app a signed-out stranger is meant to reach. A missing, revoked or wrong
+ * slug is the same 404 in every case — the difference between "no such record"
+ * and "that one is private" is itself something a stranger could walk. */
+export async function getSharedRecord(slug: string): Promise<SharedRecord> {
+  const data = await request<{
+    title: string;
+    outcome: "ABANDONED" | "COMPLETED";
+    reads_as: SharedRecord["readsAs"];
+    phase_reached: Phase;
+    accepted_proofs: number;
+    contact_proofs: number;
+    days_active: number;
+    best_streak: number;
+    started_on: string;
+    closed_on: string;
+    timeline: { to_phase: Phase; on: string }[];
+  }>(`record/${encodeURIComponent(slug)}/`);
+  return {
+    title: data.title,
+    outcome: data.outcome,
+    readsAs: data.reads_as,
+    phaseReached: data.phase_reached,
+    acceptedProofs: data.accepted_proofs,
+    contactProofs: data.contact_proofs,
+    daysActive: data.days_active,
+    bestStreak: data.best_streak,
+    startedOn: data.started_on,
+    closedOn: data.closed_on,
+    timeline: data.timeline.map((t) => ({ toPhase: t.to_phase, on: t.on })),
+  };
+}
+
+/** Turn the public link on or off. Turning it on after revoking mints a
+ * DIFFERENT slug: a link handed out and regretted has to be able to stop
+ * working, and a switch that resurrects the old URL only ever paused it.
+ *
+ * Two verbs rather than one call carrying a boolean. That was the first shape
+ * and a form-encoded `false` came back as the string "False", which is truthy
+ * — the switch turned the link ON when asked to take it away. */
+export async function shareRecord(
+  retirementId: number,
+  on: boolean
+): Promise<string | null> {
+  const data = await request<{ share_slug: string | null }>(
+    `retirements/${retirementId}/share/`,
+    { method: on ? "POST" : "DELETE" }
+  );
+  return data.share_slug;
 }
 
 export async function declare(text: string): Promise<CheckIn> {

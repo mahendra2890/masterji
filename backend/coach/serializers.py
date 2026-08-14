@@ -217,6 +217,11 @@ class RetirementSerializer(serializers.ModelSerializer):
             "days_active",
             "best_streak",
             "coach_reaction",
+            # Only ever the owner's: this serializer feeds the archive on their
+            # own dashboard, and the public page reads a different one that has
+            # never heard of an account. Null means private, which is where
+            # every record starts and stays until they press the switch.
+            "share_slug",
             "created_at",
         ]
         read_only_fields = fields

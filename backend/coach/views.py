@@ -9,6 +9,7 @@ then {"t":"done"}.
 """
 
 import json
+import secrets
 from datetime import date, timedelta
 
 from django.conf import settings
@@ -2733,6 +2734,119 @@ class WorkshopChatView(throttles.VoicedThrottleMixin, APIView):
 
 
 # --- the product's own record ---------------------------------------------
+
+
+def _shared_record(retirement: GoalRetirement) -> dict:
+    """A closed goal as facts a stranger may read, and nothing else.
+
+    Every field here was computed by the server from rows the builder had to
+    earn — gates.reads_as, the snapshot counts, the phase timeline. That is the
+    whole pitch: an E-Cell application or a parent reading "reached BUILD, 5
+    accepted proofs, 4 of them from real-world contact, 12 days on the record"
+    is reading numbers that came through a gate they can audit in a public
+    repo, not a self-report.
+
+    What is deliberately NOT here: the reason they closed it, the goal's brief,
+    every proof text, every check-in, the coach's reaction, and the builder's
+    name or account. The record is the shape of the work, not a diary, and the
+    one thing a builder cannot take back once a link is out is prose.
+    """
+    goal = retirement.goal
+    return {
+        "title": goal.title,
+        "outcome": retirement.outcome,
+        # The verdict, which is the point of the page: INVALIDATED with contact
+        # proofs behind it is the only version of "my startup didn't work out"
+        # that reads as competence, and it is not the builder's to assert.
+        "reads_as": gates.reads_as(goal, retirement.outcome),
+        "phase_reached": retirement.phase_reached,
+        "accepted_proofs": retirement.accepted_proofs,
+        "contact_proofs": retirement.contact_proofs,
+        "days_active": retirement.days_active,
+        "best_streak": retirement.best_streak,
+        "closed_on": retirement.created_at.date().isoformat(),
+        "timeline": [
+            {
+                "to_phase": t.to_phase,
+                "on": t.created_at.date().isoformat(),
+            }
+            for t in goal.transitions.all()
+        ],
+        "started_on": goal.created_at.date().isoformat(),
+    }
+
+
+class SharedRecordView(throttles.VoicedThrottleMixin, APIView):
+    """One closed goal, by its unguessable slug, for anybody holding the link.
+
+    The second public endpoint in this file, and it follows the first one's
+    shape (ChangelogView) for the same reason: a surface with no account behind
+    it and no ceiling on it is a surface somebody else decides the size of.
+
+    The slug IS the access control, so this deliberately does not 403 or hint:
+    a missing, revoked or wrong slug is a 404, identical in every case, because
+    the difference between "no such record" and "that one is private" is itself
+    something a stranger can walk.
+    """
+
+    permission_classes = [AllowAny]
+    throttle_classes = throttles.THROTTLES
+    throttle_scope = "changelog"
+
+    def get(self, request, slug: str):
+        retirement = GoalRetirement.objects.filter(share_slug=slug).first()
+        if retirement is None:
+            return Response(
+                {"detail": "No record here."}, status=status.HTTP_404_NOT_FOUND
+            )
+        return Response(_shared_record(retirement))
+
+
+class ShareRecordView(APIView):
+    """Turn the link on, or take it away. The builder's, and reversible.
+
+    Off by default and off for every row that existed before this — a record
+    that became public because the feature shipped is not opt-in.
+
+    Turning it on again after revoking mints a DIFFERENT slug rather than
+    restoring the old one. A link handed to somebody and regretted has to be
+    able to stop working, and a switch that resurrects the same URL is a switch
+    that only ever paused it.
+    """
+
+    permission_classes = [IsAuthenticated]
+    # 132 bits from token_urlsafe(16), which is 22 characters. Not a UUID: this
+    # goes in a URL a builder pastes into a message, and unguessable is the only
+    # requirement it has.
+    SLUG_BYTES = 16
+
+    def _mine(self, request, pk: int) -> GoalRetirement:
+        return get_object_or_404(
+            GoalRetirement.objects.filter(goal__user=request.user), pk=pk
+        )
+
+    def post(self, request, pk: int):
+        retirement = self._mine(request, pk)
+        # Minted even when one already exists, which is what makes "off then on"
+        # a new link rather than the old one coming back.
+        retirement.share_slug = secrets.token_urlsafe(self.SLUG_BYTES)
+        retirement.save(update_fields=["share_slug"])
+        logger.info(f"Retirement {retirement.id} shared")
+        return Response({"share_slug": retirement.share_slug})
+
+    def delete(self, request, pk: int):
+        """Revoking is its own verb, and that is not tidiness.
+
+        This was one POST carrying `{"on": true|false}` until a test sent it
+        form-encoded and `bool("False")` came back True — the switch turned the
+        link ON when asked to take it away. A body that has to be read as a
+        boolean is a body somebody can encode wrong; two verbs cannot be.
+        """
+        retirement = self._mine(request, pk)
+        retirement.share_slug = None
+        retirement.save(update_fields=["share_slug"])
+        logger.info(f"Retirement {retirement.id} unshared")
+        return Response({"share_slug": None})
 
 
 class ChangelogView(throttles.VoicedThrottleMixin, APIView):

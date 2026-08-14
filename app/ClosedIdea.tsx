@@ -6,7 +6,12 @@
 // with every dashboard payload.
 
 import { useEffect, useRef, useState } from "react";
-import { getGoalHistory, type GoalHistory, type Retirement } from "@/lib/coach-api";
+import {
+  getGoalHistory,
+  shareRecord,
+  type GoalHistory,
+  type Retirement,
+} from "@/lib/coach-api";
 import DayRecord from "@/components/DayRecord";
 import TakeTheRecord from "@/components/TakeTheRecord";
 import { useDialogFocus } from "@/lib/dialog-focus";
@@ -14,6 +19,13 @@ import styles from "./masterji.module.css";
 
 const formatDate = (iso: string) =>
   new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+
+/** Built from the browser's own origin rather than from anything the server
+ * sends: this app is served from one domain and the record page is a route on
+ * it, so the only place the URL can come from without a second config value
+ * to keep in sync is here. */
+const shareUrl = (slug: string) =>
+  `${typeof window === "undefined" ? "" : window.location.origin}/record/${slug}/`;
 
 export default function ClosedIdea({
   closed,
@@ -24,6 +36,24 @@ export default function ClosedIdea({
 }) {
   const [history, setHistory] = useState<GoalHistory | null>(null);
   const [failed, setFailed] = useState(false);
+  // The public link, and whether the switch is mid-flight. Held here rather
+  // than refetched from the archive because this panel is the only place it is
+  // read — the dashboard has no business knowing which records are shared.
+  const [slug, setSlug] = useState<string | null>(closed.shareSlug);
+  const [sharing, setSharing] = useState(false);
+  const [shareFailed, setShareFailed] = useState(false);
+
+  const setShared = async (on: boolean) => {
+    setSharing(true);
+    setShareFailed(false);
+    try {
+      setSlug(await shareRecord(closed.id, on));
+    } catch {
+      setShareFailed(true);
+    } finally {
+      setSharing(false);
+    }
+  };
 
   // Escape closes, the same as every other panel in the app. This one is
   // opened from the between-goals screen as well as the dashboard, and there
@@ -95,6 +125,58 @@ export default function ClosedIdea({
             the screen where a closed idea stops being something the builder
             uses and starts being something they show someone. */}
         <TakeTheRecord goalId={closed.goalId} />
+
+        {/* And the other half of "show someone": a link, for the times the
+            person asking cannot be handed a file — an E-Cell form, a message
+            to a parent, a line in a placement folder.
+
+            Off until pressed, and the page it opens carries computed facts
+            only: the verdict, the counts, the timeline. Not the sentence
+            below this one, not a proof, not their name. Prose is the thing you
+            cannot take back once a link is out.
+
+            Turning it off and on again mints a different link on purpose. A
+            switch that resurrects the same URL only ever paused it. */}
+        <div className={styles.share}>
+          {slug ? (
+            <>
+              <p className={styles.shareLabel}>
+                Anyone with this link can read the numbers. Not what you wrote.
+              </p>
+              <div className={styles.shareRow}>
+                <input
+                  className={styles.shareLink}
+                  readOnly
+                  value={shareUrl(slug)}
+                  onFocus={(e) => e.currentTarget.select()}
+                  aria-label="Public link to this record"
+                />
+                <button
+                  type="button"
+                  className={styles.secondaryBtn}
+                  disabled={sharing}
+                  onClick={() => void setShared(false)}
+                >
+                  Turn off
+                </button>
+              </div>
+            </>
+          ) : (
+            <button
+              type="button"
+              className={styles.shareBtn}
+              disabled={sharing}
+              onClick={() => void setShared(true)}
+            >
+              Get a link to this record
+            </button>
+          )}
+          {shareFailed && (
+            <p className={styles.shareLabel}>
+              That didn&apos;t go through. Try it again in a moment.
+            </p>
+          )}
+        </div>
 
         <p className={styles.closedLabel}>What you said</p>
         <p className={styles.closedReason}>{closed.reason}</p>

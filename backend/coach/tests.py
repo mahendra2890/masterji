@@ -788,6 +788,117 @@ class PhaseBriefTests(CoachTestCase):
 # --- daily loop ----------------------------------------------------------------
 
 
+class SharedRecordTests(CoachTestCase):
+    """A closed goal as a page you can hand to somebody.
+
+    Two things are pinned hardest, because this is only the second endpoint in
+    the product with no account behind it: what a stranger can read, and what
+    they cannot. Everything on the page was computed from rows the builder had
+    to earn; nothing they wrote in prose ever leaves through it.
+    """
+
+    def close_goal(self, reason="Talked to six people, they won't pay."):
+        goal = self.make_goal(phase=Phase.VALIDATION)
+        self.accept_proofs(goal, 2)
+        self.client.post(f"/api/coach/goals/{goal.id}/retire/", {"reason": reason})
+        return GoalRetirement.objects.get(goal=goal)
+
+    def share(self, retirement, on=True):
+        url = f"/api/coach/retirements/{retirement.id}/share/"
+        return self.client.post(url) if on else self.client.delete(url)
+
+    def test_a_record_is_private_until_the_builder_says_otherwise(self):
+        """Off by default, and off for every row that existed before this. A
+        record that became public because a feature shipped is not opt-in."""
+        retirement = self.close_goal()
+        self.assertIsNone(retirement.share_slug)
+        self.client.logout()
+        self.client.force_authenticate(None)
+        self.assertEqual(self.client.get("/api/coach/record/anything/").status_code, 404)
+
+    def test_a_stranger_holding_the_link_reads_the_numbers(self):
+        retirement = self.close_goal()
+        slug = self.share(retirement).json()["share_slug"]
+
+        self.client.force_authenticate(None)
+        response = self.client.get(f"/api/coach/record/{slug}/")
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["title"], "Tiffin app")
+        self.assertEqual(body["phase_reached"], Phase.VALIDATION)
+        self.assertEqual(body["accepted_proofs"], 2)
+        # The verdict, computed by gates.reads_as and never self-reported —
+        # which is the whole reason a page like this is worth handing over.
+        self.assertEqual(
+            body["reads_as"], gates.reads_as(retirement.goal, retirement.outcome)
+        )
+        self.assertIn("timeline", body)
+
+    def test_the_page_never_carries_a_word_the_builder_wrote(self):
+        """The record is the shape of the work, not a diary. Prose is the one
+        thing you cannot take back once a link is out."""
+        secret = "I only closed it because my father made me."
+        retirement = self.close_goal(reason=secret)
+        slug = self.share(retirement).json()["share_slug"]
+
+        self.client.force_authenticate(None)
+        body = json.dumps(self.client.get(f"/api/coach/record/{slug}/").json())
+        self.assertNotIn(secret, body)
+        self.assertNotIn("reason", body)
+        self.assertNotIn("coach_reaction", body)
+        # Nor anything that identifies who they are.
+        self.assertNotIn("alice", body)
+        self.assertNotIn("user", body)
+
+    def test_turning_it_off_takes_the_link_with_it(self):
+        retirement = self.close_goal()
+        slug = self.share(retirement).json()["share_slug"]
+        self.assertIsNone(self.share(retirement, on=False).json()["share_slug"])
+
+        self.client.force_authenticate(None)
+        self.assertEqual(self.client.get(f"/api/coach/record/{slug}/").status_code, 404)
+
+    def test_turning_it_on_again_is_a_different_link(self):
+        """A switch that resurrects the same URL only ever paused it. A link
+        handed to somebody and regretted has to be able to stop working."""
+        retirement = self.close_goal()
+        first = self.share(retirement).json()["share_slug"]
+        self.share(retirement, on=False)
+        second = self.share(retirement).json()["share_slug"]
+        self.assertNotEqual(first, second)
+
+        self.client.force_authenticate(None)
+        self.assertEqual(self.client.get(f"/api/coach/record/{first}/").status_code, 404)
+        self.assertEqual(self.client.get(f"/api/coach/record/{second}/").status_code, 200)
+
+    def test_the_slug_is_the_access_control_and_is_not_walkable(self):
+        """Unguessable rather than sequential: a numeric id would make every
+        closed goal in the database walkable by anybody who found one link."""
+        retirement = self.close_goal()
+        slug = self.share(retirement).json()["share_slug"]
+        self.assertNotEqual(slug, str(retirement.id))
+        self.assertGreaterEqual(len(slug), 20)
+        # Two records in a row do not produce two adjacent slugs, which is the
+        # actual property: a sequential one lets anybody who found a link walk
+        # to every closed goal in the database.
+        second = self.share(self.close_goal()).json()["share_slug"]
+        self.assertNotEqual(slug, second)
+
+        self.client.force_authenticate(None)
+        # A wrong slug is the same 404 as a missing one: the difference between
+        # "no such record" and "that one is private" is itself walkable.
+        self.assertEqual(
+            self.client.get(f"/api/coach/record/{retirement.id}/").status_code, 404
+        )
+
+    def test_only_the_owner_can_share_it(self):
+        retirement = self.close_goal()
+        self.client.force_authenticate(self.bob)
+        self.assertEqual(self.share(retirement).status_code, 404)
+        retirement.refresh_from_db()
+        self.assertIsNone(retirement.share_slug)
+
+
 class LaunchDateTests(CoachTestCase):
     """A date the builder named, and the trail of every time they moved it.
 

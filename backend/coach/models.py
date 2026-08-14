@@ -318,6 +318,23 @@ class GoalRetirement(SoftDeleteModel):
     # real people said no, so IDEA write-ups can't buy it.
     contact_proofs = models.PositiveIntegerField(default=0)
     days_active = models.PositiveIntegerField(default=0)
+    # The one thing on this row that can be read without an account, and only
+    # if the builder switched it on. Unguessable rather than sequential: the
+    # slug IS the access control, so a numeric id would make every closed goal
+    # in the database walkable by anybody who found one link.
+    #
+    # Null means private, which is the default and the state every existing row
+    # is in. Revoking is setting it back to null, and it is a different slug if
+    # they ever turn it on again — a link handed out once and regretted has to
+    # be able to stop working.
+    #
+    # Nothing about what the page SHOWS lives here: that is the public view's
+    # business, and it renders computed facts only. The builder's own prose —
+    # the reason they closed it, every proof they ever wrote — never leaves
+    # this server through that endpoint.
+    share_slug = models.CharField(
+        max_length=22, null=True, blank=True, unique=True, default=None
+    )
     best_streak = models.PositiveIntegerField(default=0)
     coach_reaction = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

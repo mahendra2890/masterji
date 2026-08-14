@@ -12,6 +12,14 @@ urlpatterns = [
     path("goals/<int:pk>/export/", views.GoalExportView.as_view(), name="coach_export"),
     path("goals/<int:pk>/advance/", views.AdvanceView.as_view(), name="coach_advance"),
     path(
+        "record/<str:slug>/", views.SharedRecordView.as_view(), name="coach_shared_record"
+    ),
+    path(
+        "retirements/<int:pk>/share/",
+        views.ShareRecordView.as_view(),
+        name="coach_share_record",
+    ),
+    path(
         "goals/<int:pk>/launch/",
         views.LaunchDateView.as_view(),
         name="coach_launch_date",

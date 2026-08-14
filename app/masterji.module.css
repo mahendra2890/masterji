@@ -1724,6 +1724,58 @@
   cursor: pointer;
 }
 
+/* The public link, on the panel where a closed idea stops being something the
+   builder uses and starts being something they show somebody. Off until
+   pressed, and drawn like the export beside it rather than like a control the
+   panel is recommending. */
+.share {
+  margin: 10px 0 4px;
+}
+
+.shareBtn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 8px 14px;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.shareBtn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.shareLabel {
+  margin: 0 0 6px;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.shareRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+/* Readonly and select-on-focus: the job is to be copied, and a link you have
+   to drag-select across is a link that gets copied wrong. */
+.shareLink {
+  flex: 1 1 220px;
+  min-width: 0;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12.5px;
+}
+
 /* The launch date, under the gate meter and in the same family: one number
    about where this goal is. What makes it different is who put it there —
    every other number on this card was counted, and this one is the builder's
