@@ -3014,6 +3014,43 @@ class WorkshopChatView(throttles.VoicedThrottleMixin, APIView):
                             one_liner = str(arguments.get("one_liner") or "").strip()
                             if not one_liner:
                                 continue
+                            # Parked already, so this one costs nothing.
+                            #
+                            # Dropped silently, and that is the difference from
+                            # the ceiling underneath it: `refused` paints "three
+                            # is the limit — nothing else got parked", a
+                            # sentence for the builder watching a suggestion
+                            # fail to appear. This suggestion did appear. It is
+                            # on screen, in the pile, and telling them to drop
+                            # one to make room for it would be the app arguing
+                            # with what they can see. Before the ceiling for the
+                            # same reason: a full pile that already holds this
+                            # sentence turned nothing away either.
+                            #
+                            # The damage a duplicate does is the slot, not the
+                            # repetition: three is the whole mechanism of this
+                            # room (collecting made impossible so choosing is
+                            # the only move left), and a copy spends one third
+                            # of it on nothing, pushing the builder into the
+                            # forced choice between two ideas and an echo.
+                            #
+                            # _same_words is _already_banked's flattening, and
+                            # deliberately the same one: case and spacing carry
+                            # no more meaning in a one-liner than they do in a
+                            # proof, and one rule for "is this the same
+                            # sentence" is one rule to keep true. Exact after
+                            # flattening and no looser, for that function's own
+                            # reason — near-matching here would drop a second
+                            # idea that merely rhymes with the first, which in
+                            # this room is deleting the builder's thinking.
+                            if any(
+                                _same_words(c) == _same_words(one_liner)
+                                for c in candidates
+                            ):
+                                logger.info(
+                                    f"Workshop {workshop.id} dropped a repeat candidate"
+                                )
+                                continue
                             # The ceiling, refused here rather than asked for in
                             # the prompt. The prompt already says three is the
                             # limit and flips to a forced choice at it, but a
