@@ -3,6 +3,12 @@
 Target: frontend at **masterji.mscsoftwares.in** (Vercel), API on Render
 (Docker), Postgres on Neon. Order matters — each step feeds the next.
 
+This is the live runbook. A second deployment of the same commits also runs on
+Cloud Run, against this same database, so it can be exercised before anything
+is pointed at it — see [DEPLOY-cloudrun.md](DEPLOY-cloudrun.md). Until the
+switch described in its §7 is made, Render is what the frontend talks to and
+nothing below has changed.
+
 ## 1. Neon (database)
 
 1. neon.tech → new project in **AWS ap-southeast-1 (Singapore)** (same

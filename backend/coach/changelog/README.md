@@ -1,8 +1,10 @@
 # Changelog entries
 
 One file per entry. `manage.py load_changelog` turns each of them into a
-`ChangelogEntry` row, and `start.sh` runs it on every boot, so an entry is live
-the moment the deploy that carries it is.
+`ChangelogEntry` row, and `migrate.sh` runs it as part of every deploy — on
+Render from `start.sh` at boot, on Cloud Run as a Job before the new revision
+takes traffic. Either way an entry is live the moment the deploy carrying it
+is.
 
 **Write an entry here, not a migration.** Every builder-visible change still
 owes a row in the same pull request that ships it — that rule has not moved.

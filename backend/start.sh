@@ -1,22 +1,20 @@
 #!/bin/sh
-# Container boot: migrate, changelog, optional admin bootstrap, then serve.
+# Container boot: the database work, unless the host already did it, then serve.
 set -e
 
-python manage.py migrate --noinput
-
-# Changelog rows are files in backend/coach/changelog/, not data migrations —
-# see the README there for why. Idempotent on (shipped_on, title), so this is
-# a no-op on every boot after the one that first saw the entry.
+# migrate.sh holds the DB-touching steps. It runs here on Render, where boot is
+# the only hook there is, and as a Cloud Run Job on Cloud Run, where boot
+# happens on every cold start — see DEPLOY-cloudrun.md.
 #
-# `|| true` on the same reasoning as ensure_admin below: a changelog is not
-# worth refusing to boot over, and a malformed entry fails CI through
-# ChangelogFileTests long before it can get here.
-python manage.py load_changelog || true
-
-# DJANGO_SUPERUSER_EMAIL (+ _USERNAME/_PASSWORD) → create or promote the
-# admin user. Idempotent; never blocks startup.
-if [ -n "$DJANGO_SUPERUSER_EMAIL" ]; then
-  python manage.py ensure_admin || true
+# The default is 1, and it is deliberately the opposite of munshiji's, whose
+# start.sh defaults the same switch off. That service got the switch before it
+# was serving anyone. This one is already live on Render *with* migrate on
+# boot, so the safe default is the one that leaves a running production service
+# alone if the variable never arrives — a blueprint that doesn't sync, a
+# dashboard edit that doesn't land. Cloud Run sets it to 0 explicitly, where a
+# missing value is a wasted Neon connection rather than an unmigrated database.
+if [ "${MIGRATE_ON_BOOT:-1}" = "1" ]; then
+  sh migrate.sh
 fi
 
 # gthread: a streaming chat response holds a thread, not a whole worker.
