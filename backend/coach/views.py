@@ -1904,7 +1904,7 @@ class ProveView(throttles.VoicedThrottleMixin, APIView):
 
 
 def _brief_from_workshop(arguments: dict) -> dict | None:
-    """The room's answer to IDEA's bar, from a suggest_goal call.
+    """The room's answer to IDEA's bar, from a sketch_idea_bar call.
 
     The same two functions that will read tonight's real proof do the work
     here, unchanged: `bar.read` composes the parts into one paragraph, and
@@ -1912,15 +1912,22 @@ def _brief_from_workshop(arguments: dict) -> dict | None:
     server did the rest, and `parts` is arithmetic over the arguments rather
     than anything the model was asked to assert about itself.
 
-    Only the four declared part keys are passed on. `bar.read` prefers a `text`
-    argument when it is given one, and suggest_goal's schema does not declare
-    one — so filtering here is what stops an undeclared argument from becoming
-    the paragraph the coach is later told the builder said.
+    Both of the things the caller keeps come out of this one call — the keys
+    the forecast counts and the prose the commit carries — so the meter on the
+    builder's screen and the brief on their goal cannot describe different
+    rooms. That is the reason this reads a sketch rather than the tiebreak:
+    sketch_idea_bar is maintained through the conversation and catches a room
+    that talks an idea through and never reaches a title.
 
-    None means the call carried a title and nothing else, which is every
-    workshop that spent its turns on the tiebreak rather than on the body of
-    the idea. That is a normal room, not a failure, and it leaves the goal
-    exactly as it was before this existed.
+    Only the four declared part keys are passed on. `bar.read` prefers a `text`
+    argument when it is given one, and the schema does not declare one — so
+    filtering here is what stops an undeclared argument from becoming the
+    paragraph the coach is later told the builder said.
+
+    None means nothing of the bar came back, which is every workshop that
+    spent its turns on the tiebreak rather than on the body of the idea. That
+    is a normal room, not a failure, and it leaves the goal exactly as it was
+    before any of this existed.
     """
     given = {
         part.key: arguments.get(part.key) for part in bar.BAR[Phase.IDEA].parts
@@ -2615,7 +2622,7 @@ class WorkshopChatView(throttles.VoicedThrottleMixin, APIView):
                         if reopened
                         else [
                             prompts.PARK_CANDIDATE_TOOL,
-                            prompts.suggest_goal_tool(),
+                            prompts.SUGGEST_GOAL_TOOL,
                             prompts.sketch_idea_bar_tool(),
                         ]
                     ),
@@ -2662,36 +2669,28 @@ class WorkshopChatView(throttles.VoicedThrottleMixin, APIView):
                                 # turn replaces the earlier one, the way a later
                                 # suggest_proof replaces the draft.
                                 suggested = title[:200]
-                            # The room's own answer to IDEA's bar, composed and
-                            # counted by the module that will read the real
-                            # thing tonight. Kept whether or not a title came
-                            # with it: the two are separate facts, and thinking
-                            # that arrived without a headline is still thinking.
-                            drafted = _brief_from_workshop(arguments)
-                            if drafted is not None:
-                                brief = drafted
-                                # The tiebreak's four parts are also the fullest
-                                # answer the room will give, so the forecast
-                                # moves with them rather than being left showing
-                                # a smaller count than the commit is carrying.
-                                sketched = list(drafted.get("parts") or []) or sketched
                         elif name == "sketch_idea_bar":
                             # The transfer this room borrows from bar.py: the
-                            # model extracted, and the counting is a list
-                            # comprehension over what it sent. bar.labels drops
-                            # anything that is not one of IDEA's four keys, so
-                            # an invented part cannot inflate the forecast, and
-                            # it returns keys rather than the values — which is
-                            # the whole of what #211 settled, and the reason
-                            # this row can hold a rehearsal without holding a
-                            # copy of the conversation.
-                            found = bar.labels(Phase.IDEA, arguments).parts
-                            if found:
-                                # Last call wins, same as suggest_goal above:
-                                # the tool is told to send the whole of what it
-                                # has, so a later call is a fuller picture and
-                                # not an addition to the earlier one.
-                                sketched = found
+                            # model extracted, and both of the things kept here
+                            # are the server's arithmetic over what it sent.
+                            # Anything that is not one of IDEA's four keys is
+                            # dropped, so an invented part can neither inflate
+                            # the forecast nor reach the goal.
+                            #
+                            # ONE call writes both, which is the point. The
+                            # forecast on screen counts the keys; the brief the
+                            # commit carries is those same arguments composed
+                            # to prose. They came out of one tool call, so
+                            # there is no version of this where the meter and
+                            # the goal disagree about what the room found.
+                            drafted = _brief_from_workshop(arguments)
+                            if drafted is not None:
+                                # Last call wins: the tool is told to send the
+                                # whole of what it has, so a later call is a
+                                # fuller picture and not an addition to the
+                                # earlier one.
+                                sketched = list(drafted["parts"])
+                                brief = drafted
             except Exception as e:
                 logger.error(f"Workshop stream failed: {e}")
                 broke = True

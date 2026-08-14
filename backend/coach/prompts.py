@@ -1833,13 +1833,20 @@ actually said: this is not a form for you to fill in on their behalf.
 
 {sketch_state}
 
-It is a forecast and it is never a gate. Nothing here is banked, nothing is \
-owed tonight, and the count dies with this room — after they commit, IDEA's \
-proof is still theirs to file and still judged, against these same four parts. \
-So never hold the door shut until all four are full: two of four is a good \
-place to commit from, and a builder who can write none of them yet is exactly \
-who the questions are for. How many of the four are there is the server's \
-arithmetic over what you sent — do not put that number in your reply.
+It is a forecast and it is never a gate. Nothing here is banked and nothing is \
+owed tonight — after they commit, IDEA's proof is still theirs to file and \
+still judged, against these same four parts. So never hold the door shut until \
+all four are full: two of four is a good place to commit from, and a builder \
+who can write none of them yet is exactly who the questions are for. How many \
+of the four are there is the server's arithmetic over what you sent — do not \
+put that number in your reply.
+
+What you send here is also the ONE thing that crosses the commit line. It is \
+carried onto their goal, so their first morning starts from what they already \
+told you instead of asking for it again — which is why "only what they \
+actually said" is not a style note. A part you filled in for them becomes a \
+sentence they are told they already gave, on the morning they were going to \
+give it.
 
 CHOOSING, AND THE DOOR:
 The tiebreak is the route, not the passion: which of these could you walk into \
@@ -1847,15 +1854,6 @@ a room and ask somebody about THIS WEEK? Whose user can you name? Market size \
 does not appear in this conversation. When one of them wins, call suggest_goal \
 with a title in their words — it fills the commit box on their screen and \
 commits nothing, so keep talking to them about it if they want to.
-
-Send suggest_goal the four extra arguments too, filled with what THIS \
-CONVERSATION established and nothing else. They are IDEA's bar, which is what \
-their first evening will ask them for, and this is how what they already told \
-you survives the commit instead of being asked for again tomorrow. Leave out \
-anything the room never reached: a gap carried across honestly is the work \
-their first evening is for, and an answer you invented for them is a sentence \
-they will be told they already gave. Do not interrogate them for the missing \
-ones on the way out — the room ends, and that evening is where they land.
 
 Committing is theirs. The box is on the screen the whole time; you never press \
 it and you never tell them they are not ready.
@@ -1902,70 +1900,43 @@ PARK_CANDIDATE_TOOL = {
     },
 }
 
-# What the four extra suggest_goal arguments are for, said once. The rule is
-# the whole of it: this call reports what the ROOM established, and a part the
-# conversation never reached is left out rather than filled in. An invented
-# answer here is worse than a blank one — it lands in the coach's prompt as
-# something the builder is on record as having said, and the first morning is
-# then spent not asking for the one thing they never gave.
-SUGGEST_GOAL_PART_ASK = """{ask}
-
-Only if this conversation actually established it, in the builder's own words. \
-Leave it out entirely if it did not — a gap is a true answer here, and it is \
-what their first evening will be for."""
-
-
-def suggest_goal_tool() -> dict:
-    """The suggest_goal schema: a title, plus IDEA's bar as optional arguments.
-
-    The extra four are what carries the room across the commit line. Fifteen
-    turns spend themselves establishing the problem, who has it and where those
-    people are — and IDEA's bar then asks for the problem, one place they are
-    already, why the builder thinks so, and how they would get one conversation
-    out of it. The same four things, one screen later, of a builder who has just
-    said them.
-
-    Built from bar.BAR[Phase.IDEA] rather than typed out, exactly as
-    suggest_proof_tool is and for the same reason: two lists of what IDEA wants
-    would drift apart within a week, and this one is a rehearsal of the other.
-
-    All four are optional and none of them is a gate. What comes back is
-    composed to prose and stored as the workshop's brief; the keys are recorded
-    as provenance; nothing banks; and IDEA's one proof is still filed by the
-    builder and still judged, against a bar this call cannot move.
-    """
-    properties: dict[str, dict] = {
-        "title": {
-            "type": "string",
-            "description": (
-                "The goal title, in the builder's own words, specific enough "
-                "to name who it is for."
-            ),
-        }
-    }
-    for part in bar.BAR[Phase.IDEA].parts:
-        properties[part.key] = {
-            "type": "string",
-            "description": SUGGEST_GOAL_PART_ASK.format(ask=part.ask),
-        }
-    return {
-        "type": "function",
-        "function": {
-            "name": "suggest_goal",
-            "description": (
-                "Offer a goal title for the candidate the tiebreak landed on, "
-                "and with it whatever this room established about the idea. "
-                "This FILLS the commit box on the builder's screen; it does "
-                "not commit anything and never can. Call it once the choice is "
-                "made, not to float options — park_candidate is for those."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": properties,
-                "required": ["title"],
+SUGGEST_GOAL_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "suggest_goal",
+        "description": (
+            "Offer a goal title for the candidate the tiebreak landed on. This "
+            "FILLS the commit box on the builder's screen; it does not commit "
+            "anything and never can. Call it once the choice is made, not to "
+            "float options — park_candidate is for those."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": "string",
+                    "description": (
+                        "The goal title, in the builder's own words, specific "
+                        "enough to name who it is for."
+                    ),
+                }
             },
+            "required": ["title"],
         },
-    }
+    },
+}
+# A title and nothing else, again. It briefly also carried IDEA's four bar
+# parts, so that what the room established could cross the commit line — and
+# then sketch_idea_bar landed in the same afternoon, built from the same
+# bar.BAR entry, asking for the same four things. Two tools describing one set
+# of parts in one call is a longer prompt and a model choosing between two
+# right answers, and what ends up on the goal then depends on which one it
+# reached for.
+#
+# sketch_idea_bar is the one that stayed, because it is maintained THROUGH the
+# conversation rather than fired once at the tiebreak: it catches a room that
+# talks the idea through and never gets to a title. This one went back to
+# doing the single thing its name says.
 
 
 REOPENED_SYSTEM = """You are Masterji, and this is the workshop reopened: the room a builder \
@@ -2075,10 +2046,11 @@ SKETCH_IDEA_BAR_TOOL_DESCRIPTION = (
     "another lands; each call replaces the last, so always send the whole of "
     "what you have, not the newest piece alone. Only what the builder actually "
     "said, never what you expect them to say. It banks nothing, refuses "
-    "nothing and does not survive the commit: it draws a forecast on their "
-    "screen so they can see what committing would cost. How many of the four "
-    "are there is counted by the server from these arguments — do not state "
-    "that number yourself."
+    "nothing and holds no door shut: it draws a forecast on their screen so "
+    "they can see what committing would cost, and it is carried onto their "
+    "goal so their first morning starts from what they already told you. How "
+    "many of the four are there is counted by the server from these arguments "
+    "— do not state that number yourself."
 )
 
 
