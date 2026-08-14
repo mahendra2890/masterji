@@ -279,6 +279,15 @@ def labels(phase: str, arguments: dict) -> Labels:
     extracted the parts when it drafted the proof, and this is arithmetic over
     what it sent. Which parts are present is a truth about the arguments, so it
     is computed here rather than asked for.
+
+    Keys, never values, and that is the permanent answer (#211): `parts` says
+    which parts the evidence covered, and the arguments that carried their text
+    are dropped at the end of the turn. CheckIn.proof_parts records why — the
+    values are the proof text and the proof text is already on the row. Three
+    issues in a row have been written assuming this function stores them, so:
+    it does not, and nothing else does either. Anything wanting the parts as
+    separate fields has to extract them where a model call is already happening
+    and store them itself.
     """
     bar = BAR[Phase(phase)]
     given = {part.key: _entries(arguments.get(part.key)) for part in bar.parts}
