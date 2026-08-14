@@ -26,12 +26,29 @@ before a socket is opened, redirects are never followed (a 302 to
 read, and one bounded timeout applies to both requests. The residual hole is
 DNS rebinding: `_resolve` and the socket `requests` opens are two separate
 lookups, so a name that answers publicly on the first and privately on the
-second is not caught here. Closing it means pinning the connection to the
-validated address, which is a custom transport adapter — filed as #136 rather
-than done, because with redirects off and no body read the reachable payoff is a
-status code, and a status code is what this module returns to the judge as one
-clause. Those two properties are what keep that hole cheap: adding a redirect
-follow or a body read here reopens it, so #136 comes first if either is wanted.
+second is not caught here.
+
+#136 decided to leave that open, having built the pin first rather than guessed
+at it. Pinning the connection to the validated address does work, and it keeps
+TLS honest — urllib3 takes `server_hostname` as a first-class argument, so SNI
+and certificate matching stay on the name, and a pin aimed at a certificate that
+does not match is refused. That was the failure the issue expected, and it is
+not the one that bites. Two quieter ones do. A pinned pool makes the outgoing
+`Host` header the address, and every platform a phone-first builder deploys to
+serves by `Host`, so one missing line turns a live app into the platform's 404 —
+read here as `False`, "there is nothing at that address", the single answer this
+module exists never to get wrong. And pinning one address gives up the fallback
+`getaddrinfo` ordering provides for free; the AAAA commonly sorts first, so a
+container without IPv6 egress would quietly stop checking dual-stack links at
+all. Both land in the deliberately blanket `except` below, so both fail silently.
+Weighed against an attacker who has to control a name's DNS, win the race between
+two lookups, and then read one status code back as one of two fixed English
+clauses in their own proof verdict.
+
+That trade holds only while the payoff stays one status code. Following a
+redirect or reading a body turns the hole into something worth attacking, and
+then the pin comes first — the four properties it needs are measured on #136
+rather than left for whoever picks it up.
 """
 
 import ipaddress
@@ -82,6 +99,14 @@ def _fetch(url: str, method: str) -> int:
         method,
         url,
         timeout=settings.LINK_CHECK_TIMEOUT_S,
+        # LOAD-BEARING, both of them, and not for tidiness. These two keywords are
+        # the whole of what keeps the DNS-rebinding hole in SECURITY above worth
+        # one status code instead of a read primitive aimed inside our own
+        # network. A followed redirect reaches an address nothing validated —
+        # `check` vetted the first hop and only the first hop. A read body brings
+        # that address's contents back to a stranger. Either change turns #136
+        # from a decision into a bug, so pin the connection to the vetted address
+        # in the same commit. `coach.tests.LinkCheckTests` fails until you do.
         allow_redirects=False,
         stream=True,
         headers={"User-Agent": settings.LINK_CHECK_USER_AGENT},
