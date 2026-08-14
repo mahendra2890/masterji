@@ -1,0 +1,78 @@
+# Build the API image and deploy it to Cloud Run.
+#
+# This runs *alongside* Render, which auto-deploys the same commits from its
+# own GitHub integration and remains what the frontend talks to. Both services
+# run against the same Neon database. Nothing here points anything at Cloud
+# Run — that switch is a Vercel environment variable and a human decision.
+#
+# Modelled on munshiji's deploy-backend.yml, which has been running this
+# pattern in the same GCP project since 2026-08-07.
+name: Deploy backend to Cloud Run
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - ".github/workflows/deploy-cloudrun.yml"
+  workflow_dispatch: {}
+
+env:
+  PROJECT_ID: portfolio-502209
+  REGION: asia-southeast1
+  SERVICE: masterji-api
+  JOB: masterji-migrate
+  IMAGE: asia-southeast1-docker.pkg.dev/portfolio-502209/masterji/api
+
+# id-token: write is what lets this job mint a short-lived GCP credential via
+# Workload Identity Federation — no service account key stored anywhere.
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy-cloudrun-${{ github.ref }}
+  cancel-in-progress: false # never cancel a deploy mid-flight
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/697438837887/locations/global/workloadIdentityPools/github-actions/providers/github
+          service_account: github-actions-deployer@portfolio-502209.iam.gserviceaccount.com
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker asia-southeast1-docker.pkg.dev --quiet
+
+      - name: Build image
+        run: docker build -t "${{ env.IMAGE }}:${{ github.sha }}" backend
+
+      - name: Push image
+        run: docker push "${{ env.IMAGE }}:${{ github.sha }}"
+
+      # migrate.sh, on the new image, before the new revision takes traffic.
+      # The service runs with MIGRATE_ON_BOOT=0, so this is the only thing that
+      # migrates on Cloud Run — if this step is skipped the revision serves
+      # against an unmigrated database.
+      - name: Run migrations
+        run: |
+          gcloud run jobs update "${{ env.JOB }}" \
+            --region "${{ env.REGION }}" \
+            --image "${{ env.IMAGE }}:${{ github.sha }}"
+          gcloud run jobs execute "${{ env.JOB }}" \
+            --region "${{ env.REGION }}" \
+            --wait
+
+      - name: Deploy Cloud Run service
+        run: |
+          gcloud run deploy "${{ env.SERVICE }}" \
+            --region "${{ env.REGION }}" \
+            --image "${{ env.IMAGE }}:${{ github.sha }}" \
+            --quiet
