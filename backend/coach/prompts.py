@@ -25,7 +25,7 @@ PLAYBOOKS_BY_PHASE = {
     ],
     Phase.BUILD: ["over-engineering", "mvp-scoping", "shipping-cadence", "first-touch"],
     Phase.LAUNCH: ["launch-checklist", "the-first-rupee", "writing-the-post"],
-    Phase.TRACTION: ["first-users"],
+    Phase.TRACTION: ["first-users", "coming-back"],
 }
 
 # What each phase is for, and what waits. Written as redirects rather than

@@ -3253,6 +3253,9 @@ class CorpusCurationTests(CoachTestCase):
         # LAUNCH said WHERE to post and never how to write it, which is the
         # step the week goes quiet on.
         "writing-the-post": (Phase.LAUNCH, "Harry Dry"),
+        # The terminal phase carried one playbook and it taught acquisition,
+        # while the phase's own bar asks for a RETURN.
+        "coming-back": (Phase.TRACTION, "Andrew Chen"),
     }
 
     def test_each_new_playbook_is_wired_to_exactly_one_phase(self):
