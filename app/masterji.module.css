@@ -1750,6 +1750,18 @@
   white-space: pre-wrap;
 }
 
+/* The candidates the workshop parked. Deliberately the quietest thing in this
+   panel — a plain list, no cards and nothing tappable. They are here so the
+   thinking survives, not to be a second menu of ideas competing with the
+   record above them. */
+.consideredList {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 14.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
 /* --- a closed idea, day by day ------------------------------------------------------------------ */
 
 .dayList {

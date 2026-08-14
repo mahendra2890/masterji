@@ -55,6 +55,21 @@ class Goal(SoftDeleteModel):
     # records which of the four it covered. The dict shape is what lets #163
     # add per-part keys later without a second migration.
     brief = models.JSONField(default=dict, blank=True)
+    # The one-liners parked in the workshop this goal came out of, copied at
+    # commit. Empty for a goal typed without a room.
+    #
+    # The tiebreak produces one winner and two survivors, and the survivors
+    # used to die at the moment they became useful: a builder whose idea looks
+    # dead on day 4 had to retire the goal to reach a room at all, and the
+    # other two candidates were gone when they got there.
+    #
+    # Every candidate the room parked, including the one this goal came from,
+    # and that is deliberate. The commit box is free text — a builder may
+    # commit a candidate, the coach's suggested title, or something they typed
+    # over both — so no server can know which one-liner became this goal, and
+    # a wrong exclusion would lose exactly the thinking this field exists to
+    # keep. Still bare strings, still at most Workshop.MAX_CANDIDATES.
+    considered = models.JSONField(default=list, blank=True)
     phase = models.CharField(max_length=12, choices=Phase.choices, default=Phase.IDEA)
     status = models.CharField(
         max_length=12, choices=Status.choices, default=Status.ACTIVE
@@ -460,6 +475,22 @@ class Workshop(SoftDeleteModel):
     # builder ends up coached on somebody else's idea. Same width as Goal.title
     # because that is the box it is going into.
     suggested_title = models.CharField(max_length=200, blank=True)
+    # What the room established about the idea, in the shape Goal.brief uses —
+    # written when the coach calls suggest_goal, copied onto the goal at commit
+    # and never read again after that.
+    #
+    # It lives here rather than being extracted at commit because #211 settled
+    # that the bar's part VALUES are never stored: they exist structured for
+    # exactly one turn, inside a tool call's arguments. suggest_goal is the
+    # model call that already knows this idea — it is the one fired when the
+    # tiebreak lands — so the four parts ride it and the commit stays a
+    # database write with no model in it.
+    #
+    # `parts` is which of bar.BAR[IDEA]'s four the room actually covered,
+    # computed by bar.labels over the same arguments. It is provenance, not a
+    # verdict: nothing here is judged, nothing banks, and IDEA's one proof is
+    # owed in full the same evening either way.
+    brief = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

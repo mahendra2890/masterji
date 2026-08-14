@@ -46,6 +46,10 @@ export type Goal = {
    * Empty string until something has written one, which is every goal created
    * before this field existed. */
   brief: string;
+  /** The one-liners parked in the workshop this goal came out of — everything
+   * that room was choosing between, including whichever one became this. Empty
+   * for a goal typed without a room, and for every goal older than the field. */
+  considered: string[];
 };
 
 // `owed` is the KINDS of evidence the phase still has none of, already worded
@@ -265,6 +269,7 @@ type ServerGoal = {
   created_at: string;
   title_locked?: boolean;
   brief?: { text?: string } | null;
+  considered?: string[] | null;
 };
 type ServerGate = {
   have: number;
@@ -408,6 +413,7 @@ const fromServerGoal = (g: ServerGoal): Goal => ({
   // has no use for (which parts the gate saw, who wrote it, when), and every
   // reader here wants the words.
   brief: g.brief?.text ?? "",
+  considered: g.considered ?? [],
 });
 
 const fromServerRetirement = (r: ServerRetirement): Retirement => ({

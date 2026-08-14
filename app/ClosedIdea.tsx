@@ -109,6 +109,23 @@ export default function ClosedIdea({
           </>
         )}
 
+        {/* The other one-liners from the room this idea came out of. They used
+            to die with the workshop, which meant the builder whose idea just
+            ended had to go back to an empty room — the pivot arriving with no
+            memory of the thinking that produced it. Shown here rather than as
+            a control: nothing here starts a goal, and the box on the screen
+            behind this panel is where that happens. */}
+        {history && history.goal.considered.length > 0 && (
+          <>
+            <p className={styles.closedLabel}>What else was on the table</p>
+            <ul className={styles.consideredList}>
+              {history.goal.considered.map((one, i) => (
+                <li key={i}>{one}</li>
+              ))}
+            </ul>
+          </>
+        )}
+
         <p className={styles.closedLabel}>Every day of it</p>
         {failed ? (
           <p className={styles.modalEmpty}>Couldn&apos;t load the daily record.</p>

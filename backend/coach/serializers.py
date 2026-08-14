@@ -36,6 +36,7 @@ class GoalSerializer(serializers.ModelSerializer):
             "id",
             "title",
             "brief",
+            "considered",
             "phase",
             "status",
             "phase_entered_at",
@@ -47,6 +48,11 @@ class GoalSerializer(serializers.ModelSerializer):
         # around the gate — a PATCH may reword a goal and may never advance one.
         read_only_fields = [
             "id",
+            # What the room parked is a record of what the builder was
+            # choosing between, not a list they may edit afterwards: the
+            # workshop is closed and rewriting its pile would rewrite the
+            # question this goal was the answer to.
+            "considered",
             "phase",
             "status",
             "phase_entered_at",
