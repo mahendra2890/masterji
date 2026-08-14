@@ -33,6 +33,7 @@ import {
   phaseWindow,
   prove,
   retireGoal,
+  setPhaseIntent,
   streamChat,
   streamWorkshopChat,
   updateGoalTitle,
@@ -624,6 +625,11 @@ export default function Masterji({ user }: { user: SessionUser }) {
   const [filingNow, setFilingNow] = useState(false);
   // Retiring the current goal: the form, and what Masterji said about it.
   const [retiring, setRetiring] = useState(false);
+  // The one line about the phase you are in, and whether its box is open. The
+  // box shows itself when the line is empty, which is the state every phase
+  // starts in — nothing here nags, and ignoring it is a complete answer.
+  const [intentDraft, setIntentDraft] = useState("");
+  const [namingPhase, setNamingPhase] = useState(false);
   // Whether the room beside the retire box is showing. Client-side only: the
   // room itself is a server row that exists once the builder has said
   // something in it, and this is just which of the two doors is open.
@@ -987,6 +993,21 @@ export default function Masterji({ user }: { user: SessionUser }) {
   // Sets a named language rather than flipping the current one — same shape as
   // onSetMode below, and for the same reason: the control is two options with
   // one lit, so "the one I pressed" is all a press can mean.
+  /** Name what the phase you are standing in will produce. One line, and
+   * nothing depends on it: the phase advances on proofs whether this is set,
+   * changed or ignored. Re-fetches rather than patching state by hand, because
+   * the line goes into the next system prompt and the transcript on screen is
+   * about to be read by a coach that has it. */
+  const onNamePhase = () =>
+    run(async () => {
+      const text = intentDraft.trim();
+      if (!state?.goal || !text) return;
+      await setPhaseIntent(state.goal.id, text);
+      setNamingPhase(false);
+      setIntentDraft("");
+      await refresh();
+    });
+
   const onSetTone = (next: CoachState["tone"]) =>
     run(async () => {
       if (state?.tone === next) return;
@@ -1677,6 +1698,12 @@ export default function Masterji({ user }: { user: SessionUser }) {
   // Read twice below — once by the meter's colour and once by the branch that
   // decides what the card says. One function so they cannot fork; see lib/gate.
   const earned = isEarned(gate);
+  // The row that opened the phase they are standing in, which is where the one
+  // line about it lives. Null in IDEA — nothing unlocked it, so there was never
+  // a moment at which to ask — and that is the whole of the "no ask on the
+  // first phase" rule, said once here rather than branched on below.
+  const phaseIntent =
+    transitions.filter((t) => t.toPhase === goal.phase).slice(-1)[0] ?? null;
   // Today's loop is still open — worth a dot on the pane you can't see.
   const dayOpen =
     !today?.amDeclaration ||
@@ -2005,6 +2032,60 @@ export default function Masterji({ user }: { user: SessionUser }) {
               </div>
             )}
             <p className={styles.phaseHint}>{guidance?.phaseHint}</p>
+
+            {/* And under the hint that is the same sentence for every builder
+                forever, the one that is theirs. A phase has a bar and no shape:
+                "smallest thing a real user can touch this week" cannot tell the
+                coach whether tonight's task is the thing THIS builder decided
+                on the morning the phase opened.
+
+                Never a gate, and the shape of the control says so — no ring, no
+                counter, and it is skippable by ignoring it. gates.try_advance
+                has never read PhaseTransition's contents and does not start.
+                IDEA has no row (nothing unlocked it), so the ask is correctly
+                absent on the phase everybody starts in. */}
+            {phaseIntent !== null &&
+              (phaseIntent.intent && !namingPhase ? (
+                <button
+                  type="button"
+                  className={styles.phaseIntent}
+                  onClick={() => {
+                    setIntentDraft(phaseIntent.intent);
+                    setNamingPhase(true);
+                  }}
+                  title="What you said this phase would produce — tap to reword"
+                >
+                  {phaseIntent.intent}
+                </button>
+              ) : (
+                <div className={styles.phaseIntentBox}>
+                  <label
+                    className={styles.phaseIntentLabel}
+                    htmlFor="phase-intent"
+                  >
+                    What will {goal.phase} have produced?
+                  </label>
+                  <div className={styles.phaseIntentRow}>
+                    <input
+                      id="phase-intent"
+                      className={styles.input}
+                      placeholder="e.g. three hostellers who'd pay today"
+                      value={intentDraft}
+                      maxLength={280}
+                      onChange={(e) => setIntentDraft(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && onNamePhase()}
+                    />
+                    <button
+                      type="button"
+                      className={styles.secondaryBtn}
+                      disabled={busy || !intentDraft.trim()}
+                      onClick={onNamePhase}
+                    >
+                      Save
+                    </button>
+                  </div>
+                </div>
+              ))}
 
             {gate && gate.need > 0 && (
               <>

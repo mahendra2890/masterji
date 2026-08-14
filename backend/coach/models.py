@@ -414,6 +414,22 @@ class PhaseTransition(SoftDeleteModel):
     )
     from_phase = models.CharField(max_length=12, choices=Phase.choices)
     to_phase = models.CharField(max_length=12, choices=Phase.choices)
+    # One line, in the builder's words: what THIS phase is going to produce.
+    #
+    # A phase has a bar and no shape. guidance.PHASE_HINT[BUILD] says "smallest
+    # thing a real user can touch this week" — for every builder, forever — so
+    # the coach can tell whether tonight's task is on-phase for BUILD in
+    # general, and never whether it is the thing this builder said on Monday.
+    # This is the missing half, and it costs no rung on the ladder.
+    #
+    # Here rather than on Goal because it is a fact about ONE phase: a goal that
+    # reaches TRACTION passed through four of these, and a field on the goal
+    # would keep only the last one — the record would then say the builder had
+    # always meant to do whatever they most recently said.
+    #
+    # Never a gate. gates.try_advance does not read it, blank is a legal and
+    # common value, and skipping it advances the phase exactly as before.
+    intent = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta(SoftDeleteModel.Meta):

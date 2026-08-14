@@ -227,11 +227,16 @@ class RetirementSerializer(serializers.ModelSerializer):
 
 class PhaseTransitionSerializer(serializers.ModelSerializer):
     """Phase boundaries — the frontend derives each phase's date window
-    from these plus the goal's created_at, to power the stepper drill-in."""
+    from these plus the goal's created_at, to power the stepper drill-in.
+
+    `intent` rides along because the drill-in is the one place a builder reads a
+    phase back as a whole: what they said it would produce belongs next to what
+    it actually did. Read-only here — it is written by PhaseIntentView, which is
+    the one place that knows a line may only describe the open phase."""
 
     class Meta:
         model = PhaseTransition
-        fields = ["from_phase", "to_phase", "created_at"]
+        fields = ["from_phase", "to_phase", "intent", "created_at"]
         read_only_fields = fields
 
 

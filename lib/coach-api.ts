@@ -71,6 +71,10 @@ export type Gate = {
 export type PhaseTransition = {
   fromPhase: Phase;
   toPhase: Phase;
+  /** One line, in the builder's words, on what this phase would produce —
+   * asked once when the phase unlocked. "" when they skipped it, which is a
+   * legal and common state: nothing about the gate reads this. */
+  intent: string;
   createdAt: string;
 };
 
@@ -304,6 +308,7 @@ type ServerGate = {
 type ServerTransition = {
   from_phase: Phase;
   to_phase: Phase;
+  intent?: string;
   created_at: string;
 };
 type ServerRetirement = {
@@ -472,6 +477,7 @@ const fromServerRetirement = (r: ServerRetirement): Retirement => ({
 const fromServerTransition = (t: ServerTransition): PhaseTransition => ({
   fromPhase: t.from_phase,
   toPhase: t.to_phase,
+  intent: t.intent ?? "",
   createdAt: t.created_at,
 });
 
@@ -833,6 +839,20 @@ export async function advanceGoal(
   id: number
 ): Promise<{ advanced: boolean; phase: Phase; detail: string }> {
   return request(`goals/${id}/advance/`, { method: "POST" });
+}
+
+/** One line on what the phase you just unlocked will produce. Never a gate:
+ * skipping it advances the phase exactly as before, and the server refuses only
+ * an empty line, a paragraph, or a phase nothing unlocked (IDEA → 409). */
+export async function setPhaseIntent(
+  id: number,
+  intent: string
+): Promise<PhaseTransition> {
+  const data = await request<ServerTransition>(`goals/${id}/intent/`, {
+    method: "POST",
+    body: JSON.stringify({ intent }),
+  });
+  return fromServerTransition(data);
 }
 
 export async function declare(text: string): Promise<CheckIn> {

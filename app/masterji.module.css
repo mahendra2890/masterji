@@ -1724,6 +1724,61 @@
   cursor: pointer;
 }
 
+/* What this builder said this phase would produce, under the hint that says
+   the same thing to everybody. Quiet, and quieter than the hint above it: it
+   is a note they left themselves, not an instruction the app is giving back.
+
+   Nothing about it is a control ring or a counter, because it is not a gate and
+   must not learn to look like one. Set, it is a button only so it can be
+   reworded; the underline is the affordance and there is no pencil. */
+.phaseIntent {
+  display: block;
+  width: 100%;
+  margin: 6px 0 0;
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12.5px;
+  font-style: italic;
+  line-height: 1.45;
+  text-align: left;
+  text-decoration: underline;
+  text-decoration-color: var(--border);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.phaseIntent:hover {
+  color: var(--text);
+  text-decoration-color: var(--accent);
+}
+
+.phaseIntentBox {
+  margin-top: 8px;
+}
+
+.phaseIntentLabel {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+/* The shared .input carries a bottom margin for the stacked forms elsewhere on
+   this card; in a row that is a 10px shortfall against the button beside it —
+   the same correction .onboardForm makes, for the same reason. */
+.phaseIntentRow {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.phaseIntentRow .input {
+  margin-bottom: 0;
+}
+
 /* The two ways out of a goal you have stopped believing in, side by side and
    the same weight. Reconsidering used to cost a retirement, which made the
    honest move — killing the idea — the cheapest route to merely doubting it.

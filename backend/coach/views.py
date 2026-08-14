@@ -50,6 +50,7 @@ from .models import (
     GoalRetirement,
     Message,
     Phase,
+    PhaseTransition,
     ProofAttempt,
     Workshop,
     WorkshopMessage,
@@ -622,6 +623,26 @@ def _client_day(request) -> date:
         return timezone.now().date()
 
 
+def _current_transition(goal: Goal) -> PhaseTransition | None:
+    """The row that opened the phase the goal is in right now, if there is one.
+
+    None in IDEA, always and correctly: nothing unlocked it, so there was no
+    moment at which to ask what it would produce. Filtered on to_phase as well
+    as taking the newest, because the two can disagree — a goal is moved back
+    only by an operator in the admin, and a phase's line has to belong to the
+    phase it names rather than to the last advance that happened.
+    """
+    return (
+        goal.transitions.filter(to_phase=goal.phase).order_by("-created_at").first()
+    )
+
+
+def _phase_intent(goal: Goal) -> str:
+    """What the builder said the current phase would produce, or ""."""
+    transition = _current_transition(goal)
+    return transition.intent if transition else ""
+
+
 def _today_state(checkin: CheckIn | None) -> str:
     """Where the day has got to, as a fact.
 
@@ -1170,6 +1191,65 @@ class AdvanceView(APIView):
         )
 
 
+class PhaseIntentView(APIView):
+    """One line, on the day a phase opens: what this phase will produce.
+
+    Not a gate, and the shape of this view is where that is enforced. It writes
+    to PhaseTransition and nothing else; gates.try_advance has never read that
+    table's contents and does not start; skipping it entirely leaves the phase
+    working exactly as before, which is why there is no version of this endpoint
+    that has to be called before anything.
+
+    Writes to the row that opened the CURRENT phase, so a line can only ever
+    describe the phase the builder is standing in. IDEA has no such row — it was
+    not unlocked by anything — and 409s rather than 404s, because the goal is
+    real and it is the moment that is wrong.
+
+    Re-settable while the phase is open. The alternative was write-once, and
+    write-once on a sentence typed in the thirty seconds after an unlock buys a
+    tidier record at the cost of a builder living for three weeks under a typo,
+    with a coach quoting it back. It cannot be changed once the phase is behind
+    them: the next phase gets its own row, and that is the whole reason this
+    lives here rather than on the Goal.
+    """
+
+    permission_classes = [IsAuthenticated]
+    MAX_CHARS = 280
+
+    def post(self, request, pk: int):
+        goal = get_object_or_404(
+            Goal.objects.filter(user=request.user, status=Goal.Status.ACTIVE), pk=pk
+        )
+        transition = _current_transition(goal)
+        if transition is None:
+            return Response(
+                {
+                    "detail": (
+                        "Nothing unlocked this phase yet — this is where you "
+                        "started."
+                    )
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+        intent = " ".join((request.data.get("intent") or "").split())
+        if not intent:
+            return Response(
+                {"detail": "One line: what will this phase have produced?"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if len(intent) > self.MAX_CHARS:
+            return Response(
+                {"detail": "One line, not a plan. Say the thing it produces."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        transition.intent = intent
+        transition.save(update_fields=["intent"])
+        logger.info(f"Goal {goal.id} named what {goal.phase} is for")
+        return Response(
+            PhaseTransitionSerializer(transition).data, status=status.HTTP_200_OK
+        )
+
+
 class RetireView(APIView):
     """Retiring a goal is always allowed. It is never silent.
 
@@ -1335,6 +1415,11 @@ def _react_to_declaration(goal: Goal, text: str, tone: str) -> tuple[str, str, s
             phase=goal.phase,
             phase_rules=prompts.PHASE_RULES[Phase(goal.phase)],
             proof_hint=guidance.PROOF_HINT[Phase(goal.phase)],
+            # What this builder said this phase was for, if they said anything.
+            # It is what the morning's reading has never had: PHASE_HINT is the
+            # same sentence for every builder forever, so "is this the work this
+            # phase is for" could only ever be answered about phases in general.
+            intent=prompts.declaration_intent(_phase_intent(goal)),
         )
         # The judge model: this call decides declaration_fit and writes the
         # proof_ask the evening is then graded against, so it is a verdict with
@@ -1993,6 +2078,11 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
             week=weekly.summary(
                 goal, weekly.week_start(today) - timedelta(days=weekly.DAYS)
             ),
+            # What they said THIS phase would produce, which is the one thing
+            # the coach could never tell from PHASE_HINT: that sentence is the
+            # same for every builder forever, and this one is about the thing
+            # they decided on the morning the phase opened.
+            intent=_phase_intent(goal),
         )
         # SYSTEM rows are excluded, not mapped: they are the app talking about a
         # turn that failed, and the only role this mapping had for them was

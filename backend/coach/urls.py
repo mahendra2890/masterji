@@ -11,6 +11,11 @@ urlpatterns = [
     # The same record as history/, as a file the builder can keep.
     path("goals/<int:pk>/export/", views.GoalExportView.as_view(), name="coach_export"),
     path("goals/<int:pk>/advance/", views.AdvanceView.as_view(), name="coach_advance"),
+    path(
+        "goals/<int:pk>/intent/",
+        views.PhaseIntentView.as_view(),
+        name="coach_phase_intent",
+    ),
     path("goals/<int:pk>/retire/", views.RetireView.as_view(), name="coach_retire"),
     path("goals/<int:pk>/complete/", views.CompleteView.as_view(), name="coach_complete"),
     path("checkins/declare/", views.DeclareView.as_view(), name="coach_declare"),

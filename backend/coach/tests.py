@@ -787,6 +787,138 @@ class PhaseBriefTests(CoachTestCase):
 # --- daily loop ----------------------------------------------------------------
 
 
+class PhaseIntentTests(CoachTestCase):
+    """One line at every unlock: what this phase will produce.
+
+    A phase has a bar and no shape — PHASE_HINT[BUILD] is the same sentence for
+    every builder forever — so the coach could tell whether tonight's task was
+    on-phase for BUILD in general and never whether it was the thing this
+    builder said on Monday. What is pinned here is that the line is the only
+    thing that changed: the ladder is the same length, the gate reads nothing,
+    and skipping it costs a builder nothing at all.
+    """
+
+    def advance(self, goal: Goal) -> Goal:
+        need = gates.PROOFS_REQUIRED[Phase(goal.phase)]
+        self.accept_proofs(goal, need.n)
+        self.client.post(f"/api/coach/goals/{goal.id}/advance/")
+        goal.refresh_from_db()
+        return goal
+
+    def set_intent(self, goal: Goal, text: str):
+        return self.client.post(f"/api/coach/goals/{goal.id}/intent/", {"intent": text})
+
+    def test_the_line_lands_on_the_row_that_opened_this_phase(self):
+        goal = self.advance(self.make_goal())
+        self.assertEqual(goal.phase, Phase.VALIDATION)
+        response = self.set_intent(goal, "  three hostellers  who\n pay today  ")
+        self.assertEqual(response.status_code, 200)
+
+        transition = goal.transitions.get(to_phase=Phase.VALIDATION)
+        # Collapsed, not stored as typed: it is one line by construction, and a
+        # newline in it would arrive in the prompt as a new instruction.
+        self.assertEqual(transition.intent, "three hostellers who pay today")
+
+    def test_idea_has_no_unlock_to_describe(self):
+        """Nothing opened IDEA, so there was no moment at which to ask. A 409
+        rather than a 404: the goal is real and it is the moment that is wrong."""
+        goal = self.make_goal()
+        response = self.set_intent(goal, "something")
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("where you started", response.json()["detail"])
+
+    def test_the_coach_is_told_what_they_said_and_that_it_is_not_the_gate(self):
+        goal = self.advance(self.make_goal())
+        self.set_intent(goal, "three hostellers who pay today")
+        text = prompts.build_system_prompt(
+            goal,
+            gates.gate_status(goal),
+            0,
+            "nothing yet",
+            "ENGLISH",
+            intent="three hostellers who pay today",
+        )
+        self.assertIn("three hostellers who pay today", text)
+        # The two things that keep it from becoming a second bar.
+        self.assertIn("it is not a promise you hold them to", text)
+        self.assertIn("a phase is cleared by proofs whatever this says", text)
+
+    def test_a_phase_with_nothing_said_about_it_says_nothing(self):
+        """Absent rather than defaulted. A coach told "what this phase will
+        produce: (not set)" has a fact about the app's own form in the block
+        whose whole authority is that everything in it is true of the builder."""
+        goal = self.advance(self.make_goal())
+        self.assertEqual(prompts.intent_block("", Phase.VALIDATION), "")
+        text = prompts.build_system_prompt(
+            goal, gates.gate_status(goal), 0, "nothing yet", "ENGLISH"
+        )
+        self.assertNotIn("WHAT THEY SAID THIS PHASE WOULD PRODUCE", text)
+
+    def test_the_morning_reads_it_as_context_and_not_as_a_test(self):
+        """`fit` is advisory and an off-phase task still earns its proof. A
+        builder's own sentence must not quietly become a tighter gate on their
+        day than the phase itself is."""
+        text = prompts.DECLARATION_SYSTEM.format(
+            respect_rule=prompts.RESPECT_RULE,
+            tone_rule="",
+            evidence_rule=prompts.EVIDENCE_NOT_INSTRUCTIONS,
+            phase=Phase.VALIDATION,
+            phase_rules=prompts.PHASE_RULES[Phase.VALIDATION],
+            proof_hint=guidance.PROOF_HINT[Phase.VALIDATION],
+            intent=prompts.declaration_intent("three hostellers who pay today"),
+        )
+        self.assertIn("three hostellers who pay today", text)
+        self.assertIn("context for your reaction, never a second test", text)
+
+    def test_skipping_it_advances_the_phase_exactly_as_before(self):
+        """Not a gate, and this is the test that says so: a goal that never
+        answers walks the whole ladder."""
+        goal = self.make_goal()
+        for _ in range(3):
+            goal = self.advance(goal)
+        self.assertEqual(goal.phase, Phase.LAUNCH)
+        self.assertEqual(goal.transitions.count(), 3)
+        self.assertEqual([t.intent for t in goal.transitions.all()], ["", "", ""])
+
+    def test_the_next_phase_cannot_overwrite_the_last_ones_answer(self):
+        """The whole reason it lives on PhaseTransition. A field on the Goal
+        would keep only the newest, and the record would then say the builder
+        had always meant whatever they most recently said."""
+        goal = self.advance(self.make_goal())
+        self.set_intent(goal, "three hostellers who pay today")
+        goal = self.advance(goal)
+        self.set_intent(goal, "one screen they can actually open")
+
+        by_phase = {t.to_phase: t.intent for t in goal.transitions.all()}
+        self.assertEqual(by_phase[Phase.VALIDATION], "three hostellers who pay today")
+        self.assertEqual(by_phase[Phase.BUILD], "one screen they can actually open")
+        # And the coach reads the one for the phase they are standing in.
+        self.assertEqual(views._phase_intent(goal), "one screen they can actually open")
+
+    def test_it_can_be_fixed_while_the_phase_is_open(self):
+        """Write-once buys a tidier record at the cost of a builder living for
+        three weeks under a typo, with a coach quoting it back at them."""
+        goal = self.advance(self.make_goal())
+        self.set_intent(goal, "three hostlers")
+        self.set_intent(goal, "three hostellers who pay today")
+        self.assertEqual(views._phase_intent(goal), "three hostellers who pay today")
+        self.assertEqual(goal.transitions.count(), 1)
+
+    def test_an_empty_line_and_a_paragraph_are_both_refused(self):
+        goal = self.advance(self.make_goal())
+        self.assertEqual(self.set_intent(goal, "   ").status_code, 400)
+        self.assertEqual(
+            self.set_intent(goal, "x" * (views.PhaseIntentView.MAX_CHARS + 1)).status_code,
+            400,
+        )
+        self.assertEqual(views._phase_intent(goal), "")
+
+    def test_the_phase_is_the_builders_own(self):
+        goal = self.advance(self.make_goal())
+        self.client.force_authenticate(self.bob)
+        self.assertEqual(self.set_intent(goal, "mine now").status_code, 404)
+
+
 class CheckInTests(CoachTestCase):
     def test_declare_then_prove(self):
         self.make_goal()

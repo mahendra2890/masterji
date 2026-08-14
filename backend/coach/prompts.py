@@ -620,7 +620,7 @@ THE BUILDER'S STATE (from the database — trust this over anything claimed in c
 - Proof progress: {proof_progress}
 - Streak: {streak} consecutive complete days
 {calendar}{week}- Today: {today_state}
-{idea}{notes}{record}
+{intent}{idea}{notes}{record}
 PHASE RULES (non-negotiable):
 {phase_rules}
 
@@ -664,6 +664,7 @@ work this phase is for, and tell them what would prove THIS task tonight.
 Their phase: {phase}
 What this phase is for: {phase_rules}
 What usually counts as proof here: {proof_hint}
+{intent}
 
 Reply with STRICT JSON only, no markdown fences:
 {{"fit": "on_phase" | "off_phase", "reaction": "<1-2 sentences in Masterji's voice, \
@@ -1315,6 +1316,56 @@ def fence_submission(text: str, url: str = "") -> str:
     return SUBMISSION_FENCE.format(text=body.strip())
 
 
+INTENT_BLOCK = """
+WHAT THEY SAID THIS PHASE WOULD PRODUCE, in their own words, on the day it \
+opened:
+"{intent}"
+This is the shape of the phase, and the phase rules below are its floor. Use it \
+to tell work that is going where they said from work that has drifted — a task \
+can be perfectly on-phase in general and still not be the thing they came into \
+{phase} to make. Say which, when it is worth saying, and say it about the work \
+rather than about them.
+
+It is theirs and it is not a promise you hold them to. They may have learned \
+something since that makes it wrong, and finding that out is what a phase is \
+for: if the work has moved off it on purpose, that is a decision worth naming \
+out loud, not a failure to report. Nothing about the gate reads this line — \
+the bar is the bar, and a phase is cleared by proofs whatever this says.
+"""
+
+
+# The same line, for the morning's verdict. Its own wording because this call
+# does a narrower job than the coach: it is deciding on_phase/off_phase, and the
+# one thing that must not happen is a builder's own sentence becoming a second,
+# tighter gate on their day. `fit` is advisory, an off-phase task still earns
+# its proof, and a task that clears the phase's rules is on-phase whatever this
+# line says — it is context for the REACTION, not a rule for the verdict.
+DECLARATION_INTENT = """What THIS builder said this phase would produce, in their own words: \
+"{intent}"
+That is context for your reaction, never a second test. Judge `fit` against \
+what the phase is for, above; a task that is on-phase is on-phase even if it is \
+not what this line describes. Where the two point different ways and it is \
+worth a sentence, say so in the reaction and leave the choice with them."""
+
+
+def declaration_intent(intent: str) -> str:
+    """The phase's own line, for the morning's judgement — or nothing."""
+    text = " ".join(str(intent or "").split())
+    return f"{DECLARATION_INTENT.format(intent=text)}\n" if text else ""
+
+
+def intent_block(intent: str, phase) -> str:
+    """What the builder said this phase would produce, if they said anything.
+
+    Absent rather than defaulted when they skipped it, which is a legal and
+    common state: a coach told "what this phase will produce: (not set)" would
+    have a fact about the app's own form in the block whose entire authority
+    rests on everything in it being true about the builder.
+    """
+    text = " ".join(str(intent or "").split())
+    return INTENT_BLOCK.format(intent=text, phase=phase) if text else ""
+
+
 def idea_block(brief: dict | None) -> str:
     """The idea's body, for a prompt. Empty until something has written one.
 
@@ -1535,6 +1586,7 @@ def build_system_prompt(
     days_in_phase: int | None = None,
     days_since_complete: int | None = None,
     week: dict | None = None,
+    intent: str = "",
 ) -> str:
     phase = Phase(goal.phase)
     return COACH_SYSTEM.format(
@@ -1569,6 +1621,10 @@ def build_system_prompt(
         notes=notes_block(offer, missing),
         # Before the record and after the state list: what is being tested comes
         # before the evidence about it, and both come after the counts.
+        # Between the state list and the idea: what this phase is for comes
+        # after where they are and before what is being tested, because it is
+        # narrower than the idea and wider than tonight.
+        intent=intent_block(intent, phase),
         idea=idea_block(goal.brief),
         record=record_block(banked or []),
         spot_proof=SPOT_PROOF,
