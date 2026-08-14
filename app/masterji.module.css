@@ -1589,6 +1589,47 @@
   opacity: 0.5;
 }
 
+/* The one destructive button in the app, and the only place --bad is worn by
+   something the builder presses. That colour means "the app broke" everywhere
+   else (.error, .errorBanner, the ✗ in .chipBad) and it is exactly right here:
+   deleting the account is the one press whose outcome IS the record going
+   away. Outlined rather than filled — the filled button on this panel would be
+   the destructive one, and nothing on the way out should be pre-pressed. */
+.dangerBtn {
+  background: transparent;
+  color: var(--bad);
+  border: 1px solid var(--bad);
+  border-radius: var(--radius);
+  padding: 10px 16px;
+  cursor: pointer;
+  font-size: 13px;
+  min-height: 44px;
+}
+
+.dangerBtn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* One line per goal, so the export offered on the way out is the whole record
+   and not whichever goal happened to be open. */
+.exitRecords {
+  margin: 0 0 14px;
+  padding-left: 18px;
+  font-size: 14px;
+}
+
+.exitRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
 /* --- retiring a goal -------------------------------------------------------------------------- */
 
 /* The way out of a goal, and it was a 15px-tall target — the smallest thing on

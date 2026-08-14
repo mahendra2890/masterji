@@ -5,7 +5,7 @@ user this database doesn't have — is a dead session, never a 500 and never a
 lockout. It must still be possible to refresh, log out and log back in.
 """
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import jwt
 from django.conf import settings
@@ -13,6 +13,16 @@ from django.urls import reverse
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
 
+from coach.models import (
+    CheckIn,
+    Goal,
+    Message,
+    ProofAttempt,
+    Workshop,
+    WorkshopMessage,
+)
+
+from . import erasure
 from .models import User
 
 
@@ -146,3 +156,133 @@ class SessionLifecycleTests(APITestCase):
             reverse("me"), HTTP_AUTHORIZATION="Bearer not-a-token"
         )
         self.assertEqual(response.status_code, 401)
+
+
+class AccountErasureTests(APITestCase):
+    """The way out.
+
+    This product stores a teenager's daily work diary — the nights that were
+    not about the work included — and until now had no route for leaving with
+    it. What is pinned here is that "delete my account" is true in every sense
+    the app can check: the rows stop answering, the identity is gone rather
+    than tombstoned, and the session dies with it.
+    """
+
+    def setUp(self):
+        self.alice = User.objects.create_user(
+            username="alice", email="alice@example.com", password="pw"
+        )
+        self.bob = User.objects.create_user(
+            username="bob", email="bob@example.com", password="pw"
+        )
+        self.client.force_authenticate(self.alice)
+
+    def _a_record(self, user):
+        """One row of every shape that hangs off a user, two levels deep."""
+        goal = Goal.objects.create(user=user, title="Tiffin app")
+        checkin = CheckIn.objects.create(
+            goal=goal,
+            date=date.today(),
+            phase=goal.phase,
+            am_declaration="write the problem statement",
+            pm_proof_text="wrote it",
+        )
+        ProofAttempt.objects.create(checkin=checkin, text="first try")
+        Message.objects.create(
+            goal=goal, role=Message.Role.COACH, phase=goal.phase, content="welcome"
+        )
+        workshop = Workshop.objects.create(user=user)
+        WorkshopMessage.objects.create(
+            workshop=workshop, role=WorkshopMessage.Role.USER, content="no idea yet"
+        )
+        return goal
+
+    def test_a_deleted_account_stops_answering_every_queryset(self):
+        """The one test this feature is for. Written against the default
+        managers rather than a list of models, because the promise made to the
+        builder is about what the product can still see, not about which
+        tables somebody remembered."""
+        self._a_record(self.alice)
+        self._a_record(self.bob)
+
+        response = self.client.delete("/api/auth/me/")
+        self.assertEqual(response.status_code, 204)
+
+        for model in (
+            Goal,
+            CheckIn,
+            ProofAttempt,
+            Message,
+            Workshop,
+            WorkshopMessage,
+        ):
+            with self.subTest(model=model.__name__):
+                rows = model.objects.all()
+                self.assertEqual(
+                    [r for r in rows if self._owner(r) == self.alice.pk], []
+                )
+                # And nobody else's evening went with it.
+                self.assertEqual(len(rows), 1)
+
+    def _owner(self, row) -> int:
+        """Whose row this is, however many hops up it lives."""
+        for attr in ("user_id",):
+            if hasattr(row, attr):
+                return getattr(row, attr)
+        for attr in ("goal", "workshop", "checkin"):
+            parent = getattr(row, attr, None)
+            if parent is not None:
+                return self._owner(parent)
+        raise AssertionError(f"no owner path from {row!r}")
+
+    def test_the_cascade_is_walked_not_listed(self):
+        """A hand-written cascade is correct the day it is written and
+        silently wrong the first time somebody adds a model — and the failure
+        is invisible, because the rows just keep answering. Every soft-delete
+        model reachable from the user is reached, two levels down included."""
+        goal = self._a_record(self.alice)
+        counts = erasure.erase(self.alice)
+        reached = {label.split(".")[-1] for label in counts}
+        self.assertEqual(
+            reached,
+            {"Goal", "CheckIn", "ProofAttempt", "Message", "Workshop", "WorkshopMessage"},
+        )
+        # ProofAttempt hangs off CheckIn, which hangs off Goal — proof the
+        # walk descends rather than stopping at the user's own relations.
+        self.assertIsNotNone(ProofAttempt.all_objects.get().deleted_at)
+        self.assertIsNotNone(Goal.all_objects.get(pk=goal.pk).deleted_at)
+
+    def test_the_identity_is_gone_not_tombstoned(self):
+        """Hiding the rows is half of erasure. An account row that still holds
+        the email is the other half undone — and because email is unique, it
+        would also refuse this person a new account with the same Google
+        address for good, which turns deletion into a ban."""
+        self.client.delete("/api/auth/me/")
+        self.alice.refresh_from_db()
+        self.assertNotIn("alice@example.com", self.alice.email)
+        self.assertNotEqual(self.alice.username, "alice")
+        self.assertFalse(self.alice.is_active)
+        self.assertFalse(self.alice.has_usable_password())
+        # The address is free, so signing up again works.
+        User.objects.create_user(username="alice2", email="alice@example.com")
+
+    def test_the_session_dies_with_the_account(self):
+        """`is_active = False` is the kill switch, and it is the built-in one:
+        simplejwt refuses an inactive user, so an access token already sitting
+        in a browser stops authenticating the moment this commits. There is no
+        token blacklist in this deployment and this needs none."""
+        token = RefreshToken.for_user(self.alice)
+        self.client.force_authenticate(None)
+        self.client.cookies[settings.AUTH_ACCESS_COOKIE] = str(token.access_token)
+        self.assertEqual(self.client.get("/api/auth/me/").status_code, 200)
+
+        self.client.force_authenticate(self.alice)
+        self.client.delete("/api/auth/me/")
+
+        self.client.force_authenticate(None)
+        self.client.cookies[settings.AUTH_ACCESS_COOKIE] = str(token.access_token)
+        self.assertEqual(self.client.get("/api/auth/me/").status_code, 401)
+
+    def test_deleting_needs_a_session(self):
+        self.client.force_authenticate(None)
+        self.assertEqual(self.client.delete("/api/auth/me/").status_code, 401)

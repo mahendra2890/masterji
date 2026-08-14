@@ -8,6 +8,7 @@ from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.serializers import TokenRefreshSerializer
 from rest_framework_simplejwt.tokens import RefreshToken
 
+from . import erasure
 from .cookies import clear_auth_cookies, set_auth_cookies
 from .models import User
 from .serializers import UserSerializer
@@ -27,6 +28,28 @@ class MeView(APIView):
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data)
+
+    def delete(self, request):
+        """Leave, and take the account with you.
+
+        No confirmation field and no password check, deliberately. There is no
+        password on these accounts — sign-in is Google — so the only thing a
+        typed confirmation could prove is that the request came from the
+        screen that asked for it, which the session cookie already proves.
+        The two-press control and the export offer live on that screen, where
+        a person can still change their mind; by the time it reaches here the
+        decision has been made twice and this endpoint's job is to honour it.
+
+        The cookies are cleared on the way out for the same reason logout
+        clears them: the browser must not be left holding credentials for an
+        account that no longer answers. The access token in it is already
+        dead — `erase` deactivates the user, and simplejwt refuses an inactive
+        one — so this is tidiness rather than the lock.
+        """
+        erasure.erase(request.user)
+        response = Response(status=status.HTTP_204_NO_CONTENT)
+        clear_auth_cookies(response)
+        return response
 
 
 class CookieTokenRefreshView(APIView):

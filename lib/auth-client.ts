@@ -85,3 +85,15 @@ export async function logout(): Promise<void> {
     credentials: "include",
   });
 }
+
+/** Erase the account. Throws if the server refused, because this is the one
+ * call in this file whose failure must never be reported as success — a
+ * builder told their diary is gone while it is still there is the worst
+ * outcome the feature has. */
+export async function deleteAccount(): Promise<void> {
+  const res = await fetch(`${API_URL}/api/auth/me/`, {
+    method: "DELETE",
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error(`Delete failed (${res.status})`);
+}
