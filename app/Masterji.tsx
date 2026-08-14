@@ -12,7 +12,6 @@ import Changelog from "@/components/Changelog";
 import TakeTheRecord from "@/components/TakeTheRecord";
 import NudgeSwitch from "@/components/NudgeSwitch";
 import ClosedIdea from "./ClosedIdea";
-import DeleteAccount from "@/components/DeleteAccount";
 import DayDetail from "./DayDetail";
 import { updatePrefs, type SessionUser } from "@/lib/auth-client";
 import { useDialogFocus } from "@/lib/dialog-focus";
@@ -1299,16 +1298,6 @@ export default function Masterji({ user }: { user: SessionUser }) {
     return <main className={styles.loading}>Masterji is on his way…</main>;
   }
 
-  // Every goal this account has, live one first — what the exit panel offers
-  // to hand over before it deletes anything. The export endpoint is per goal,
-  // so the offer has to be too; a single "export" button would quietly mean
-  // "whichever goal is open", on the one screen where quietly meaning
-  // something else is least acceptable.
-  const exportableGoals = [
-    ...(state.goal ? [{ id: state.goal.id, title: state.goal.title }] : []),
-    ...state.archive.map((r) => ({ id: r.goalId, title: r.title })),
-  ];
-
   // Null until the builder's first turn: reading state never opens a room. It
   // is the pre-goal room on the onboarding screen and this goal's one
   // reopening on the dashboard — the same endpoint, the same transcript, the
@@ -1870,13 +1859,6 @@ export default function Masterji({ user }: { user: SessionUser }) {
           <TourLink />
           <Changelog />
           <ToneSwitch tone={state.tone} busy={busy} onSet={onSetTone} />
-          {/* The row's own comment says it is at its limit and warns against
-              growing it, which this does — and it is worth the charge rather
-              than the alternative, which is a product holding a builder's
-              diary with a door on only one of its two screens. It goes last
-              so nothing already here moves, the same rule the language switch
-              was added under. */}
-          <DeleteAccount goals={exportableGoals} />
         </div>
 
         {viewClosed && (
@@ -2011,12 +1993,6 @@ export default function Masterji({ user }: { user: SessionUser }) {
           <TourLink />
           <Changelog />
           <SignOutButton />
-          {/* Last, and after the exit it is a heavier version of. It is a word
-              rather than a control: everything that makes the decision real —
-              what goes, and the record offered before the button — is in the
-              panel it opens, because a once-ever irreversible action has no
-              business being a peer of the language toggle. */}
-          <DeleteAccount goals={exportableGoals} />
         </div>
       </header>
 
