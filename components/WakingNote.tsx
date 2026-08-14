@@ -3,11 +3,21 @@
 import { useEffect, useState } from "react";
 import styles from "./waking-note.module.css";
 
-// What a free-tier boot really costs: container start, then migrate and
-// ensure_admin against a Neon compute that is also resuming, all on 0.1 CPU
-// (backend/start.sh). Two minutes is the honest number. Past it the note
-// stops calling the wait normal instead of promising forever.
-const EXPECTED_MS = 120_000;
+// What a wake really costs now: a container start on a full vCPU, and nothing
+// else. `MIGRATE_ON_BOOT=0` on Cloud Run, so unlike the Render deployment this
+// replaced, the first request no longer waits on `migrate` and never touches
+// the database (backend/start.sh, DEPLOY-cloudrun.md §5).
+//
+// Measured against the live service, not derived from a local container: wait
+// for a 16-minute gap in the request log, then one request. 23.9s cold, 0.59s
+// warm immediately after — a 40x gap, which is what proves the instance had
+// really gone. Thirty is drawn a little above the measurement rather than on
+// it, so an ordinary slow wake does not trip "longer than usual". Past it the
+// note stops calling the wait normal instead of promising forever.
+//
+// Re-measure this against the deployment before changing it. The number that
+// used to be here was two minutes, and it was right about Render.
+const EXPECTED_MS = 30_000;
 
 const mmss = (ms: number) => {
   const total = Math.floor(ms / 1000);
@@ -35,10 +45,10 @@ export default function WakingNote({ lateHint }: { lateHint?: React.ReactNode })
       <p className={styles.kicker}>cold start</p>
       <h1 className={styles.title}>The server is waking up.</h1>
       <p className={styles.body}>
-        Masterji&apos;s backend sleeps after 15 quiet minutes — the honest
-        price of free hosting. Starting it again takes about two minutes,
-        migrations and all. Leave this tab open: it goes through on its own the
-        moment the server answers.
+        Masterji&apos;s backend sleeps when nobody has needed it for a while —
+        the honest price of free hosting. Starting it again takes about half a
+        minute. Leave this tab open: it goes through on its own the moment the
+        server answers.
       </p>
       <div
         className={styles.bar}
@@ -53,7 +63,7 @@ export default function WakingNote({ lateHint }: { lateHint?: React.ReactNode })
       </div>
       <p className={styles.meta}>
         {overdue ? "longer than usual —" : "waiting"} {mmss(elapsed)}
-        <span className={styles.dim}> · usually through by 2:00</span>
+        <span className={styles.dim}> · usually through by 0:30</span>
       </p>
       {overdue && (
         <p className={styles.late} role="status">

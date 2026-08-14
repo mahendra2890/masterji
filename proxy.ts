@@ -1,12 +1,17 @@
 import { NextResponse, type NextRequest, type ProxyConfig } from "next/server";
 
-// Render's free instance sleeps after 15 idle minutes, and its edge answers
-// the first request after that with Render's own "SERVICE WAKING UP" log
-// reel for the ~2 minutes the container takes to boot. Those logs are
-// Render's, not ours: they never say how long the wait is, and someone who
-// only wanted /admin/ reads them as a site that has broken. So we get in
-// front of it — probe the API, and when it is still asleep serve our own
-// note instead of proxying through to that page.
+// The API scales to zero when idle, and a wake costs about half a minute
+// (measured: 23.9s — components/WakingNote.tsx has the method). So we probe
+// the API, and when it is still asleep serve our own note instead of proxying
+// a visitor into a wait with nothing on the screen.
+//
+// This was originally written against Render, where the reason was sharper:
+// Render's edge answered a sleeping service with its own "SERVICE WAKING UP"
+// log reel, which says nothing about how long the wait is and reads as a site
+// that has broken. Cloud Run does no such thing — it holds the request until
+// the container answers. What is left is the plain one: half a minute of
+// nothing is still worth explaining, and ?boot=logs below is now a vestige of
+// the Render page it used to opt back into.
 //
 // Two navigations get this treatment, and they are the only two that leave
 // this app for Django with a person watching: /admin, and the Google sign-in

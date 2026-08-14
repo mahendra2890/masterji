@@ -3,11 +3,16 @@
 Target: frontend at **masterji.mscsoftwares.in** (Vercel), API on Render
 (Docker), Postgres on Neon. Order matters — each step feeds the next.
 
-This is the live runbook. A second deployment of the same commits also runs on
-Cloud Run, against this same database, so it can be exercised before anything
-is pointed at it — see [DEPLOY-cloudrun.md](DEPLOY-cloudrun.md). Until the
-switch described in its §7 is made, Render is what the frontend talks to and
-nothing below has changed.
+**This is no longer the live runbook.** The switch in
+[DEPLOY-cloudrun.md](DEPLOY-cloudrun.md) §7 was made on 2026-08-14: the API
+runs on Cloud Run, the frontend points there, and this Render service is
+*suspended* rather than deleted — so everything below still describes a real
+thing you can resume, and is the rollback if Cloud Run has to be abandoned.
+Read DEPLOY-cloudrun.md for how the API is deployed today.
+
+One consequence worth carrying across: the wake this document measures at about
+two minutes is a property of Render's 0.1 CPU, not of the app. The same image
+wakes in about half a minute on a full vCPU (23.9s measured).
 
 ## 1. Neon (database)
 
