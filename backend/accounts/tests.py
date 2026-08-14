@@ -23,7 +23,7 @@ from coach.models import (
 )
 
 from . import erasure
-from .models import User
+from .models import PushSubscription, User
 
 
 class CookieRefreshTests(APITestCase):
@@ -286,3 +286,41 @@ class AccountErasureTests(APITestCase):
     def test_deleting_needs_a_session(self):
         self.client.force_authenticate(None)
         self.assertEqual(self.client.delete("/api/auth/me/").status_code, 401)
+
+    def test_a_push_subscription_does_not_survive_the_account(self):
+        """The one row `erase` hard-deletes, and the one `_descend` cannot
+        reach — PushSubscription is not a SoftDeleteModel, so the walk goes
+        straight past it.
+
+        A tombstone would be the wrong answer even if it could. Every other
+        row erasure touches is a record of something the builder did; this one
+        is a live capability to send a message to their phone, held by an
+        account that has just asked to stop existing. The rule this module
+        states about the email applies to it exactly.
+        """
+        PushSubscription.objects.create(
+            user=self.alice,
+            endpoint="https://push.example.invalid/alice",
+            p256dh="k",
+            auth="a",
+            timezone_name="Asia/Kolkata",
+        )
+        # bob's device is somebody else's and must not be caught by this.
+        PushSubscription.objects.create(
+            user=self.bob,
+            endpoint="https://push.example.invalid/bob",
+            p256dh="k",
+            auth="a",
+        )
+
+        counts = erasure.erase(self.alice)
+
+        self.assertEqual(counts["accounts.PushSubscription"], 1)
+        self.assertEqual(
+            [s.user for s in PushSubscription.objects.all()], [self.bob]
+        )
+
+    def test_an_account_with_no_devices_reports_none(self):
+        """The count is a log line, and a log line that says "0 push
+        subscriptions" on every deletion is noise."""
+        self.assertNotIn("accounts.PushSubscription", erasure.erase(self.alice))

@@ -2412,3 +2412,52 @@ def build_workshop_prompt(
         turns_total=turns_total,
         playbook=_playbook("choosing-an-idea"),
     )
+
+
+# --- The evening nudge (#87) ------------------------------------------------
+#
+# The only thing in this file that is not spoken to a model. It is spoken to a
+# builder, on a lock screen, by a server, with no conversation around it — and
+# it lives here anyway, because the question it has to answer is the one this
+# whole file answers: what does Masterji sound like. A notification written
+# somewhere else would end up sounding like a notification.
+#
+# The move it makes is his oldest one: hand back the builder's own words. Not
+# "you have an incomplete task" — "you said this, this morning". The product's
+# entire argument is that somebody is holding you to what you told them, and
+# this is the one moment in the day it can say so without being asked.
+#
+# What it deliberately is not: no exclamation mark, no streak, no count of
+# what breaks if they don't, no second nudge. One a day, and if it is ignored
+# then the evening was ignored and that is the builder's to decide — a coach
+# who buzzes twice is a coach who has stopped being listened to. The gate is
+# untouched and nothing here banks or refuses anything.
+#
+# English only, including for a builder who set the tone to Hinglish, and that
+# is a gap rather than a decision — HINGLISH_RULE is an instruction to a model
+# and this string never reaches one, so the Hinglish version has to be written
+# by a person rather than derived. Worth doing; not worth guessing at.
+NUDGE_TITLE = "Still owed tonight"
+NUDGE_BODY = 'You said: "{task}". The box is open — a few true lines will do.'
+# The same evening with nothing quotable on the row. Rare to the point of
+# theoretical (DeclareView writes the task and the proof in one row), and the
+# nudge still has to say something rather than quote an empty string.
+NUDGE_BODY_NO_TASK = (
+    "You declared something this morning and the proof box is still empty. "
+    "A few true lines will do."
+)
+# What fits on a lock screen before the platform cuts it. Android shows around
+# 40-50 characters of the body collapsed, and the sentence after the quote is
+# the part that says what to do — so the task is clipped rather than allowed to
+# push the instruction off the end.
+NUDGE_TASK_CHARS = 80
+
+
+def nudge_body(task: str) -> str:
+    """The nudge's second line, from the task they declared this morning."""
+    task = " ".join((task or "").split())
+    if not task:
+        return NUDGE_BODY_NO_TASK
+    if len(task) > NUDGE_TASK_CHARS:
+        task = task[: NUDGE_TASK_CHARS - 1].rstrip() + "…"
+    return NUDGE_BODY.format(task=task)

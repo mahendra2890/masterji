@@ -1206,6 +1206,48 @@
   text-decoration: none;
 }
 
+/* The evening nudge's switch, at the foot of the Today card.
+   Borrowed pixels from .moreDays on purpose: both are a small underlined
+   offer of something more, and neither is an errand. It sits under a rule
+   because it is the card's last line and the only one not about today's
+   work — without the line it reads as a fifth thing the evening wants. */
+.nudgeSwitch {
+  display: block;
+  width: fit-content;
+  margin: 12px -8px 0;
+  padding: 8px;
+  border: none;
+  border-top: none;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12.5px;
+  line-height: 1.3;
+  text-align: left;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.nudgeSwitch:hover {
+  color: var(--text);
+}
+
+.nudgeSwitch:disabled {
+  cursor: default;
+  text-decoration: none;
+}
+
+/* What the switch says when there is nothing to press: the browser refused,
+   or iOS wants the app installed first. Quieter than the switch and not
+   underlined, because underlining something nobody can act on is the whole
+   complaint about disabled controls. */
+.nudgeNote {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
 /* The record came back short. Muted like the rest of the card's furniture, but
    said in a full sentence — a count that quietly shrank is the failure this
    line exists to prevent. */

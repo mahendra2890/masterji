@@ -10,6 +10,7 @@ import { signOutAndLeave } from "@/components/AuthGate";
 import FailedTries from "@/components/FailedTries";
 import Changelog from "@/components/Changelog";
 import TakeTheRecord from "@/components/TakeTheRecord";
+import NudgeSwitch from "@/components/NudgeSwitch";
 import ClosedIdea from "./ClosedIdea";
 import DeleteAccount from "@/components/DeleteAccount";
 import DayDetail from "./DayDetail";
@@ -3088,6 +3089,14 @@ export default function Masterji({ user }: { user: SessionUser }) {
                 )}
               </>
             )}
+            {/* Last line on the card, under everything the day asks for.
+                The nudge is about this box and nothing else, so it lives with
+                the box rather than in the control row at the top — both of
+                those rows carry a comment saying they are full, and neither
+                is where a builder would look for "remind me about tonight".
+                Draws nothing at all on a deployment with no VAPID keys set,
+                and nothing on a browser that cannot do it. */}
+            <NudgeSwitch />
           </section>
 
           {/* The record, most recent first, cut to a week until asked.

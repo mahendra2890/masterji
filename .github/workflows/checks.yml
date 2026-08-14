@@ -8,22 +8,53 @@
 # load-bearing one — see the note on the leaf check below.
 name: checks
 
+# The third trigger is not a check. `schedule:` is the clock this deployment
+# decided to have in #142, and it lands here — in the repo's one workflow file
+# — rather than in a second one, because a scheduled workflow is a thing you
+# want to find where the other triggers are.
+#
+# It fires the evening nudge (#87) and nothing else: the `nudges` job below is
+# the only one that runs on it, and the two check jobs are skipped. That
+# condition is load-bearing in both directions — without it the hourly tick
+# would run the full test suite twenty-four times a day, which is most of a
+# free account's minutes spent re-proving a commit nobody pushed.
 on:
   pull_request:
   push:
     branches: [main]
+  schedule:
+    # Hourly, and the job picks who is due — NOT a job set for the hour the
+    # nudge should arrive. #142 settled this: free-tier scheduled runs are
+    # best-effort and slip by minutes to hours, so a workflow set for 21:00
+    # delivers at a random time and teaches the builder that the hour was
+    # decorative. Every hour, asking "whose evening has started and who still
+    # owes a proof", degrades to "shortly after" — which is honest.
+    #
+    # :17 rather than :00 on GitHub's own advice: the top of the hour is when
+    # every scheduled workflow on the platform queues at once, and the delay
+    # this whole design is working around is worst there.
+    - cron: "17 * * * *"
+  # So the tick can be fired by hand — which is the only way to prove the
+  # secrets are right, since a scheduled run cannot be triggered any other way
+  # and the next one is up to an hour off. See DEPLOY.md §8.
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: checks-${{ github.ref }}
+  # The hourly tick gets its own lane. It shares `github.ref` with every push
+  # to main, and a nudge queued behind a fifteen-minute test run is a nudge
+  # arriving at 18:20 for an evening that started at 17:00 — the exact delay
+  # the hourly design exists to avoid.
+  group: checks-${{ github.ref }}-${{ github.event_name == 'schedule' && 'nudge' || 'checks' }}
   # Superseded pull-request runs are wasted minutes; a run on main is a record
   # of whether main is deployable and is never worth throwing away.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   backend:
+    if: github.event_name != 'schedule' && github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -92,6 +123,7 @@ jobs:
         run: uv run python manage.py test
 
   frontend:
+    if: github.event_name != 'schedule' && github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -110,3 +142,71 @@ jobs:
       # it is the thing that catches a TSX break, and a second type pass would
       # be the same check billed twice.
       - run: npm run build
+
+  # ---------------------------------------------------------------- the tick
+  #
+  # The whole of the clock this deployment has (#142). Ten lines of curl, and
+  # every decision about WHO gets a nudge is on the other end of it, in
+  # backend/coach/nudges.py — which is the property option 2 was chosen for:
+  # the trigger is in the repo and reviewable, and the logic it triggers is
+  # tested by the same suite as everything else rather than living in a cron
+  # dashboard nobody reads.
+  #
+  # It is deliberately dumb. It knows an hour has passed and knows nothing
+  # about evenings, timezones, or who declared what — the server owns all of
+  # that, because the server is the thing with the rows.
+  #
+  # #96 (`CheckIn.due_hour`) rides this same tick when somebody joins them up.
+  # The field landed while this was being built and is a record only — see the
+  # note in coach/nudges.py for why joining it to the nudge is a product call
+  # rather than a loose end. Either way it needs no second workflow and no
+  # change here: a per-builder hour narrows the selection inside
+  # `nudges.due_now`, and this job still just says "now".
+  nudges:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # Both secrets are set by hand and neither is optional — see DEPLOY.md
+      # §8. Named here rather than left to fail inside curl, because the
+      # failure without this check is a 401 on a 15-minute-old fork of the
+      # repo, and the log would not say which of the two things was missing.
+      #
+      # A fork's scheduled runs get no secrets at all, which is why this is a
+      # clean exit rather than a red X: nothing is wrong, this simply is not
+      # the repo that holds the keys.
+      - name: Check the tick is configured
+        env:
+          API_URL: ${{ secrets.API_URL }}
+          NUDGE_TOKEN: ${{ secrets.NUDGE_TOKEN }}
+        run: |
+          if [ -z "$API_URL" ] || [ -z "$NUDGE_TOKEN" ]; then
+            echo "API_URL or NUDGE_TOKEN is not set — nothing to do."
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "configured=true" >> "$GITHUB_OUTPUT"
+        id: config
+
+      # `--max-time 120` because the API is on Render's free tier and sleeps
+      # after 15 idle minutes: the first request of a quiet evening pays a
+      # container start plus `migrate` on 0.1 CPU, which DEPLOY.md §2 measures
+      # at about two minutes. A shorter timeout would make the nudge fail
+      # precisely on the evenings nobody had opened the app — the ones it
+      # exists for.
+      #
+      # `--fail-with-body` so a refusal is both a red X and a readable reason.
+      # The body is a count of who was nudged, which is the only record of a
+      # tick that anybody ever reads.
+      - name: Nudge whoever is due
+        if: steps.config.outputs.configured == 'true'
+        env:
+          API_URL: ${{ secrets.API_URL }}
+          NUDGE_TOKEN: ${{ secrets.NUDGE_TOKEN }}
+        run: |
+          curl --fail-with-body --silent --show-error \
+            --max-time 120 --retry 2 --retry-delay 10 \
+            -X POST "$API_URL/api/coach/nudges/run/" \
+            -H "X-Nudge-Token: $NUDGE_TOKEN" \
+            -H "Content-Length: 0"
+          echo

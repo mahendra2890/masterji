@@ -206,6 +206,10 @@ REST_FRAMEWORK = {
         "judge": "40/day",
         "changelog": "300/min",
         "cohort_join": "20/hour",
+        # The push opt-in. Generous because a browser legitimately
+        # re-subscribes on visits (the endpoint can be rotated by the push
+        # service at any time), and low enough that nothing can farm rows.
+        "push": "60/hour",
     },
 }
 
@@ -392,6 +396,40 @@ LINK_CHECK_TIMEOUT_S = float(os.environ.get("LINK_CHECK_TIMEOUT_S", "3"))
 # Named rather than anonymous: a builder reading their own access log should be
 # able to tell who knocked, and a host that wants to refuse us can.
 LINK_CHECK_USER_AGENT = "MasterjiProofCheck/1.0 (+https://github.com/mahendra2890/masterji)"
+
+# --- Web push: the evening nudge ------------------------------------------
+# All three unset is the default and it means the feature is OFF, everywhere,
+# with nothing half-wired: the subscribe endpoint answers 503, the client asks
+# for no permission and draws no control, and the hourly tick refuses. That is
+# deliberate — a push feature that silently half-works is one that asks a
+# builder for notification permission it can never use, and notification
+# permission is a thing a browser lets you spend exactly once.
+#
+# The keypair is VAPID (RFC 8292): it identifies this server to Google's and
+# Mozilla's push services, so those services can rate-limit and block a sender.
+# The private key is the whole of the authority to push to every subscription
+# this app holds; the public key is handed to browsers on purpose. Generating
+# them and where each one goes is DEPLOY.md §8. Nothing here has a default,
+# because a default keypair is a published private key.
+VAPID_PUBLIC_KEY = os.environ.get("VAPID_PUBLIC_KEY", "")
+VAPID_PRIVATE_KEY = os.environ.get("VAPID_PRIVATE_KEY", "")
+# The `mailto:` a push service contacts if this sender starts misbehaving.
+# Required by the spec, and it is genuinely read by humans at Mozilla — an
+# address nobody answers is worth less than no push at all.
+VAPID_CONTACT = os.environ.get("VAPID_CONTACT", "")
+
+# What the hourly GitHub Actions tick authenticates with (#142). A shared
+# secret in a header, not a cookie: the caller is a workflow, not a browser,
+# and it has no session to hold.
+#
+# Unset does NOT mean "unauthenticated" — NudgeRunView refuses when this is
+# empty, which is the difference between a feature that is off and a door that
+# is open. Compared with hmac.compare_digest at the call site.
+NUDGE_TOKEN = os.environ.get("NUDGE_TOKEN", "")
+# Held while one push is delivered. The tick sends serially and inline, so the
+# ceiling on a whole run is this times the number of live subscriptions — fine
+# at this product's size, and the number to revisit before it isn't.
+NUDGE_TIMEOUT_S = float(os.environ.get("NUDGE_TIMEOUT_S", "10"))
 
 # --- Observability (optional; no-op when the endpoint is unset) ------------
 
