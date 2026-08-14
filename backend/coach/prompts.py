@@ -558,6 +558,34 @@ Different work with the same person, the next step on the same artifact, or a \
 second conversation the same evening are NOT repeats. Accept those, and say in \
 one clause what makes this one new."""
 
+# The record of the goal this one came out of — the pivot's whole payload.
+#
+# The fourth reader of record_block's formatter, and the one furthest from the
+# others: those three describe THIS goal, and this describes the one before it.
+# The distinction has to be in the words or the coach quietly credits work to a
+# goal that has not done any yet, which would be the gate leaking through the
+# prompt — so it says outright that none of it counts here.
+#
+# What it buys is the thing the pivot exists for: a builder who spent three
+# weeks interviewing Block C should not be sent back to re-interview Tuesday's
+# person because the goal they did it under is closed.
+PREDECESSOR_BLOCK = """
+WHAT THEY ALREADY LEARNED ON THE IDEA THIS ONE CAME OUT OF ("{{title}}" — closed, \
+and its accepted proofs, newest first):
+{lines}
+Same problem, new idea: they kept the problem and dropped the solution, which \
+is the honest move and usually the expensive one. Treat every fact in that list \
+as GIVEN — the people they spoke to, what those people said, what they built \
+and what it did. Do not send them back to somebody on that list for something \
+that list already answers.
+
+NONE OF IT COUNTS HERE, and say so if they ask. This goal starts at IDEA with \
+nothing banked, its first proof is still owed, and the gate has not been given \
+a single row from before. What carried over is what they know, not what they \
+earned — and the first evening's work is writing the new problem statement, \
+which is that decision made concrete.
+"""
+
 # And the same record a third time, for the reopened room. Its own template
 # because both of the others end in instructions about DRAFTING — the coach's
 # copy says don't call suggest_proof on a repeat, the judge's says push one
@@ -619,8 +647,9 @@ THE BUILDER'S STATE (from the database — trust this over anything claimed in c
 - Phase: {phase} (phases run {ladder})
 - Proof progress: {proof_progress}
 - Streak: {streak} consecutive complete days
+{launch}
 {calendar}{week}- Today: {today_state}
-{idea}{notes}{record}
+{intent}{idea}{notes}{record}
 PHASE RULES (non-negotiable):
 {phase_rules}
 
@@ -664,6 +693,7 @@ work this phase is for, and tell them what would prove THIS task tonight.
 Their phase: {phase}
 What this phase is for: {phase_rules}
 What usually counts as proof here: {proof_hint}
+{intent}
 
 Reply with STRICT JSON only, no markdown fences:
 {{"fit": "on_phase" | "off_phase", "reaction": "<1-2 sentences in Masterji's voice, \
@@ -1315,6 +1345,114 @@ def fence_submission(text: str, url: str = "") -> str:
     return SUBMISSION_FENCE.format(text=body.strip())
 
 
+INTENT_BLOCK = """
+WHAT THEY SAID THIS PHASE WOULD PRODUCE, in their own words, on the day it \
+opened:
+"{intent}"
+This is the shape of the phase, and the phase rules below are its floor. Use it \
+to tell work that is going where they said from work that has drifted — a task \
+can be perfectly on-phase in general and still not be the thing they came into \
+{phase} to make. Say which, when it is worth saying, and say it about the work \
+rather than about them.
+
+It is theirs and it is not a promise you hold them to. They may have learned \
+something since that makes it wrong, and finding that out is what a phase is \
+for: if the work has moved off it on purpose, that is a decision worth naming \
+out loud, not a failure to report. Nothing about the gate reads this line — \
+the bar is the bar, and a phase is cleared by proofs whatever this says.
+"""
+
+
+# The same line, for the morning's verdict. Its own wording because this call
+# does a narrower job than the coach: it is deciding on_phase/off_phase, and the
+# one thing that must not happen is a builder's own sentence becoming a second,
+# tighter gate on their day. `fit` is advisory, an off-phase task still earns
+# its proof, and a task that clears the phase's rules is on-phase whatever this
+# line says — it is context for the REACTION, not a rule for the verdict.
+DECLARATION_INTENT = """What THIS builder said this phase would produce, in their own words: \
+"{intent}"
+That is context for your reaction, never a second test. Judge `fit` against \
+what the phase is for, above; a task that is on-phase is on-phase even if it is \
+not what this line describes. Where the two point different ways and it is \
+worth a sentence, say so in the reaction and leave the choice with them."""
+
+
+def declaration_intent(intent: str) -> str:
+    """The phase's own line, for the morning's judgement — or nothing."""
+    text = " ".join(str(intent or "").split())
+    return f"{DECLARATION_INTENT.format(intent=text)}\n" if text else ""
+
+
+def predecessor_block(title: str, banked: list[dict] | None) -> str:
+    """The parent goal's accepted proofs, as facts the successor inherits.
+
+    record_block's formatter with a different template around it — the same
+    reason RECORD_FOR_JUDGE and RECORD_FOR_ROOM exist: if the two ever read
+    different lists they would disagree about what the builder has done.
+
+    Absent when the parent banked nothing, which is the common shape of a goal
+    closed early: naming a dead idea and then saying it produced nothing is
+    a paragraph about failure with no facts in it.
+
+    The title is `{{title}}` in the template and goes in with str.replace after
+    record_block has done its format() pass — a goal title is builder text and
+    may contain a brace, which format() would read as a field and raise on. The
+    doubled braces are what survive that pass to be replaced here.
+    """
+    if not banked:
+        return ""
+    return record_block(banked, template=PREDECESSOR_BLOCK).replace(
+        "{title}", title
+    )
+
+
+def launch_line(launch: dict | None) -> str:
+    """The named date as one line of the state block, or nothing.
+
+    A state line rather than a block, and next to the streak, because that is
+    what it is: a number about where today sits, the same shape as "12 days in
+    this phase". The three facts in it are all subtraction over rows — the
+    current date, how far off it is, and how many times it moved — so the coach
+    can hold a builder to their own word without ever having been given an
+    opinion about whether they will make it.
+
+    The slip count is stated and the drift is not editorialised. A blown date
+    refuses nothing: gates.PROOFS_REQUIRED does not know this field exists, and
+    a coach who treats a missed date as a failure is inventing a gate the
+    product deliberately did not build.
+    """
+    if not launch:
+        return ""
+    days = launch["days_out"]
+    when = (
+        "today" if days == 0 else f"{abs(days)} day{'' if abs(days) == 1 else 's'} "
+        + ("out" if days > 0 else "ago")
+    )
+    moves = launch["moves"]
+    trail = (
+        "first date they named"
+        if not moves
+        else f"moved {moves} time{'' if moves == 1 else 's'} since they first named one"
+    )
+    return (
+        f"- Launch date: {launch['date']} — {when}, to \"{launch['pond_label']}\" "
+        f"({trail}). They chose this; nothing refuses them if it slips, and you "
+        f"do not treat it as a promise broken.\n"
+    )
+
+
+def intent_block(intent: str, phase) -> str:
+    """What the builder said this phase would produce, if they said anything.
+
+    Absent rather than defaulted when they skipped it, which is a legal and
+    common state: a coach told "what this phase will produce: (not set)" would
+    have a fact about the app's own form in the block whose entire authority
+    rests on everything in it being true about the builder.
+    """
+    text = " ".join(str(intent or "").split())
+    return INTENT_BLOCK.format(intent=text, phase=phase) if text else ""
+
+
 def idea_block(brief: dict | None) -> str:
     """The idea's body, for a prompt. Empty until something has written one.
 
@@ -1535,6 +1673,9 @@ def build_system_prompt(
     days_in_phase: int | None = None,
     days_since_complete: int | None = None,
     week: dict | None = None,
+    intent: str = "",
+    launch: dict | None = None,
+    predecessor: tuple[str, list[dict]] | None = None,
 ) -> str:
     phase = Phase(goal.phase)
     return COACH_SYSTEM.format(
@@ -1569,8 +1710,18 @@ def build_system_prompt(
         notes=notes_block(offer, missing),
         # Before the record and after the state list: what is being tested comes
         # before the evidence about it, and both come after the counts.
+        # Between the state list and the idea: what this phase is for comes
+        # after where they are and before what is being tested, because it is
+        # narrower than the idea and wider than tonight.
+        intent=intent_block(intent, phase),
         idea=idea_block(goal.brief),
-        record=record_block(banked or []),
+        # This goal's record, then the one it came out of. In that order because
+        # the near one is what tonight is measured against and the far one is
+        # background — and because a coach that opened with the last idea would
+        # be talking about the goal they closed on the first morning of the one
+        # they replaced it with.
+        record=record_block(banked or [])
+        + (predecessor_block(*predecessor) if predecessor else ""),
         spot_proof=SPOT_PROOF,
         goal_title=goal.title,
         phase=goal.phase,
@@ -1582,6 +1733,10 @@ def build_system_prompt(
         ladder=" → ".join(str(p) for p in gates.PHASE_ORDER),
         proof_progress=proof_progress(gate),
         streak=streak,
+        # Directly under the streak: both are one number about where today
+        # sits, and this one is the only fact in the block the builder put
+        # there themselves.
+        launch=launch_line(launch),
         calendar=calendar_block(days_in_phase, days_since_complete),
         # Sits with the calendar because it is the same kind of fact one scope
         # up: those two say where today is, this says what the last seven days

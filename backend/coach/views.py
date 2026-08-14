@@ -9,6 +9,7 @@ then {"t":"done"}.
 """
 
 import json
+import secrets
 from datetime import date, timedelta
 
 from django.conf import settings
@@ -48,8 +49,10 @@ from .models import (
     CheckIn,
     Goal,
     GoalRetirement,
+    LaunchCommitment,
     Message,
     Phase,
+    PhaseTransition,
     ProofAttempt,
     Workshop,
     WorkshopMessage,
@@ -622,6 +625,76 @@ def _client_day(request) -> date:
         return timezone.now().date()
 
 
+# Where a launch date can be named. BUILD because that is the phase the
+# playbook's own advice is about — "set the launch date before the build feels
+# ready", against a phase that dies from drift in week three — and LAUNCH
+# because a date that has arrived can still move, and refusing to let it move
+# would turn the honest second row into a reason to say nothing.
+LAUNCH_PHASES = (Phase.BUILD, Phase.LAUNCH)
+
+
+def _launch_payload(goal: Goal, today: date) -> dict | None:
+    """The date they named, how far off it is, and how often it has moved.
+
+    Every number here is arithmetic over rows: the current date is the newest
+    row, the slip count is one less than how many there are, and days_out is a
+    subtraction. Nothing about it is a verdict, which is the point — the visible
+    trail is the whole consequence, and the product never spends a refusal on it.
+    """
+    rows = list(goal.launch_commitments.all())
+    if not rows:
+        return None
+    current = rows[-1]
+    return {
+        "date": current.date.isoformat(),
+        "pond": current.pond,
+        "pond_label": LaunchCommitment.Pond(current.pond).label,
+        "days_out": (current.date - today).days,
+        # How many times they moved it, not how many rows there are: naming a
+        # date for the first time is not a slip.
+        "moves": len(rows) - 1,
+        "first": rows[0].date.isoformat(),
+    }
+
+
+def _predecessor(goal: Goal) -> tuple[str, list[dict]] | None:
+    """The goal this one came out of, and what it banked — or nothing.
+
+    Nothing when there is no parent, and nothing when the parent banked no
+    accepted proofs: naming a dead idea and then reporting that it produced
+    nothing is a paragraph about failure with no facts in it, on the first
+    morning of the thing that replaced it.
+
+    Reads the parent's proofs through the same _banked the live goal uses, so
+    the two lists cannot disagree about what a proof was.
+    """
+    parent = goal.pivoted_from
+    if parent is None:
+        return None
+    banked = _banked(parent)
+    return (parent.title, banked) if banked else None
+
+
+def _current_transition(goal: Goal) -> PhaseTransition | None:
+    """The row that opened the phase the goal is in right now, if there is one.
+
+    None in IDEA, always and correctly: nothing unlocked it, so there was no
+    moment at which to ask what it would produce. Filtered on to_phase as well
+    as taking the newest, because the two can disagree — a goal is moved back
+    only by an operator in the admin, and a phase's line has to belong to the
+    phase it names rather than to the last advance that happened.
+    """
+    return (
+        goal.transitions.filter(to_phase=goal.phase).order_by("-created_at").first()
+    )
+
+
+def _phase_intent(goal: Goal) -> str:
+    """What the builder said the current phase would produce, or ""."""
+    transition = _current_transition(goal)
+    return transition.intent if transition else ""
+
+
 def _today_state(checkin: CheckIn | None) -> str:
     """Where the day has got to, as a fact.
 
@@ -828,6 +901,15 @@ class StateView(APIView):
                 "workshop": _workshop_payload(_open_workshop(request.user)),
                 "workshop_turns": REOPENED_TURNS,
                 "gate": _gate_payload(goal),
+                # Null until they name one, and the control reads that: there is
+                # no default date and no placeholder day, because a date the app
+                # picked is not a commitment anybody made.
+                "launch": _launch_payload(goal, today),
+                "can_set_launch": Phase(goal.phase) in LAUNCH_PHASES,
+                "ponds": [
+                    {"value": p.value, "label": p.label}
+                    for p in LaunchCommitment.Pond
+                ],
                 "streak": streaks.current_streak(goal, today),
                 # The run that was, next to the run that is. A builder who
                 # missed two days sees a zero, and a zero on its own reads as
@@ -1009,8 +1091,23 @@ class GoalsView(APIView):
             )
         serializer = GoalSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        # The link back, when this goal is the "same problem, new idea" one.
+        # Read here rather than through the serializer because it is not the
+        # client's to assert about an arbitrary row: it must be the builder's
+        # own goal and it must already be closed. A bad id is dropped rather
+        # than 400ing — the goal itself is what the builder is committing to,
+        # and refusing the whole commit over a stale link would be the app
+        # losing their sentence to protect a footnote.
+        parent = None
+        raw_parent = request.data.get("pivoted_from")
+        if raw_parent:
+            parent = (
+                Goal.objects.filter(user=request.user, id=raw_parent)
+                .exclude(status=Goal.Status.ACTIVE)
+                .first()
+            )
         try:
-            goal = serializer.save(user=request.user)
+            goal = serializer.save(user=request.user, pivoted_from=parent)
         except IntegrityError:
             # The check above is a read; the constraint is the truth. Two
             # near-simultaneous creates (a double tap, or the API client's
@@ -1167,6 +1264,153 @@ class AdvanceView(APIView):
         return Response(
             {"advanced": advanced, "phase": goal.phase, "detail": detail},
             status=status.HTTP_200_OK if advanced else status.HTTP_409_CONFLICT,
+        )
+
+
+class LaunchDateView(APIView):
+    """Name the day you will launch, and which room you will launch into.
+
+    Append-only: this never updates a row, it writes another. So the record
+    holds the trail rather than the latest answer, and the trail is the entire
+    consequence — Beeminder's commitment device with the stake paid in record
+    instead of rupees. Nothing here refuses anything: no gate reads
+    LaunchCommitment, PROOFS_REQUIRED does not know it exists, and a date that
+    comes and goes costs a builder nothing but the second row.
+
+    Not before BUILD. A launch date on a goal with no artifact is a wish, and
+    the one thing this must not become is a fifth thing to have declared.
+    """
+
+    permission_classes = [IsAuthenticated]
+    # Three months. Not a policy about how long a launch may take — it is the
+    # far end of "a date", past which the answer stops being a commitment and
+    # starts being a way of not making one. The near end is today.
+    MAX_DAYS_OUT = 92
+
+    def post(self, request, pk: int):
+        goal = get_object_or_404(
+            Goal.objects.filter(user=request.user, status=Goal.Status.ACTIVE), pk=pk
+        )
+        if Phase(goal.phase) not in LAUNCH_PHASES:
+            return Response(
+                {
+                    "detail": (
+                        "A date needs something to launch. Name one once you're "
+                        "building."
+                    )
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+        # NOT _parse_date. That one bounds the value to within a day of the
+        # server's date, which is exactly right for a check-in — an unbounded
+        # loop date lets a builder mint a week of backdated proofs — and exactly
+        # wrong here, where the whole point is a day three weeks out. The bound
+        # this one needs is the opposite one: not in the past, and not so far
+        # ahead that it is a way of not choosing.
+        # The builder's own clock arrives as `today`, NOT as `date`. This is the
+        # one endpoint whose body carries two dates, and _client_day reads
+        # `date` — so it read the launch date as the builder's today, which made
+        # "that day has already been" unreachable: naming yesterday moved
+        # "today" to yesterday and the check passed. Found by the test for it.
+        try:
+            today = _parse_date(request.data.get("today"))
+        except ValueError:
+            today = timezone.now().date()
+        try:
+            when = date.fromisoformat(str(request.data.get("date") or ""))
+        except ValueError:
+            return Response(
+                {"detail": "Give a real date — the day you'll put it in front of them."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if when < today:
+            return Response(
+                {"detail": "That's already been. Pick a day you can still work toward."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if (when - today).days > self.MAX_DAYS_OUT:
+            return Response(
+                {
+                    "detail": (
+                        "That's far enough away to be a someday. Pick a date "
+                        "inside the next three months."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        pond = str(request.data.get("pond") or "").strip().upper()
+        if pond not in LaunchCommitment.Pond.values:
+            return Response(
+                {"detail": "Pick which room you're launching into."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        current = _launch_payload(goal, today)
+        # A re-declaration of the same date and pond is not a move, and writing
+        # a row for it would put a slip on the record that never happened — a
+        # double tap, or a builder confirming what they already said.
+        if current and current["date"] == when.isoformat() and current["pond"] == pond:
+            return Response(current, status=status.HTTP_200_OK)
+        LaunchCommitment.objects.create(goal=goal, date=when, pond=pond)
+        logger.info(f"Goal {goal.id} named launch {when} ({pond})")
+        return Response(_launch_payload(goal, today), status=status.HTTP_200_OK)
+
+
+class PhaseIntentView(APIView):
+    """One line, on the day a phase opens: what this phase will produce.
+
+    Not a gate, and the shape of this view is where that is enforced. It writes
+    to PhaseTransition and nothing else; gates.try_advance has never read that
+    table's contents and does not start; skipping it entirely leaves the phase
+    working exactly as before, which is why there is no version of this endpoint
+    that has to be called before anything.
+
+    Writes to the row that opened the CURRENT phase, so a line can only ever
+    describe the phase the builder is standing in. IDEA has no such row — it was
+    not unlocked by anything — and 409s rather than 404s, because the goal is
+    real and it is the moment that is wrong.
+
+    Re-settable while the phase is open. The alternative was write-once, and
+    write-once on a sentence typed in the thirty seconds after an unlock buys a
+    tidier record at the cost of a builder living for three weeks under a typo,
+    with a coach quoting it back. It cannot be changed once the phase is behind
+    them: the next phase gets its own row, and that is the whole reason this
+    lives here rather than on the Goal.
+    """
+
+    permission_classes = [IsAuthenticated]
+    MAX_CHARS = 280
+
+    def post(self, request, pk: int):
+        goal = get_object_or_404(
+            Goal.objects.filter(user=request.user, status=Goal.Status.ACTIVE), pk=pk
+        )
+        transition = _current_transition(goal)
+        if transition is None:
+            return Response(
+                {
+                    "detail": (
+                        "Nothing unlocked this phase yet — this is where you "
+                        "started."
+                    )
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+        intent = " ".join((request.data.get("intent") or "").split())
+        if not intent:
+            return Response(
+                {"detail": "One line: what will this phase have produced?"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if len(intent) > self.MAX_CHARS:
+            return Response(
+                {"detail": "One line, not a plan. Say the thing it produces."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        transition.intent = intent
+        transition.save(update_fields=["intent"])
+        logger.info(f"Goal {goal.id} named what {goal.phase} is for")
+        return Response(
+            PhaseTransitionSerializer(transition).data, status=status.HTTP_200_OK
         )
 
 
@@ -1335,6 +1579,11 @@ def _react_to_declaration(goal: Goal, text: str, tone: str) -> tuple[str, str, s
             phase=goal.phase,
             phase_rules=prompts.PHASE_RULES[Phase(goal.phase)],
             proof_hint=guidance.PROOF_HINT[Phase(goal.phase)],
+            # What this builder said this phase was for, if they said anything.
+            # It is what the morning's reading has never had: PHASE_HINT is the
+            # same sentence for every builder forever, so "is this the work this
+            # phase is for" could only ever be answered about phases in general.
+            intent=prompts.declaration_intent(_phase_intent(goal)),
         )
         # The judge model: this call decides declaration_fit and writes the
         # proof_ask the evening is then graded against, so it is a verdict with
@@ -1993,6 +2242,17 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
             week=weekly.summary(
                 goal, weekly.week_start(today) - timedelta(days=weekly.DAYS)
             ),
+            # What they said THIS phase would produce, which is the one thing
+            # the coach could never tell from PHASE_HINT: that sentence is the
+            # same for every builder forever, and this one is about the thing
+            # they decided on the morning the phase opened.
+            intent=_phase_intent(goal),
+            # And the day they said they would launch, if they named one. The
+            # only fact in the state block the builder put there themselves.
+            launch=_launch_payload(goal, today),
+            # What the idea before this one taught them, when this goal is a
+            # pivot. Facts, never counts: the gate has been given nothing.
+            predecessor=_predecessor(goal),
         )
         # SYSTEM rows are excluded, not mapped: they are the app talking about a
         # turn that failed, and the only role this mapping had for them was
@@ -2510,6 +2770,119 @@ class WorkshopChatView(throttles.VoicedThrottleMixin, APIView):
 
 
 # --- the product's own record ---------------------------------------------
+
+
+def _shared_record(retirement: GoalRetirement) -> dict:
+    """A closed goal as facts a stranger may read, and nothing else.
+
+    Every field here was computed by the server from rows the builder had to
+    earn — gates.reads_as, the snapshot counts, the phase timeline. That is the
+    whole pitch: an E-Cell application or a parent reading "reached BUILD, 5
+    accepted proofs, 4 of them from real-world contact, 12 days on the record"
+    is reading numbers that came through a gate they can audit in a public
+    repo, not a self-report.
+
+    What is deliberately NOT here: the reason they closed it, the goal's brief,
+    every proof text, every check-in, the coach's reaction, and the builder's
+    name or account. The record is the shape of the work, not a diary, and the
+    one thing a builder cannot take back once a link is out is prose.
+    """
+    goal = retirement.goal
+    return {
+        "title": goal.title,
+        "outcome": retirement.outcome,
+        # The verdict, which is the point of the page: INVALIDATED with contact
+        # proofs behind it is the only version of "my startup didn't work out"
+        # that reads as competence, and it is not the builder's to assert.
+        "reads_as": gates.reads_as(goal, retirement.outcome),
+        "phase_reached": retirement.phase_reached,
+        "accepted_proofs": retirement.accepted_proofs,
+        "contact_proofs": retirement.contact_proofs,
+        "days_active": retirement.days_active,
+        "best_streak": retirement.best_streak,
+        "closed_on": retirement.created_at.date().isoformat(),
+        "timeline": [
+            {
+                "to_phase": t.to_phase,
+                "on": t.created_at.date().isoformat(),
+            }
+            for t in goal.transitions.all()
+        ],
+        "started_on": goal.created_at.date().isoformat(),
+    }
+
+
+class SharedRecordView(throttles.VoicedThrottleMixin, APIView):
+    """One closed goal, by its unguessable slug, for anybody holding the link.
+
+    The second public endpoint in this file, and it follows the first one's
+    shape (ChangelogView) for the same reason: a surface with no account behind
+    it and no ceiling on it is a surface somebody else decides the size of.
+
+    The slug IS the access control, so this deliberately does not 403 or hint:
+    a missing, revoked or wrong slug is a 404, identical in every case, because
+    the difference between "no such record" and "that one is private" is itself
+    something a stranger can walk.
+    """
+
+    permission_classes = [AllowAny]
+    throttle_classes = throttles.THROTTLES
+    throttle_scope = "changelog"
+
+    def get(self, request, slug: str):
+        retirement = GoalRetirement.objects.filter(share_slug=slug).first()
+        if retirement is None:
+            return Response(
+                {"detail": "No record here."}, status=status.HTTP_404_NOT_FOUND
+            )
+        return Response(_shared_record(retirement))
+
+
+class ShareRecordView(APIView):
+    """Turn the link on, or take it away. The builder's, and reversible.
+
+    Off by default and off for every row that existed before this — a record
+    that became public because the feature shipped is not opt-in.
+
+    Turning it on again after revoking mints a DIFFERENT slug rather than
+    restoring the old one. A link handed to somebody and regretted has to be
+    able to stop working, and a switch that resurrects the same URL is a switch
+    that only ever paused it.
+    """
+
+    permission_classes = [IsAuthenticated]
+    # 132 bits from token_urlsafe(16), which is 22 characters. Not a UUID: this
+    # goes in a URL a builder pastes into a message, and unguessable is the only
+    # requirement it has.
+    SLUG_BYTES = 16
+
+    def _mine(self, request, pk: int) -> GoalRetirement:
+        return get_object_or_404(
+            GoalRetirement.objects.filter(goal__user=request.user), pk=pk
+        )
+
+    def post(self, request, pk: int):
+        retirement = self._mine(request, pk)
+        # Minted even when one already exists, which is what makes "off then on"
+        # a new link rather than the old one coming back.
+        retirement.share_slug = secrets.token_urlsafe(self.SLUG_BYTES)
+        retirement.save(update_fields=["share_slug"])
+        logger.info(f"Retirement {retirement.id} shared")
+        return Response({"share_slug": retirement.share_slug})
+
+    def delete(self, request, pk: int):
+        """Revoking is its own verb, and that is not tidiness.
+
+        This was one POST carrying `{"on": true|false}` until a test sent it
+        form-encoded and `bool("False")` came back True — the switch turned the
+        link ON when asked to take it away. A body that has to be read as a
+        boolean is a body somebody can encode wrong; two verbs cannot be.
+        """
+        retirement = self._mine(request, pk)
+        retirement.share_slug = None
+        retirement.save(update_fields=["share_slug"])
+        logger.info(f"Retirement {retirement.id} unshared")
+        return Response({"share_slug": None})
 
 
 class ChangelogView(throttles.VoicedThrottleMixin, APIView):

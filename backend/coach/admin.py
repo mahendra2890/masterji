@@ -9,6 +9,7 @@ from .models import (
     CheckIn,
     Goal,
     GoalRetirement,
+    LaunchCommitment,
     Message,
     PhaseTransition,
     ProofAttempt,
@@ -59,7 +60,14 @@ class GoalRetirementAdmin(SoftDeleteAdmin):
 
 @admin.register(PhaseTransition)
 class PhaseTransitionAdmin(SoftDeleteAdmin):
-    list_display = ["goal", "from_phase", "to_phase", "created_at"]
+    list_display = ["goal", "from_phase", "to_phase", "intent", "created_at"]
+
+
+# Append-only, so the list IS the trail: several rows on one goal is a date
+# that moved, and reading them in order is the whole of what this table says.
+@admin.register(LaunchCommitment)
+class LaunchCommitmentAdmin(SoftDeleteAdmin):
+    list_display = ["goal", "date", "pond", "created_at", "is_deleted"]
 
 
 @admin.register(ProofAttempt)

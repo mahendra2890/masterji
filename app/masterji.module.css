@@ -1724,6 +1724,218 @@
   cursor: pointer;
 }
 
+/* What the next goal is carrying over from the one just closed. Under the box
+   rather than above it: the commit is still the point of the screen, and this
+   is a note about it. Marigold left edge because it is Masterji holding
+   something for them, which is the one thing that hue means in this app. */
+.carrying {
+  margin: 0;
+  padding: 9px 11px;
+  border-left: 2px solid var(--accent);
+  background: var(--surface-2);
+  border-radius: 0 8px 8px 0;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.carrying strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* An inline link, not a button: declining is a small correction to a sentence,
+   and a control here would make the note read as a decision to be taken. */
+.carryingOff {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent);
+  font: inherit;
+  font-size: 12.5px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* The public link, on the panel where a closed idea stops being something the
+   builder uses and starts being something they show somebody. Off until
+   pressed, and drawn like the export beside it rather than like a control the
+   panel is recommending. */
+.share {
+  margin: 10px 0 4px;
+}
+
+.shareBtn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 8px 14px;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.shareBtn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.shareLabel {
+  margin: 0 0 6px;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.shareRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+/* Readonly and select-on-focus: the job is to be copied, and a link you have
+   to drag-select across is a link that gets copied wrong. */
+.shareLink {
+  flex: 1 1 220px;
+  min-width: 0;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12.5px;
+}
+
+/* The launch date, under the gate meter and in the same family: one number
+   about where this goal is. What makes it different is who put it there —
+   every other number on this card was counted, and this one is the builder's
+   own word. It is drawn quieter than the meter for exactly that reason: the
+   meter is the gate and this refuses nothing. */
+.launch {
+  margin-top: 10px;
+}
+
+.launchSet {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  margin: 0 -10px;
+  background: none;
+  border: none;
+  border-left: 2px solid var(--border);
+  color: var(--muted);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.launchSet:hover {
+  border-left-color: var(--accent);
+  color: var(--text);
+}
+
+.launchWhen {
+  font-variant-numeric: tabular-nums;
+}
+
+/* The slip count, stated and not softened. A move you can hide is not a
+   commitment device — the visible trail is the entire consequence here, since
+   nothing else about a missed date costs anything. Muted rather than in --bad:
+   moving a date is not the app breaking, and it is not a failure either. */
+.launchMoved {
+  margin-left: auto;
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.launchBox {
+  margin-top: 4px;
+}
+
+.launchLabel {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+/* Wraps rather than shrinking: three controls in a 300px column would be a
+   date field nobody can read next to a select nobody can. */
+.launchRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.launchRow .input {
+  flex: 1 1 130px;
+  margin-bottom: 0;
+}
+
+/* What this builder said this phase would produce, under the hint that says
+   the same thing to everybody. Quiet, and quieter than the hint above it: it
+   is a note they left themselves, not an instruction the app is giving back.
+
+   Nothing about it is a control ring or a counter, because it is not a gate and
+   must not learn to look like one. Set, it is a button only so it can be
+   reworded; the underline is the affordance and there is no pencil. */
+.phaseIntent {
+  display: block;
+  width: 100%;
+  margin: 6px 0 0;
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12.5px;
+  font-style: italic;
+  line-height: 1.45;
+  text-align: left;
+  text-decoration: underline;
+  text-decoration-color: var(--border);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.phaseIntent:hover {
+  color: var(--text);
+  text-decoration-color: var(--accent);
+}
+
+.phaseIntentBox {
+  margin-top: 8px;
+}
+
+.phaseIntentLabel {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+/* The shared .input carries a bottom margin for the stacked forms elsewhere on
+   this card; in a row that is a 10px shortfall against the button beside it —
+   the same correction .onboardForm makes, for the same reason. */
+.phaseIntentRow {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.phaseIntentRow .input {
+  margin-bottom: 0;
+}
+
 /* The two ways out of a goal you have stopped believing in, side by side and
    the same weight. Reconsidering used to cost a retirement, which made the
    honest move — killing the idea — the cheapest route to merely doubting it.

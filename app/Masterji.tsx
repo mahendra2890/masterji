@@ -33,6 +33,8 @@ import {
   phaseWindow,
   prove,
   retireGoal,
+  setPhaseIntent,
+  setLaunchDate,
   streamChat,
   streamWorkshopChat,
   updateGoalTitle,
@@ -624,6 +626,23 @@ export default function Masterji({ user }: { user: SessionUser }) {
   const [filingNow, setFilingNow] = useState(false);
   // Retiring the current goal: the form, and what Masterji said about it.
   const [retiring, setRetiring] = useState(false);
+  // The one line about the phase you are in, and whether its box is open. The
+  // box shows itself when the line is empty, which is the state every phase
+  // starts in — nothing here nags, and ignoring it is a complete answer.
+  // Which closed goal the next one comes out of, set by "Same problem, new
+  // idea" and spent by the commit. Client-side only and deliberately not
+  // durable: it is a link the builder just asked for, and a flag that survived
+  // a closed tab would silently attach last month's idea to a goal they came
+  // back and committed for a different reason.
+  const [pivotFrom, setPivotFrom] = useState<number | null>(null);
+  const [intentDraft, setIntentDraft] = useState("");
+  const [namingPhase, setNamingPhase] = useState(false);
+  // The launch date and the room it goes into, and whether the box is open.
+  // Both empty by default and never prefilled with a guess: a date the app
+  // picked is not a commitment anybody made.
+  const [launchDraft, setLaunchDraft] = useState("");
+  const [pondDraft, setPondDraft] = useState("");
+  const [namingLaunch, setNamingLaunch] = useState(false);
   // Whether the room beside the retire box is showing. Client-side only: the
   // room itself is a server row that exists once the builder has said
   // something in it, and this is just which of the two doors is open.
@@ -859,8 +878,9 @@ export default function Masterji({ user }: { user: SessionUser }) {
   const onCreateGoal = () =>
     run(async () => {
       if (!goalTitle.trim()) return;
-      await createGoal(goalTitle.trim());
+      await createGoal(goalTitle.trim(), pivotFrom);
       setGoalTitle("");
+      setPivotFrom(null);
       await refresh();
     });
 
@@ -967,14 +987,22 @@ export default function Masterji({ user }: { user: SessionUser }) {
       }
     });
 
-  const onRetire = (outcome: "ABANDONED" | "COMPLETED") =>
+  /** Close the goal. `pivot` changes nothing about the closing — same
+   * ABANDONED row, same computed verdict — and only remembers which goal the
+   * next one came out of, for the screen that is about to ask for it. */
+  const onRetire = (
+    outcome: "ABANDONED" | "COMPLETED",
+    opts: { pivot?: boolean } = {}
+  ) =>
     run(async () => {
       if (!state?.goal || !retireReason.trim()) return;
+      const closing = state.goal.id;
       const { retirement } = await retireGoal(
-        state.goal.id,
+        closing,
         retireReason.trim(),
         outcome
       );
+      setPivotFrom(opts.pivot ? closing : null);
       setRetireReason("");
       setRetiring(false);
       // Hold Masterji's reaction on screen. Without this the dashboard would
@@ -987,6 +1015,32 @@ export default function Masterji({ user }: { user: SessionUser }) {
   // Sets a named language rather than flipping the current one — same shape as
   // onSetMode below, and for the same reason: the control is two options with
   // one lit, so "the one I pressed" is all a press can mean.
+  /** Name what the phase you are standing in will produce. One line, and
+   * nothing depends on it: the phase advances on proofs whether this is set,
+   * changed or ignored. Re-fetches rather than patching state by hand, because
+   * the line goes into the next system prompt and the transcript on screen is
+   * about to be read by a coach that has it. */
+  const onNamePhase = () =>
+    run(async () => {
+      const text = intentDraft.trim();
+      if (!state?.goal || !text) return;
+      await setPhaseIntent(state.goal.id, text);
+      setNamingPhase(false);
+      setIntentDraft("");
+      await refresh();
+    });
+
+  /** Name the day it goes in front of people. Append-only server-side: this
+   * never edits the last answer, it writes another row, so moving the date
+   * leaves the move on the record. Nothing about it can refuse anything. */
+  const onNameLaunch = () =>
+    run(async () => {
+      if (!state?.goal || !launchDraft || !pondDraft) return;
+      await setLaunchDate(state.goal.id, launchDraft, pondDraft);
+      setNamingLaunch(false);
+      await refresh();
+    });
+
   const onSetTone = (next: CoachState["tone"]) =>
     run(async () => {
       if (state?.tone === next) return;
@@ -1493,6 +1547,31 @@ export default function Masterji({ user }: { user: SessionUser }) {
           </div>
         )}
 
+        {/* Said out loud, because a link the builder cannot see is a link they
+            cannot decline. What carries over is what they LEARNED — the people
+            they spoke to and what those people said, as facts the coach is
+            handed — and nothing they earned: the new goal starts at IDEA with
+            nothing banked and its first proof is owed exactly as if this were
+            their first day.
+
+            Droppable in one press. They asked for it thirty seconds ago on the
+            previous screen, and by the time they have typed a title they may
+            have decided this is a different problem after all. */}
+        {pivotFrom !== null && closing && (
+          <p className={styles.carrying}>
+            Carrying what you learned on{" "}
+            <strong>{closing.title}</strong> — the conversations, not the
+            counts. This one still starts at IDEA.{" "}
+            <button
+              type="button"
+              className={styles.carryingOff}
+              onClick={() => setPivotFrom(null)}
+            >
+              start clean instead
+            </button>
+          </p>
+        )}
+
         {error && <p className={styles.error}>{error}</p>}
 
         {/* What the room has produced FOR the box, next to the box. Both of
@@ -1677,6 +1756,12 @@ export default function Masterji({ user }: { user: SessionUser }) {
   // Read twice below — once by the meter's colour and once by the branch that
   // decides what the card says. One function so they cannot fork; see lib/gate.
   const earned = isEarned(gate);
+  // The row that opened the phase they are standing in, which is where the one
+  // line about it lives. Null in IDEA — nothing unlocked it, so there was never
+  // a moment at which to ask — and that is the whole of the "no ask on the
+  // first phase" rule, said once here rather than branched on below.
+  const phaseIntent =
+    transitions.filter((t) => t.toPhase === goal.phase).slice(-1)[0] ?? null;
   // Today's loop is still open — worth a dot on the pane you can't see.
   const dayOpen =
     !today?.amDeclaration ||
@@ -2006,6 +2091,145 @@ export default function Masterji({ user }: { user: SessionUser }) {
             )}
             <p className={styles.phaseHint}>{guidance?.phaseHint}</p>
 
+            {/* And under the hint that is the same sentence for every builder
+                forever, the one that is theirs. A phase has a bar and no shape:
+                "smallest thing a real user can touch this week" cannot tell the
+                coach whether tonight's task is the thing THIS builder decided
+                on the morning the phase opened.
+
+                Never a gate, and the shape of the control says so — no ring, no
+                counter, and it is skippable by ignoring it. gates.try_advance
+                has never read PhaseTransition's contents and does not start.
+                IDEA has no row (nothing unlocked it), so the ask is correctly
+                absent on the phase everybody starts in. */}
+            {phaseIntent !== null &&
+              (phaseIntent.intent && !namingPhase ? (
+                <button
+                  type="button"
+                  className={styles.phaseIntent}
+                  onClick={() => {
+                    setIntentDraft(phaseIntent.intent);
+                    setNamingPhase(true);
+                  }}
+                  title="What you said this phase would produce — tap to reword"
+                >
+                  {phaseIntent.intent}
+                </button>
+              ) : (
+                <div className={styles.phaseIntentBox}>
+                  <label
+                    className={styles.phaseIntentLabel}
+                    htmlFor="phase-intent"
+                  >
+                    What will {goal.phase} have produced?
+                  </label>
+                  <div className={styles.phaseIntentRow}>
+                    <input
+                      id="phase-intent"
+                      className={styles.input}
+                      placeholder="e.g. three hostellers who'd pay today"
+                      value={intentDraft}
+                      maxLength={280}
+                      onChange={(e) => setIntentDraft(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && onNamePhase()}
+                    />
+                    <button
+                      type="button"
+                      className={styles.secondaryBtn}
+                      disabled={busy || !intentDraft.trim()}
+                      onClick={onNamePhase}
+                    >
+                      Save
+                    </button>
+                  </div>
+                </div>
+              ))}
+
+            {/* The day they said they'd launch, under the gate meter it sits
+                beside in kind: both are one number about where this goal is.
+                The difference is who put it there — every other number on this
+                card was earned or counted, and this one is the builder's own
+                word, which is the whole of what makes it work.
+
+                A control, and only a control. What a launch date is FOR — that
+                BUILD dies from drift in week three, that the slip trail is the
+                consequence and there is no other one — is a sentence in the
+                tour, not help text wedged in here.
+
+                Not before BUILD: a date on a goal with no artifact is a wish,
+                and the server refuses it. */}
+            {state.canSetLaunch && (
+              <div className={styles.launch}>
+                {state.launch && !namingLaunch ? (
+                  <button
+                    type="button"
+                    className={styles.launchSet}
+                    onClick={() => {
+                      setLaunchDraft(state.launch!.date);
+                      setPondDraft(state.launch!.pond);
+                      setNamingLaunch(true);
+                    }}
+                  >
+                    <span className={styles.launchWhen}>
+                      Launch {formatDay(state.launch.date)} ·{" "}
+                      {state.launch.daysOut === 0
+                        ? "today"
+                        : state.launch.daysOut > 0
+                          ? `${state.launch.daysOut}d out`
+                          : `${Math.abs(state.launch.daysOut)}d ago`}
+                    </span>
+                    {/* Stated, never softened. The trail is the mechanism, and
+                        a move you can hide is not a commitment device. */}
+                    {state.launch.moves > 0 && (
+                      <span className={styles.launchMoved}>
+                        moved {state.launch.moves}×
+                      </span>
+                    )}
+                  </button>
+                ) : (
+                  <div className={styles.launchBox}>
+                    <label className={styles.launchLabel} htmlFor="launch-date">
+                      When does it go in front of them?
+                    </label>
+                    <div className={styles.launchRow}>
+                      <input
+                        id="launch-date"
+                        type="date"
+                        className={styles.input}
+                        value={launchDraft}
+                        min={localDate()}
+                        onChange={(e) => setLaunchDraft(e.target.value)}
+                      />
+                      {/* The ladder is launch-checklist.md's, served rather
+                          than copied here — a builder inventing a fifth rung is
+                          a builder avoiding the four. */}
+                      <select
+                        className={styles.input}
+                        aria-label="Which room you'll launch into"
+                        value={pondDraft}
+                        onChange={(e) => setPondDraft(e.target.value)}
+                      >
+                        <option value="">Which room?</option>
+                        {state.ponds.map((p) => (
+                          <option key={p.value} value={p.value}>
+                            {p.label}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        className={styles.secondaryBtn}
+                        disabled={busy || !launchDraft || !pondDraft}
+                        onClick={onNameLaunch}
+                      >
+                        Set
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             {gate && gate.need > 0 && (
               <>
                 <div className={styles.gateRow}>
@@ -2263,6 +2487,26 @@ export default function Masterji({ user }: { user: SessionUser }) {
                     onClick={() => onRetire("ABANDONED")}
                   >
                     I&apos;m dropping it
+                  </button>
+                  {/* The third exit, and the one the journey actually takes
+                      most often between VALIDATION and BUILD: the idea dies
+                      and the problem survives. It closes exactly as "I'm
+                      dropping it" does — same ABANDONED row, same computed
+                      verdict, and a pivot with no contact proofs behind it
+                      still reads UNTESTED, because calling it a pivot is not
+                      evidence of anything.
+
+                      What it changes is the next screen: the goal they commit
+                      to there is linked back to this one, so the coach opens
+                      knowing what those weeks of interviews found. Until now
+                      the product's memory of them died with the goal, which
+                      made the honest move cost more than limping on. */}
+                  <button
+                    className={styles.secondaryBtn}
+                    disabled={busy || !retireReason.trim()}
+                    onClick={() => onRetire("ABANDONED", { pivot: true })}
+                  >
+                    Same problem, new idea
                   </button>
                   <button
                     className={styles.linkBtn}

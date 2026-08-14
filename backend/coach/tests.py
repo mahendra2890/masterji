@@ -49,6 +49,7 @@ from .models import (
     CheckIn,
     Goal,
     GoalRetirement,
+    LaunchCommitment,
     Message,
     Phase,
     PhaseTransition,
@@ -785,6 +786,472 @@ class PhaseBriefTests(CoachTestCase):
 
 
 # --- daily loop ----------------------------------------------------------------
+
+
+class PivotTests(CoachTestCase):
+    """Same problem, new idea — the commonest real journey event between
+    VALIDATION and BUILD, and the one the product used to punish.
+
+    The whole of what is pinned here: a pivot carries KNOWLEDGE and never
+    CREDIT. Everything the builder learned travels; not one row of what they
+    earned does, and the successor's first proof is owed exactly as if they had
+    started from nothing — which, as far as gates.py is concerned, they have.
+    """
+
+    def pivot(self, title="Mess-counter board for Block C"):
+        parent = self.make_goal(phase=Phase.VALIDATION)
+        self.accept_proofs(parent, 2)
+        self.client.post(
+            f"/api/coach/goals/{parent.id}/retire/",
+            {"reason": "Nobody wants a tiffin service. They want to know what's left."},
+        )
+        created = self.client.post(
+            "/api/coach/goals/", {"title": title, "pivoted_from": parent.id}
+        ).json()
+        return parent, Goal.objects.get(id=created["id"])
+
+    def test_the_successor_starts_at_idea_with_nothing_banked(self):
+        """The gate is never seeded. IDEA's one proof is still owed, and
+        writing the new problem statement is that decision made concrete."""
+        parent, successor = self.pivot()
+        self.assertEqual(successor.pivoted_from_id, parent.id)
+        self.assertEqual(successor.phase, Phase.IDEA)
+        self.assertEqual(gates.accepted_proofs(successor), 0)
+        self.assertEqual(gates.accepted_proofs_total(successor), 0)
+        advanced, _ = gates.try_advance(successor)
+        self.assertFalse(advanced)
+
+    def test_the_parent_closes_as_it_would_have_anyway(self):
+        """No new self-declared verdict. A contact-free pivot still reads
+        UNTESTED, because calling it a pivot is not evidence of anything."""
+        parent, _ = self.pivot()
+        retirement = GoalRetirement.objects.get(goal=parent)
+        self.assertEqual(retirement.outcome, GoalRetirement.Outcome.ABANDONED)
+        self.assertEqual(
+            gates.reads_as(parent, retirement.outcome),
+            gates.reads_as(parent, GoalRetirement.Outcome.ABANDONED),
+        )
+
+    def test_the_coach_inherits_the_facts_and_is_told_they_are_not_counts(self):
+        parent, successor = self.pivot()
+        text = prompts.build_system_prompt(
+            successor,
+            gates.gate_status(successor),
+            0,
+            "nothing yet",
+            "ENGLISH",
+            predecessor=views._predecessor(successor),
+        )
+        self.assertIn(parent.title, text)
+        # The guard that keeps the block from leaking into the gate.
+        self.assertIn("NONE OF IT COUNTS HERE", text)
+        self.assertIn("its first proof is still owed", text)
+
+    def test_a_parent_that_banked_nothing_says_nothing(self):
+        """Naming a dead idea and then reporting it produced nothing is a
+        paragraph about failure with no facts in it, on the first morning of
+        the thing that replaced it."""
+        parent = self.make_goal()
+        self.client.post(f"/api/coach/goals/{parent.id}/retire/", {"reason": "no"})
+        created = self.client.post(
+            "/api/coach/goals/", {"title": "Second", "pivoted_from": parent.id}
+        ).json()
+        successor = Goal.objects.get(id=created["id"])
+        self.assertEqual(successor.pivoted_from_id, parent.id)
+        self.assertIsNone(views._predecessor(successor))
+
+    def test_a_link_to_somebody_elses_goal_is_dropped_not_honoured(self):
+        bobs = self.make_goal(user=self.bob)
+        created = self.client.post(
+            "/api/coach/goals/", {"title": "Mine", "pivoted_from": bobs.id}
+        )
+        self.assertEqual(created.status_code, 201)
+        self.assertIsNone(Goal.objects.get(id=created.json()["id"]).pivoted_from_id)
+
+    def test_a_link_to_a_goal_still_running_is_dropped(self):
+        """A pivot is from something CLOSED. Linking a live goal would be one
+        builder with two goals, described in a field instead of a row."""
+        live = self.make_goal()
+        self.client.post(f"/api/coach/goals/{live.id}/retire/", {"reason": "done"})
+        second = self.client.post("/api/coach/goals/", {"title": "Second"}).json()
+        third = self.client.post(
+            "/api/coach/goals/", {"title": "Third", "pivoted_from": second["id"]}
+        )
+        # Refused for the ordinary reason — one goal at a time — and the link
+        # never gets the chance to be the thing that let a second one exist.
+        self.assertEqual(third.status_code, 400)
+
+    def test_a_stale_link_does_not_cost_them_the_commit(self):
+        """The goal is what they are committing to; the link is a footnote.
+        Refusing the whole commit over it would be the app losing their
+        sentence to protect the footnote."""
+        created = self.client.post(
+            "/api/coach/goals/", {"title": "Mine", "pivoted_from": 999999}
+        )
+        self.assertEqual(created.status_code, 201)
+        self.assertIsNone(Goal.objects.get(id=created.json()["id"]).pivoted_from_id)
+
+
+class SharedRecordTests(CoachTestCase):
+    """A closed goal as a page you can hand to somebody.
+
+    Two things are pinned hardest, because this is only the second endpoint in
+    the product with no account behind it: what a stranger can read, and what
+    they cannot. Everything on the page was computed from rows the builder had
+    to earn; nothing they wrote in prose ever leaves through it.
+    """
+
+    def close_goal(self, reason="Talked to six people, they won't pay."):
+        goal = self.make_goal(phase=Phase.VALIDATION)
+        self.accept_proofs(goal, 2)
+        self.client.post(f"/api/coach/goals/{goal.id}/retire/", {"reason": reason})
+        return GoalRetirement.objects.get(goal=goal)
+
+    def share(self, retirement, on=True):
+        url = f"/api/coach/retirements/{retirement.id}/share/"
+        return self.client.post(url) if on else self.client.delete(url)
+
+    def test_a_record_is_private_until_the_builder_says_otherwise(self):
+        """Off by default, and off for every row that existed before this. A
+        record that became public because a feature shipped is not opt-in."""
+        retirement = self.close_goal()
+        self.assertIsNone(retirement.share_slug)
+        self.client.logout()
+        self.client.force_authenticate(None)
+        self.assertEqual(self.client.get("/api/coach/record/anything/").status_code, 404)
+
+    def test_a_stranger_holding_the_link_reads_the_numbers(self):
+        retirement = self.close_goal()
+        slug = self.share(retirement).json()["share_slug"]
+
+        self.client.force_authenticate(None)
+        response = self.client.get(f"/api/coach/record/{slug}/")
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["title"], "Tiffin app")
+        self.assertEqual(body["phase_reached"], Phase.VALIDATION)
+        self.assertEqual(body["accepted_proofs"], 2)
+        # The verdict, computed by gates.reads_as and never self-reported —
+        # which is the whole reason a page like this is worth handing over.
+        self.assertEqual(
+            body["reads_as"], gates.reads_as(retirement.goal, retirement.outcome)
+        )
+        self.assertIn("timeline", body)
+
+    def test_the_page_never_carries_a_word_the_builder_wrote(self):
+        """The record is the shape of the work, not a diary. Prose is the one
+        thing you cannot take back once a link is out."""
+        secret = "I only closed it because my father made me."
+        retirement = self.close_goal(reason=secret)
+        slug = self.share(retirement).json()["share_slug"]
+
+        self.client.force_authenticate(None)
+        body = json.dumps(self.client.get(f"/api/coach/record/{slug}/").json())
+        self.assertNotIn(secret, body)
+        self.assertNotIn("reason", body)
+        self.assertNotIn("coach_reaction", body)
+        # Nor anything that identifies who they are.
+        self.assertNotIn("alice", body)
+        self.assertNotIn("user", body)
+
+    def test_turning_it_off_takes_the_link_with_it(self):
+        retirement = self.close_goal()
+        slug = self.share(retirement).json()["share_slug"]
+        self.assertIsNone(self.share(retirement, on=False).json()["share_slug"])
+
+        self.client.force_authenticate(None)
+        self.assertEqual(self.client.get(f"/api/coach/record/{slug}/").status_code, 404)
+
+    def test_turning_it_on_again_is_a_different_link(self):
+        """A switch that resurrects the same URL only ever paused it. A link
+        handed to somebody and regretted has to be able to stop working."""
+        retirement = self.close_goal()
+        first = self.share(retirement).json()["share_slug"]
+        self.share(retirement, on=False)
+        second = self.share(retirement).json()["share_slug"]
+        self.assertNotEqual(first, second)
+
+        self.client.force_authenticate(None)
+        self.assertEqual(self.client.get(f"/api/coach/record/{first}/").status_code, 404)
+        self.assertEqual(self.client.get(f"/api/coach/record/{second}/").status_code, 200)
+
+    def test_the_slug_is_the_access_control_and_is_not_walkable(self):
+        """Unguessable rather than sequential: a numeric id would make every
+        closed goal in the database walkable by anybody who found one link."""
+        retirement = self.close_goal()
+        slug = self.share(retirement).json()["share_slug"]
+        self.assertNotEqual(slug, str(retirement.id))
+        self.assertGreaterEqual(len(slug), 20)
+        # Two records in a row do not produce two adjacent slugs, which is the
+        # actual property: a sequential one lets anybody who found a link walk
+        # to every closed goal in the database.
+        second = self.share(self.close_goal()).json()["share_slug"]
+        self.assertNotEqual(slug, second)
+
+        self.client.force_authenticate(None)
+        # A wrong slug is the same 404 as a missing one: the difference between
+        # "no such record" and "that one is private" is itself walkable.
+        self.assertEqual(
+            self.client.get(f"/api/coach/record/{retirement.id}/").status_code, 404
+        )
+
+    def test_only_the_owner_can_share_it(self):
+        retirement = self.close_goal()
+        self.client.force_authenticate(self.bob)
+        self.assertEqual(self.share(retirement).status_code, 404)
+        retirement.refresh_from_db()
+        self.assertIsNone(retirement.share_slug)
+
+
+class LaunchDateTests(CoachTestCase):
+    """A date the builder named, and the trail of every time they moved it.
+
+    What is pinned: the trail is the whole consequence. Nothing here refuses
+    anything — no gate reads the table, a blown date costs no proof and no
+    streak — so every test below is either about the arithmetic being honest or
+    about the product declining to punish somebody for it.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.goal = self.make_goal(phase=Phase.BUILD)
+        self.today = date.today()
+
+    def name_date(self, when: date, pond="ROOMS"):
+        return self.client.post(
+            f"/api/coach/goals/{self.goal.id}/launch/",
+            {"date": when.isoformat(), "pond": pond},
+        )
+
+    def test_a_move_is_a_second_row_and_the_trail_says_so(self):
+        """Never an update. What the record holds is not "26 August" but
+        "declared the 24th, moved once, currently the 26th" — the visible slip
+        trail IS the commitment device, since nothing else costs anything."""
+        first, second = self.today + timedelta(days=7), self.today + timedelta(days=9)
+        self.name_date(first)
+        response = self.name_date(second)
+        self.assertEqual(response.status_code, 200)
+
+        body = response.json()
+        self.assertEqual(body["date"], second.isoformat())
+        self.assertEqual(body["first"], first.isoformat())
+        self.assertEqual(body["moves"], 1)
+        self.assertEqual(body["days_out"], 9)
+        self.assertEqual(self.goal.launch_commitments.count(), 2)
+
+    def test_naming_one_for_the_first_time_is_not_a_slip(self):
+        self.name_date(self.today + timedelta(days=5))
+        self.assertEqual(_state_launch(self.client)["moves"], 0)
+
+    def test_saying_the_same_thing_twice_does_not_write_a_slip(self):
+        """A double tap, or a builder confirming what they already said. A row
+        for it would put a move on the record that never happened."""
+        when = self.today + timedelta(days=5)
+        self.name_date(when)
+        self.name_date(when)
+        self.assertEqual(self.goal.launch_commitments.count(), 1)
+        self.assertEqual(_state_launch(self.client)["moves"], 0)
+
+    def test_a_date_that_has_come_and_gone_refuses_nothing(self):
+        """The one that matters. A blown date is the case this feature exists
+        for, and the product's answer to it is a negative number and a
+        sentence — never a gate, a lost streak or a refused proof."""
+        self.name_date(self.today + timedelta(days=1))
+        LaunchCommitment.objects.filter(goal=self.goal).update(
+            date=self.today - timedelta(days=3)
+        )
+        self.accept_proofs(self.goal, gates.PROOFS_REQUIRED[Phase.BUILD].n)
+        response = self.client.post(f"/api/coach/goals/{self.goal.id}/advance/")
+        self.assertEqual(response.status_code, 200)
+        self.goal.refresh_from_db()
+        self.assertEqual(self.goal.phase, Phase.LAUNCH)
+
+    def test_the_coach_is_told_the_date_and_told_not_to_wield_it(self):
+        text = prompts.launch_line(
+            {
+                "date": "2026-08-26",
+                "pond_label": "The rooms they sit in",
+                "days_out": 9,
+                "moves": 1,
+                "first": "2026-08-24",
+            }
+        )
+        self.assertIn("2026-08-26", text)
+        self.assertIn("9 days out", text)
+        self.assertIn("moved 1 time", text)
+        self.assertIn("The rooms they sit in", text)
+        self.assertIn("nothing refuses them if it slips", text)
+        # And absent entirely when they never named one — no default date, and
+        # no line in the state block about a thing that does not exist.
+        self.assertEqual(prompts.launch_line(None), "")
+
+    def test_a_date_needs_something_to_launch(self):
+        """Not a fifth thing to have declared on day one."""
+        early = self.make_goal(user=self.bob, phase=Phase.IDEA)
+        self.client.force_authenticate(self.bob)
+        response = self.client.post(
+            f"/api/coach/goals/{early.id}/launch/",
+            {"date": (self.today + timedelta(days=5)).isoformat(), "pond": "ROOMS"},
+        )
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("once you're building", response.json()["detail"])
+
+    def test_yesterday_and_a_made_up_room_are_both_refused(self):
+        self.assertEqual(self.name_date(self.today - timedelta(days=1)).status_code, 400)
+        self.assertEqual(
+            self.name_date(self.today + timedelta(days=3), pond="SOMEWHERE").status_code,
+            400,
+        )
+        self.assertFalse(self.goal.launch_commitments.exists())
+
+    def test_the_ponds_are_the_playbooks_ladder(self):
+        """Named rungs rather than free text: the ladder belongs to
+        launch-checklist.md, and a builder inventing a fifth rung is a builder
+        avoiding the four."""
+        ponds = self.client.get("/api/coach/state/").json()["ponds"]
+        self.assertEqual(
+            [p["value"] for p in ponds], ["TALKED", "ROOMS", "PUBLIC", "ASK"]
+        )
+
+    def test_the_date_is_the_builders_own(self):
+        self.client.force_authenticate(self.bob)
+        self.assertEqual(self.name_date(self.today + timedelta(days=5)).status_code, 404)
+
+
+def _state_launch(client) -> dict:
+    return client.get("/api/coach/state/").json()["launch"]
+
+
+class PhaseIntentTests(CoachTestCase):
+    """One line at every unlock: what this phase will produce.
+
+    A phase has a bar and no shape — PHASE_HINT[BUILD] is the same sentence for
+    every builder forever — so the coach could tell whether tonight's task was
+    on-phase for BUILD in general and never whether it was the thing this
+    builder said on Monday. What is pinned here is that the line is the only
+    thing that changed: the ladder is the same length, the gate reads nothing,
+    and skipping it costs a builder nothing at all.
+    """
+
+    def advance(self, goal: Goal) -> Goal:
+        need = gates.PROOFS_REQUIRED[Phase(goal.phase)]
+        self.accept_proofs(goal, need.n)
+        self.client.post(f"/api/coach/goals/{goal.id}/advance/")
+        goal.refresh_from_db()
+        return goal
+
+    def set_intent(self, goal: Goal, text: str):
+        return self.client.post(f"/api/coach/goals/{goal.id}/intent/", {"intent": text})
+
+    def test_the_line_lands_on_the_row_that_opened_this_phase(self):
+        goal = self.advance(self.make_goal())
+        self.assertEqual(goal.phase, Phase.VALIDATION)
+        response = self.set_intent(goal, "  three hostellers  who\n pay today  ")
+        self.assertEqual(response.status_code, 200)
+
+        transition = goal.transitions.get(to_phase=Phase.VALIDATION)
+        # Collapsed, not stored as typed: it is one line by construction, and a
+        # newline in it would arrive in the prompt as a new instruction.
+        self.assertEqual(transition.intent, "three hostellers who pay today")
+
+    def test_idea_has_no_unlock_to_describe(self):
+        """Nothing opened IDEA, so there was no moment at which to ask. A 409
+        rather than a 404: the goal is real and it is the moment that is wrong."""
+        goal = self.make_goal()
+        response = self.set_intent(goal, "something")
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("where you started", response.json()["detail"])
+
+    def test_the_coach_is_told_what_they_said_and_that_it_is_not_the_gate(self):
+        goal = self.advance(self.make_goal())
+        self.set_intent(goal, "three hostellers who pay today")
+        text = prompts.build_system_prompt(
+            goal,
+            gates.gate_status(goal),
+            0,
+            "nothing yet",
+            "ENGLISH",
+            intent="three hostellers who pay today",
+        )
+        self.assertIn("three hostellers who pay today", text)
+        # The two things that keep it from becoming a second bar.
+        self.assertIn("it is not a promise you hold them to", text)
+        self.assertIn("a phase is cleared by proofs whatever this says", text)
+
+    def test_a_phase_with_nothing_said_about_it_says_nothing(self):
+        """Absent rather than defaulted. A coach told "what this phase will
+        produce: (not set)" has a fact about the app's own form in the block
+        whose whole authority is that everything in it is true of the builder."""
+        goal = self.advance(self.make_goal())
+        self.assertEqual(prompts.intent_block("", Phase.VALIDATION), "")
+        text = prompts.build_system_prompt(
+            goal, gates.gate_status(goal), 0, "nothing yet", "ENGLISH"
+        )
+        self.assertNotIn("WHAT THEY SAID THIS PHASE WOULD PRODUCE", text)
+
+    def test_the_morning_reads_it_as_context_and_not_as_a_test(self):
+        """`fit` is advisory and an off-phase task still earns its proof. A
+        builder's own sentence must not quietly become a tighter gate on their
+        day than the phase itself is."""
+        text = prompts.DECLARATION_SYSTEM.format(
+            respect_rule=prompts.RESPECT_RULE,
+            tone_rule="",
+            evidence_rule=prompts.EVIDENCE_NOT_INSTRUCTIONS,
+            phase=Phase.VALIDATION,
+            phase_rules=prompts.PHASE_RULES[Phase.VALIDATION],
+            proof_hint=guidance.PROOF_HINT[Phase.VALIDATION],
+            intent=prompts.declaration_intent("three hostellers who pay today"),
+        )
+        self.assertIn("three hostellers who pay today", text)
+        self.assertIn("context for your reaction, never a second test", text)
+
+    def test_skipping_it_advances_the_phase_exactly_as_before(self):
+        """Not a gate, and this is the test that says so: a goal that never
+        answers walks the whole ladder."""
+        goal = self.make_goal()
+        for _ in range(3):
+            goal = self.advance(goal)
+        self.assertEqual(goal.phase, Phase.LAUNCH)
+        self.assertEqual(goal.transitions.count(), 3)
+        self.assertEqual([t.intent for t in goal.transitions.all()], ["", "", ""])
+
+    def test_the_next_phase_cannot_overwrite_the_last_ones_answer(self):
+        """The whole reason it lives on PhaseTransition. A field on the Goal
+        would keep only the newest, and the record would then say the builder
+        had always meant whatever they most recently said."""
+        goal = self.advance(self.make_goal())
+        self.set_intent(goal, "three hostellers who pay today")
+        goal = self.advance(goal)
+        self.set_intent(goal, "one screen they can actually open")
+
+        by_phase = {t.to_phase: t.intent for t in goal.transitions.all()}
+        self.assertEqual(by_phase[Phase.VALIDATION], "three hostellers who pay today")
+        self.assertEqual(by_phase[Phase.BUILD], "one screen they can actually open")
+        # And the coach reads the one for the phase they are standing in.
+        self.assertEqual(views._phase_intent(goal), "one screen they can actually open")
+
+    def test_it_can_be_fixed_while_the_phase_is_open(self):
+        """Write-once buys a tidier record at the cost of a builder living for
+        three weeks under a typo, with a coach quoting it back at them."""
+        goal = self.advance(self.make_goal())
+        self.set_intent(goal, "three hostlers")
+        self.set_intent(goal, "three hostellers who pay today")
+        self.assertEqual(views._phase_intent(goal), "three hostellers who pay today")
+        self.assertEqual(goal.transitions.count(), 1)
+
+    def test_an_empty_line_and_a_paragraph_are_both_refused(self):
+        goal = self.advance(self.make_goal())
+        self.assertEqual(self.set_intent(goal, "   ").status_code, 400)
+        self.assertEqual(
+            self.set_intent(goal, "x" * (views.PhaseIntentView.MAX_CHARS + 1)).status_code,
+            400,
+        )
+        self.assertEqual(views._phase_intent(goal), "")
+
+    def test_the_phase_is_the_builders_own(self):
+        goal = self.advance(self.make_goal())
+        self.client.force_authenticate(self.bob)
+        self.assertEqual(self.set_intent(goal, "mine now").status_code, 404)
 
 
 class CheckInTests(CoachTestCase):

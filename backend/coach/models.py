@@ -88,6 +88,31 @@ class Goal(SoftDeleteModel):
     # digest's own text would make builder-facing copy load-bearing in two
     # languages and would still race. This claims in one atomic UPDATE.
     last_digest_week = models.DateField(null=True, blank=True)
+    # The goal this one came out of, when a builder closed the idea and kept the
+    # problem. Null for a goal started from nothing, which is most of them.
+    #
+    # The commonest real journey event between VALIDATION and BUILD is the idea
+    # dying while the problem survives, and the product's memory of those
+    # hard-won interviews used to die with the goal — ARCHIVE_BLOCK carries
+    # counts and one line, not contents. So the honest move, killing the idea,
+    # cost more than limping on, which inverts the whole incentive design.
+    #
+    # A link and nothing else. It seeds NO count: the successor starts at IDEA
+    # with zero proofs, gates.py reads this field never, and IDEA's one proof is
+    # still owed — writing the new problem statement is one evening and it is
+    # the pivot decision made concrete. What it buys is a prompt block, so the
+    # coach does not send a builder back to re-interview Tuesday's person for
+    # facts already on the family record.
+    #
+    # SET_NULL rather than CASCADE: a deleted parent must orphan the successor,
+    # never delete a live goal with weeks of its own work on it.
+    pivoted_from = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="successors",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -318,6 +343,23 @@ class GoalRetirement(SoftDeleteModel):
     # real people said no, so IDEA write-ups can't buy it.
     contact_proofs = models.PositiveIntegerField(default=0)
     days_active = models.PositiveIntegerField(default=0)
+    # The one thing on this row that can be read without an account, and only
+    # if the builder switched it on. Unguessable rather than sequential: the
+    # slug IS the access control, so a numeric id would make every closed goal
+    # in the database walkable by anybody who found one link.
+    #
+    # Null means private, which is the default and the state every existing row
+    # is in. Revoking is setting it back to null, and it is a different slug if
+    # they ever turn it on again — a link handed out once and regretted has to
+    # be able to stop working.
+    #
+    # Nothing about what the page SHOWS lives here: that is the public view's
+    # business, and it renders computed facts only. The builder's own prose —
+    # the reason they closed it, every proof they ever wrote — never leaves
+    # this server through that endpoint.
+    share_slug = models.CharField(
+        max_length=22, null=True, blank=True, unique=True, default=None
+    )
     best_streak = models.PositiveIntegerField(default=0)
     coach_reaction = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -414,6 +456,22 @@ class PhaseTransition(SoftDeleteModel):
     )
     from_phase = models.CharField(max_length=12, choices=Phase.choices)
     to_phase = models.CharField(max_length=12, choices=Phase.choices)
+    # One line, in the builder's words: what THIS phase is going to produce.
+    #
+    # A phase has a bar and no shape. guidance.PHASE_HINT[BUILD] says "smallest
+    # thing a real user can touch this week" — for every builder, forever — so
+    # the coach can tell whether tonight's task is on-phase for BUILD in
+    # general, and never whether it is the thing this builder said on Monday.
+    # This is the missing half, and it costs no rung on the ladder.
+    #
+    # Here rather than on Goal because it is a fact about ONE phase: a goal that
+    # reaches TRACTION passed through four of these, and a field on the goal
+    # would keep only the last one — the record would then say the builder had
+    # always meant to do whatever they most recently said.
+    #
+    # Never a gate. gates.try_advance does not read it, blank is a legal and
+    # common value, and skipping it advances the phase exactly as before.
+    intent = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta(SoftDeleteModel.Meta):
@@ -421,6 +479,52 @@ class PhaseTransition(SoftDeleteModel):
 
     def __str__(self):
         return f"{self.goal_id}: {self.from_phase} → {self.to_phase}"
+
+
+class LaunchCommitment(SoftDeleteModel):
+    """A date the builder named for launching, and every time they moved it.
+
+    APPEND-ONLY, and that is the whole mechanism. A row is never edited: moving
+    the date writes a second row, so what the record holds is not "26 August"
+    but "declared 24 August, moved once, currently 26 August". The visible slip
+    trail IS the consequence — the commitment-device insight without a stake,
+    because nothing here refuses anything. `gates.PROOFS_REQUIRED` is untouched,
+    a blown date refuses no proof and costs no streak, and the coach can say
+    "nine days out" only because a builder chose to say it first.
+
+    Why this exists: shipping-cadence.md's diagnosis is that BUILD dies from
+    drift in week three — "almost done" true for ten days running — and the
+    playbook already instructs "set the launch date before the build feels
+    ready". That was advice the server could not see, cite or count.
+
+    The pond comes with it because launch-checklist.md's ladder is where a
+    launch actually happens, and "launching" with no room in mind is the drift
+    one step later. Named rungs rather than free text: the ladder is the
+    playbook's, and a builder inventing a fifth rung is a builder avoiding the
+    four.
+    """
+
+    class Pond(models.TextChoices):
+        # launch-checklist.md's ladder, in its order. The labels are the
+        # playbook's own words — two copies of a rung would drift, and this one
+        # is the copy a builder reads on a dashboard.
+        TALKED = "TALKED", "The ones who talked to you"
+        ROOMS = "ROOMS", "The rooms they sit in"
+        PUBLIC = "PUBLIC", "The public ponds"
+        ASK = "ASK", "The ask — charging or committed sign-ups"
+
+    goal = models.ForeignKey(
+        Goal, on_delete=models.CASCADE, related_name="launch_commitments"
+    )
+    date = models.DateField()
+    pond = models.CharField(max_length=8, choices=Pond.choices)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta(SoftDeleteModel.Meta):
+        ordering = ["created_at"]
+
+    def __str__(self):
+        return f"{self.goal_id}: launch {self.date} ({self.pond})"
 
 
 class Workshop(SoftDeleteModel):

@@ -42,6 +42,10 @@ class GoalSerializer(serializers.ModelSerializer):
             "phase_entered_at",
             "created_at",
             "title_locked",
+            # The goal this one came out of, read-only here and set by the view:
+            # it is a claim about another row, and whose row it is and whether
+            # it is closed are not a client's to assert.
+            "pivoted_from",
         ]
         # Everything except the title and the brief. `phase` and `status` being
         # read-only here is what stops the update endpoint from being a road
@@ -58,6 +62,7 @@ class GoalSerializer(serializers.ModelSerializer):
             "phase_entered_at",
             "created_at",
             "title_locked",
+            "pivoted_from",
         ]
 
     def get_title_locked(self, obj: Goal) -> bool:
@@ -217,6 +222,11 @@ class RetirementSerializer(serializers.ModelSerializer):
             "days_active",
             "best_streak",
             "coach_reaction",
+            # Only ever the owner's: this serializer feeds the archive on their
+            # own dashboard, and the public page reads a different one that has
+            # never heard of an account. Null means private, which is where
+            # every record starts and stays until they press the switch.
+            "share_slug",
             "created_at",
         ]
         read_only_fields = fields
@@ -227,11 +237,16 @@ class RetirementSerializer(serializers.ModelSerializer):
 
 class PhaseTransitionSerializer(serializers.ModelSerializer):
     """Phase boundaries — the frontend derives each phase's date window
-    from these plus the goal's created_at, to power the stepper drill-in."""
+    from these plus the goal's created_at, to power the stepper drill-in.
+
+    `intent` rides along because the drill-in is the one place a builder reads a
+    phase back as a whole: what they said it would produce belongs next to what
+    it actually did. Read-only here — it is written by PhaseIntentView, which is
+    the one place that knows a line may only describe the open phase."""
 
     class Meta:
         model = PhaseTransition
-        fields = ["from_phase", "to_phase", "created_at"]
+        fields = ["from_phase", "to_phase", "intent", "created_at"]
         read_only_fields = fields
 
 

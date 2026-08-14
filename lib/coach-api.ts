@@ -71,6 +71,10 @@ export type Gate = {
 export type PhaseTransition = {
   fromPhase: Phase;
   toPhase: Phase;
+  /** One line, in the builder's words, on what this phase would produce —
+   * asked once when the phase unlocked. "" when they skipped it, which is a
+   * legal and common state: nothing about the gate reads this. */
+  intent: string;
   createdAt: string;
 };
 
@@ -165,6 +169,30 @@ export type Retirement = {
   bestStreak: number;
   coachReaction: string;
   createdAt: string;
+  /** The public link's slug, or null while the record is private — which is
+   * the default and the state every record starts in. Only ever sent to the
+   * owner; the public page has no idea an owner exists. */
+  shareSlug: string | null;
+};
+
+/** One closed goal, as a stranger holding the link may read it. Computed
+ * facts only — the verdict, the counts, the phase timeline — and never the
+ * builder's prose: not the reason they closed it, not a proof text, not a
+ * check-in, not their name. Off by default and revocable. */
+export type SharedRecord = {
+  title: string;
+  outcome: "ABANDONED" | "COMPLETED";
+  /** Computed from earned proofs by the server, never self-reported. */
+  readsAs: "ACHIEVED" | "UNVERIFIED" | "INVALIDATED" | "UNTESTED";
+  phaseReached: Phase;
+  acceptedProofs: number;
+  /** The VALIDATION-onward subset — the ones that needed a real person. */
+  contactProofs: number;
+  daysActive: number;
+  bestStreak: number;
+  startedOn: string;
+  closedOn: string;
+  timeline: { toPhase: Phase; on: string }[];
 };
 
 /** Per-phase builder-facing copy, served rather than duplicated here: the
@@ -280,6 +308,32 @@ export type CoachState = {
   /** The room's whole turn budget, sent even when no room is open yet so the
    * meter can be read before the first turn is spent. */
   workshopTurns: number;
+  /** The day they said they'd launch, if they said one. Null until then —
+   * there is no default date, because a date the app picked is not a
+   * commitment anybody made. */
+  launch: LaunchDate | null;
+  /** Whether naming one is available yet. BUILD onward: a launch date on a
+   * goal with no artifact is a wish. */
+  canSetLaunch: boolean;
+  /** launch-checklist.md's ladder, served rather than copied here — the
+   * playbook owns the rungs and a second copy would drift. */
+  ponds: { value: string; label: string }[];
+};
+
+/** A launch date and its slip trail. Every number is the server's arithmetic
+ * over append-only rows: moving the date writes another one, so what the
+ * record holds is "declared the 24th, moved once, currently the 26th" rather
+ * than just the answer. No gate reads any of it — the visible trail is the
+ * whole of the consequence. */
+export type LaunchDate = {
+  date: string;
+  pond: string;
+  pondLabel: string;
+  /** Negative once the day has been. Which refuses nothing. */
+  daysOut: number;
+  /** Moves, not rows: naming one for the first time is not a slip. */
+  moves: number;
+  first: string;
 };
 
 /* --- server shapes ------------------------------------------------------ */
@@ -304,9 +358,11 @@ type ServerGate = {
 type ServerTransition = {
   from_phase: Phase;
   to_phase: Phase;
+  intent?: string;
   created_at: string;
 };
 type ServerRetirement = {
+  share_slug?: string | null;
   id: number;
   goal: number;
   title: string;
@@ -467,11 +523,13 @@ const fromServerRetirement = (r: ServerRetirement): Retirement => ({
   bestStreak: r.best_streak,
   coachReaction: r.coach_reaction,
   createdAt: r.created_at,
+  shareSlug: r.share_slug ?? null,
 });
 
 const fromServerTransition = (t: ServerTransition): PhaseTransition => ({
   fromPhase: t.from_phase,
   toPhase: t.to_phase,
+  intent: t.intent ?? "",
   createdAt: t.created_at,
 });
 
@@ -643,6 +701,16 @@ export async function getState(): Promise<CoachState> {
     lifetime_days?: number;
     tone: CoachState["tone"];
     mode?: CoachState["mode"];
+    launch?: {
+      date: string;
+      pond: string;
+      pond_label: string;
+      days_out: number;
+      moves: number;
+      first: string;
+    } | null;
+    can_set_launch?: boolean;
+    ponds?: { value: string; label: string }[];
     workshop?: ServerWorkshop | null;
     workshop_openers?: string[];
     workshop_turns?: number;
@@ -690,6 +758,18 @@ export async function getState(): Promise<CoachState> {
     workshop: data.workshop ? fromServerWorkshop(data.workshop) : null,
     workshopOpeners: data.workshop_openers ?? [],
     workshopTurns: data.workshop_turns ?? 0,
+    launch: data.launch
+      ? {
+          date: data.launch.date,
+          pond: data.launch.pond,
+          pondLabel: data.launch.pond_label,
+          daysOut: data.launch.days_out,
+          moves: data.launch.moves,
+          first: data.launch.first,
+        }
+      : null,
+    canSetLaunch: data.can_set_launch ?? false,
+    ponds: data.ponds ?? [],
   };
 }
 
@@ -809,10 +889,20 @@ export async function retireGoal(
   };
 }
 
-export async function createGoal(title: string): Promise<Goal> {
+/** `pivotedFrom` is the closed goal this one came out of — "same problem, new
+ * idea". A link and nothing else: the successor starts at IDEA with zero
+ * proofs and the gate is never seeded. The server drops the link if it is not
+ * the builder's own closed goal, rather than refusing the commit: the goal is
+ * what they are committing to and the link is a footnote. */
+export async function createGoal(
+  title: string,
+  pivotedFrom?: number | null
+): Promise<Goal> {
   const data = await request<ServerGoal>("goals/", {
     method: "POST",
-    body: JSON.stringify({ title }),
+    body: JSON.stringify(
+      pivotedFrom ? { title, pivoted_from: pivotedFrom } : { title }
+    ),
   });
   return fromServerGoal(data);
 }
@@ -833,6 +923,101 @@ export async function advanceGoal(
   id: number
 ): Promise<{ advanced: boolean; phase: Phase; detail: string }> {
   return request(`goals/${id}/advance/`, { method: "POST" });
+}
+
+/** One line on what the phase you just unlocked will produce. Never a gate:
+ * skipping it advances the phase exactly as before, and the server refuses only
+ * an empty line, a paragraph, or a phase nothing unlocked (IDEA → 409). */
+export async function setPhaseIntent(
+  id: number,
+  intent: string
+): Promise<PhaseTransition> {
+  const data = await request<ServerTransition>(`goals/${id}/intent/`, {
+    method: "POST",
+    body: JSON.stringify({ intent }),
+  });
+  return fromServerTransition(data);
+}
+
+/** Name the day you'll launch, and the room you'll launch into. Append-only:
+ * this never edits the last answer, it writes another row, so the record keeps
+ * the trail. `today` is sent separately from `date` because the body carries
+ * two of them and only one is the builder's clock. */
+export async function setLaunchDate(
+  id: number,
+  when: string,
+  pond: string
+): Promise<LaunchDate> {
+  const data = await request<{
+    date: string;
+    pond: string;
+    pond_label: string;
+    days_out: number;
+    moves: number;
+    first: string;
+  }>(`goals/${id}/launch/`, {
+    method: "POST",
+    body: JSON.stringify({ date: when, pond, today: localDate() }),
+  });
+  return {
+    date: data.date,
+    pond: data.pond,
+    pondLabel: data.pond_label,
+    daysOut: data.days_out,
+    moves: data.moves,
+    first: data.first,
+  };
+}
+
+/** Read a shared record by its slug. No auth: this is the one endpoint in the
+ * app a signed-out stranger is meant to reach. A missing, revoked or wrong
+ * slug is the same 404 in every case — the difference between "no such record"
+ * and "that one is private" is itself something a stranger could walk. */
+export async function getSharedRecord(slug: string): Promise<SharedRecord> {
+  const data = await request<{
+    title: string;
+    outcome: "ABANDONED" | "COMPLETED";
+    reads_as: SharedRecord["readsAs"];
+    phase_reached: Phase;
+    accepted_proofs: number;
+    contact_proofs: number;
+    days_active: number;
+    best_streak: number;
+    started_on: string;
+    closed_on: string;
+    timeline: { to_phase: Phase; on: string }[];
+  }>(`record/${encodeURIComponent(slug)}/`);
+  return {
+    title: data.title,
+    outcome: data.outcome,
+    readsAs: data.reads_as,
+    phaseReached: data.phase_reached,
+    acceptedProofs: data.accepted_proofs,
+    contactProofs: data.contact_proofs,
+    daysActive: data.days_active,
+    bestStreak: data.best_streak,
+    startedOn: data.started_on,
+    closedOn: data.closed_on,
+    timeline: data.timeline.map((t) => ({ toPhase: t.to_phase, on: t.on })),
+  };
+}
+
+/** Turn the public link on or off. Turning it on after revoking mints a
+ * DIFFERENT slug: a link handed out and regretted has to be able to stop
+ * working, and a switch that resurrects the old URL only ever paused it.
+ *
+ * Two verbs rather than one call carrying a boolean. That was the first shape
+ * and a form-encoded `false` came back as the string "False", which is truthy
+ * — the switch turned the link ON when asked to take it away. */
+export async function shareRecord(
+  retirementId: number,
+  on: boolean
+): Promise<string | null> {
+  const data = await request<{ share_slug: string | null }>(
+    `retirements/${retirementId}/share/`,
+    { method: on ? "POST" : "DELETE" }
+  );
+  return data.share_slug;
 }
 
 export async function declare(text: string): Promise<CheckIn> {

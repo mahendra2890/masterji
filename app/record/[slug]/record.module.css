@@ -1,0 +1,115 @@
+/* The shared record. Its own stylesheet rather than a corner of
+   masterji.module.css, because this is the one page in the product with no
+   account behind it and no app around it: no header, no panes, no controls at
+   all. There is nothing here to press except the link home. */
+
+.page {
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 48px 24px 64px;
+}
+
+.wordmark {
+  margin: 0;
+  font-size: 15px;
+  color: var(--accent);
+}
+
+.title {
+  margin: 18px 0 0;
+  font-size: 34px;
+  font-style: italic;
+  line-height: 1.15;
+}
+
+/* The verdict is the headline under the headline. It is the only thing on this
+   page a reader is likely to have an opinion about before they read the
+   numbers, so it goes first and the numbers back it up. Marigold in every
+   case, including "tested → dead": that reading is not a failure, and drawing
+   it in --bad would be the page disagreeing with its own footnote. */
+.verdict {
+  margin: 22px 0 0;
+  color: var(--accent);
+  font-size: 20px;
+}
+
+.verdictNote {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.figures {
+  list-style: none;
+  margin: 28px 0 0;
+  padding: 20px 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px 28px;
+}
+
+.figures li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.figure {
+  font-size: 22px;
+  font-variant-numeric: tabular-nums;
+}
+
+.figureLabel {
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+/* Dates on the left in one column so the gaps between them are readable as
+   gaps — which is most of what a timeline is for on a page like this. */
+.timeline {
+  list-style: none;
+  margin: 24px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.timeline li {
+  display: flex;
+  gap: 14px;
+  font-size: 14px;
+}
+
+.when {
+  flex: 0 0 96px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.what {
+  color: var(--text);
+}
+
+.footnote {
+  margin: 32px 0 0;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.link {
+  color: var(--accent);
+}
+
+.gone {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.6;
+}
