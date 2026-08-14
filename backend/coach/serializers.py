@@ -143,7 +143,10 @@ class MessageSerializer(serializers.ModelSerializer):
         # said nothing in the phase they are in now" from "this log is empty",
         # which is what decides whether the phase's opening questions are worth
         # offering — see the openers in app/Masterji.tsx.
-        fields = ["id", "role", "content", "phase", "created_at"]
+        # `kind` rides along for the same reason: it is what tells a SYSTEM row
+        # that is a failed turn from one that is the week read back, and the
+        # retry button belongs to only one of them.
+        fields = ["id", "role", "kind", "content", "phase", "created_at"]
         read_only_fields = fields
 
 

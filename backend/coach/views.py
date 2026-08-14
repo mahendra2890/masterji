@@ -36,6 +36,7 @@ from . import (
     storage,
     streaks,
     throttles,
+    weekly,
 )
 from .models import (
     ChangelogEntry,
@@ -637,6 +638,53 @@ def _gate_payload(goal: Goal) -> dict:
     return {**g, "next_phase": g["next_phase"] and str(g["next_phase"])}
 
 
+def _read_the_week_back(goal: Goal, user, today: date) -> None:
+    """Write last week's digest, at most once, on the first visit of a new week.
+
+    The trigger is the builder's own next visit rather than a clock, because
+    there is no clock: `render.yaml` declares one web service and the free plan
+    has no cron (see coach/weekly.py). A builder who does not come back gets no
+    digest, which is right — there is nobody to read it.
+
+    The claim is one atomic UPDATE, and that is the whole of the concurrency
+    story: the dashboard refetches at the end of every turn, so two loads on the
+    same Monday morning is ordinary rather than exotic, and both would otherwise
+    read "not written yet" and write one each.
+
+    Silent on failure by design — nothing about a weekly summary is worth
+    500ing the dashboard for. It writes a Message and touches nothing the gate
+    reads.
+    """
+    covered = weekly.week_start(today) - timedelta(days=weekly.DAYS)
+    # Read before writing, on the busiest authenticated endpoint in the product.
+    # The UPDATE below is correct on its own — it is what makes the claim atomic
+    # — but it is a write statement, and six days out of seven it is guaranteed
+    # to match nothing. The row is already in hand.
+    if goal.last_digest_week is not None and goal.last_digest_week >= covered:
+        return
+    claimed = Goal.objects.filter(
+        Q(last_digest_week__isnull=True) | Q(last_digest_week__lt=covered),
+        pk=goal.pk,
+    ).update(last_digest_week=covered)
+    if not claimed:
+        return
+    summary = weekly.summary(goal, covered)
+    if not summary["filed"]:
+        # Nothing was declared in that week, so there is no week to read back.
+        # A goal committed on Sunday must not be handed a report card on Monday
+        # morning saying it did nothing, and a builder coming back after a month
+        # away must not walk into a wall of empty weeks. The marker has moved
+        # regardless, so this is asked once a week and not on every load.
+        return
+    Message.objects.create(
+        goal=goal,
+        role=Message.Role.SYSTEM,
+        kind=Message.Kind.DIGEST,
+        phase=goal.phase,
+        content=weekly.digest(summary, user.tone),
+    )
+
+
 class StateView(APIView):
     """Everything the dashboard needs in one payload."""
 
@@ -671,6 +719,9 @@ class StateView(APIView):
                 }
             )
         today = _client_day(request)
+        # Before the messages are read, so the digest is in the payload that
+        # triggered it rather than appearing on the next refetch.
+        _read_the_week_back(goal, request.user, today)
         checkin = _latest_checkin(goal, today)
         messages = list(goal.messages.order_by("-created_at")[:HISTORY_LIMIT])[::-1]
         return Response(
@@ -1711,6 +1762,12 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
             # subtractions over rows this turn already read.
             days_in_phase=streaks.days_in_phase(goal, today),
             days_since_complete=streaks.days_since_complete(goal, today),
+            # The same seven days the builder read back on Monday, from the same
+            # function — so the coach and the digest cannot come to different
+            # numbers about the week they are both describing.
+            week=weekly.summary(
+                goal, weekly.week_start(today) - timedelta(days=weekly.DAYS)
+            ),
         )
         # SYSTEM rows are excluded, not mapped: they are the app talking about a
         # turn that failed, and the only role this mapping had for them was

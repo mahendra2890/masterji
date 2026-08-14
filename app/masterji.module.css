@@ -1224,6 +1224,22 @@
   border-radius: 999px;
 }
 
+/* The week read back, on the first morning of a new one. Shares .systemText
+   with the notice above — both are the app's own voice rather than Masterji's,
+   and the muted register is what says so — and shares nothing else, because
+   the notice is one line and this is three or four.
+
+   So: the log's full width instead of a centred 85%, and a 10px corner instead
+   of the pill's 999px, which on a four-line box draws a stadium. Deliberately
+   not marigold: that hue is Masterji objecting (.offPhase, .pushedBack), and
+   this is arithmetic over rows with no opinion in it. */
+.digestMsg {
+  align-self: stretch;
+  padding: 10px 14px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+}
+
 .systemText {
   margin: 0;
   color: var(--muted);
