@@ -21,6 +21,8 @@ from litellm import ModelResponse
 from opentelemetry import trace
 from opentelemetry.trace import Span
 
+from . import spend
+
 tracer = trace.get_tracer(__name__)
 
 # What litellm asks for when a retry is affordable. Unchanged from the value
@@ -33,6 +35,26 @@ _BREAKER_OPEN_KEY = "llm:breaker:open"
 # This request's wall-clock deadline for model calls, or None outside a
 # request. Set by LlmBudgetMiddleware; see clear_budget for the other end.
 _deadline: ContextVar[float | None] = ContextVar("llm_deadline", default=None)
+
+# The request whose turn is paying for the calls on this thread, or None
+# outside one. Set by LlmBudgetMiddleware beside the deadline, and a ContextVar
+# for the same reason: a chat turn's generator is consumed after every
+# middleware has returned, so anything handed in as an argument would have to
+# survive a scope that has already closed.
+#
+# THE REQUEST RATHER THAN A USER ID, and this is the whole of why attribution
+# works at all. Authentication here is `CookieJWTAuthentication`, a DRF
+# authentication class, so it runs inside the view — not in middleware.
+# Django's AuthenticationMiddleware only populates request.user from the
+# SESSION, which the API does not use, so at the moment this middleware runs
+# request.user is AnonymousUser on every API request, signed in or not.
+# Reading the id there would book every row in this ledger to nobody, silently
+# and forever, and the feature would ship green having recorded nothing.
+#
+# So the request is stored and the id is read in _current_actor at the moment
+# the row is written — by which time DRF has authenticated and set the user
+# back onto the underlying HttpRequest.
+_actor_request: ContextVar[object | None] = ContextVar("llm_actor", default=None)
 
 
 class LlmUnavailable(RuntimeError):
@@ -53,6 +75,48 @@ def begin_budget() -> None:
     existed — which is what a management command or a shell should get.
     """
     _deadline.set(time.monotonic() + settings.LLM_REQUEST_BUDGET_S)
+
+
+def set_actor(request: object | None) -> None:
+    """Attribute this thread's model calls to whoever is making this request.
+
+    Called once per request by LlmBudgetMiddleware, before the view has run and
+    therefore before DRF has authenticated anyone — which is exactly why this
+    takes the request rather than an id. See the comment on _actor_request.
+    """
+    _actor_request.set(request)
+
+
+def clear_actor() -> None:
+    """Forget whose request this thread was serving.
+
+    The twin of clear_budget, and there for the same case: a long-lived thread
+    that is not serving a request must not inherit an actor from one that
+    finished hours ago and bill a stranger for the nightly cron.
+    """
+    _actor_request.set(None)
+
+
+def _current_actor() -> int | None:
+    """The signed-in builder's id, resolved now rather than at request start.
+
+    Never raises and never guesses. An unauthenticated request, a request that
+    never reached authentication, and no request at all (the nudge cron, a
+    management command, a shell) all answer None — which the ledger's nullable
+    column exists to hold, because that spend is the operator's own and still
+    counts.
+    """
+    request = _actor_request.get()
+    if request is None:
+        return None
+    user = getattr(request, "user", None)
+    # `is_authenticated` rather than truthiness: AnonymousUser is truthy and
+    # has no pk, so the getattr below would answer None anyway — but only by
+    # accident, and the accident stops being one the day Django changes it.
+    if user is None or not getattr(user, "is_authenticated", False):
+        return None
+    user_id = getattr(user, "id", None)
+    return user_id if isinstance(user_id, int) else None
 
 
 def clear_budget() -> None:
@@ -130,39 +194,69 @@ def _usage_attributes(carrier: object) -> dict[str, int]:
     return found
 
 
-def _note_usage(span: Span, carrier: object) -> None:
-    for key, value in _usage_attributes(carrier).items():
-        span.set_attribute(f"llm.usage.{key}", value)
+class _Call:
+    """One model call in flight — the span it is measured on, and the usage
+    the provider has reported so far.
+
+    The usage is accumulated rather than read at the end because a stream
+    reports it on a final chunk of its own: by the time the response object
+    is exhausted there is nothing left to ask.
+    """
+
+    __slots__ = ("span", "usage")
+
+    def __init__(self, span: Span) -> None:
+        self.span = span
+        self.usage: dict[str, int] = {}
+
+
+def _note_usage(call: _Call, carrier: object) -> None:
+    found = _usage_attributes(carrier)
+    if not found:
+        return
+    call.usage.update(found)
+    for key, value in found.items():
+        call.span.set_attribute(f"llm.usage.{key}", value)
 
 
 @contextmanager
-def _attempt(model: str, *, stream: bool) -> Iterator[Span]:
+def _attempt(model: str, *, stream: bool, kind: str) -> Iterator[_Call]:
     """One model call: refused if the provider is already failing, counted
-    either way, and measured on its own span.
+    either way, measured on its own span and booked to whoever asked for it.
 
     A span per call rather than attributes on the caller's span, because a
     single request can make several calls — a declaration and a verdict, a
     chat turn and the judgement under it. Attributes on the parent would be
     last-write-wins, which is a silent undercount of exactly the number this
-    exists to produce.
+    exists to produce. The ledger row follows the span for the same reason.
     """
     # Both refusals — this one and the spent budget in _spend — are raised
     # before the try below, which is what stops the breaker feeding itself: a
     # call we declined to make is not evidence about the provider, and if it
     # counted, every refusal would extend the cooldown that caused it.
+    #
+    # It is also why the ledger cannot be written here: a refused call reached
+    # no provider and spent nothing, and a row for it would inflate the total.
     if _breaker_is_open():
         raise LlmUnavailable("the provider is failing; not asking again yet")
     span = tracer.start_span("llm.call")
     span.set_attribute("llm.model", model)
     span.set_attribute("llm.stream", stream)
+    call = _Call(span)
     try:
-        yield span
+        yield call
     except Exception:
         _note_failure()
         raise
     else:
         _note_success()
     finally:
+        # In `finally`, so a call that died part-way still books what the
+        # provider had already reported — a stream that failed after its usage
+        # chunk really did cost that money, and dropping it would understate
+        # the bill in exactly the case worth watching. spend.record never
+        # raises, so this cannot turn a model outage into a failed request.
+        spend.record(kind=kind, model=model, usage=call.usage, user_id=_current_actor())
         span.end()
 
 
@@ -178,7 +272,7 @@ def stream_chat(
     """
     timeout, retries = _spend(settings.LLM_TIMEOUT_S)
     calls: dict[int, dict] = {}
-    with _attempt(settings.LLM_MODEL, stream=True) as span:
+    with _attempt(settings.LLM_MODEL, stream=True, kind=spend.KIND_CHAT) as call:
         response = litellm.completion(
             model=settings.LLM_MODEL,
             messages=[{"role": "system", "content": system}, *messages],
@@ -195,7 +289,7 @@ def stream_chat(
             # The usage arrives on a final chunk of its own, which carries no
             # choices at all — reading one here is what would turn accounting
             # into an IndexError in the middle of a builder's sentence.
-            _note_usage(span, chunk)
+            _note_usage(call, chunk)
             if not getattr(chunk, "choices", None):
                 continue
             delta = chunk.choices[0].delta
@@ -248,7 +342,9 @@ def complete_with_image(
     """
     b64 = base64.b64encode(image).decode()
     timeout, retries = _spend(settings.LLM_TIMEOUT_S)
-    with _attempt(settings.LLM_VISION_MODEL, stream=False) as span:
+    with _attempt(
+        settings.LLM_VISION_MODEL, stream=False, kind=spend.KIND_VISION
+    ) as call:
         response = cast(
             ModelResponse,
             litellm.completion(
@@ -272,7 +368,7 @@ def complete_with_image(
                 timeout=timeout,
             ),
         )
-        _note_usage(span, response)
+        _note_usage(call, response)
     content = response.choices[0].message.content
     assert content is not None
     return content.strip()
@@ -285,7 +381,7 @@ def complete(system: str, user_text: str, model: str | None = None) -> str:
     crosses this seam."""
     chosen = model or settings.LLM_MODEL
     timeout, retries = _spend(settings.LLM_TIMEOUT_S)
-    with _attempt(chosen, stream=False) as span:
+    with _attempt(chosen, stream=False, kind=spend.KIND_COMPLETION) as call:
         response = cast(
             ModelResponse,
             litellm.completion(
@@ -298,7 +394,7 @@ def complete(system: str, user_text: str, model: str | None = None) -> str:
                 timeout=timeout,
             ),
         )
-        _note_usage(span, response)
+        _note_usage(call, response)
     content = response.choices[0].message.content
     assert content is not None
     return content.strip()

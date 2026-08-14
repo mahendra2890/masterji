@@ -324,3 +324,39 @@ class AccountErasureTests(APITestCase):
         """The count is a log line, and a log line that says "0 push
         subscriptions" on every deletion is noise."""
         self.assertNotIn("accounts.PushSubscription", erasure.erase(self.alice))
+
+    def test_the_spend_ledger_is_reached_by_the_walk(self):
+        """coach.ModelCall is a SoftDeleteModel with a user FK, so `_descend`
+        finds it through the model graph with nothing written down about it —
+        and this test is the only thing that says so.
+
+        Worth pinning precisely because it is free. The graph walk exists so a
+        model added later cannot be forgotten, and the failure mode it guards
+        against is invisible: the rows simply keep answering queries for an
+        account that asked to be gone.
+
+        Soft is also the right depth here, and it is why this ledger does not
+        follow PushSubscription's hard delete. A row of it is a record of money
+        the operator spent, not a capability held over the builder — and since
+        `erase` overwrites the identity (email, username, password) the spend
+        survives with the person scrubbed off it, which is exactly what a cost
+        ledger should do when somebody leaves.
+        """
+        from coach.models import ModelCall
+
+        mine = ModelCall.objects.create(
+            user=self.alice, kind=ModelCall.Kind.CHAT, model="openai/gpt-5.4-mini",
+            prompt_tokens=10, completion_tokens=2, total_tokens=12,
+        )
+        theirs = ModelCall.objects.create(
+            user=self.bob, kind=ModelCall.Kind.CHAT, model="openai/gpt-5.4-mini",
+            prompt_tokens=7, completion_tokens=1, total_tokens=8,
+        )
+
+        counts = erasure.erase(self.alice)
+
+        self.assertEqual(counts["coach.ModelCall"], 1)
+        self.assertEqual([r.id for r in ModelCall.objects.all()], [theirs.id])
+        # Soft, not gone: the operator's record of what was spent survives in
+        # all_objects, attached to an account whose identity has been erased.
+        self.assertIsNotNone(ModelCall.all_objects.get(id=mine.id).deleted_at)
