@@ -31,7 +31,18 @@ from rest_framework.test import APITestCase
 from rest_framework.throttling import ScopedRateThrottle
 
 from . import admin as coach_admin
-from . import bar, export, gates, guidance, links, prompts, streaks, throttles, views
+from . import (
+    bar,
+    export,
+    gates,
+    guidance,
+    links,
+    prompts,
+    streaks,
+    throttles,
+    views,
+    weekly,
+)
 from .management.commands import check_migration_leaf, load_changelog, loop_report
 from .models import (
     ChangelogEntry,
@@ -6284,3 +6295,138 @@ class GoalBriefTests(CoachTestCase):
         )
         self.assertIn("WHAT THE IDEA IS", prompt)
         self.assertIn("stand in it on Thursday", prompt)
+
+
+class WeeklyDigestTests(CoachTestCase):
+    """The week read back on the first visit of a new week.
+
+    Every number here comes from rows the builder already filed — the digest
+    asks for nothing, which is the property the feature is built on. What is
+    pinned is the window, the once-a-week write, and the two weeks that must
+    not read the same: one where nothing was declared, and one where days were
+    complete and the gate still did not move.
+    """
+
+    # A real Monday and the Sunday that closes its week. Fixed dates are safe
+    # for the pure functions, which take the window as an argument; the view
+    # tests below have to work in dates _client_day will accept, which is
+    # within a day of the server's.
+    MONDAY = date(2026, 8, 10)
+    SUNDAY = date(2026, 8, 16)
+
+    def day(self, goal, on, *, declared=True, proved=True, accepted=False, subject=""):
+        return CheckIn.objects.create(
+            goal=goal,
+            date=on,
+            phase=goal.phase,
+            am_declaration="ship the form" if declared else "",
+            pm_proof_text="shipped it" if proved else "",
+            subject=subject,
+            proof_status=CheckIn.ProofStatus.ACCEPTED
+            if accepted
+            else CheckIn.ProofStatus.NONE,
+        )
+
+    def last_week(self, today=None):
+        """The window the digest covers on a visit made today."""
+        today = today or date.today()
+        return weekly.week_start(today) - timedelta(days=7)
+
+    def test_the_week_is_monday_to_sunday_on_the_builders_own_calendar(self):
+        """`CheckIn.date` is the client's local date and every other timestamp
+        on these rows is server UTC, so the window has to be measured against
+        the dates the builder filed under. Sunday is the day this gets tested:
+        it closes the week it is in and must not be read into the next one,
+        which is where the digest would silently drop a builder's best day."""
+        goal = self.make_goal()
+        self.day(goal, self.SUNDAY)
+        self.assertEqual(weekly.week_start(self.SUNDAY), self.MONDAY)
+        self.assertEqual(weekly.week_start(self.MONDAY), self.MONDAY)
+        self.assertEqual(weekly.summary(goal, self.MONDAY)["days"], 1)
+        self.assertEqual(
+            weekly.summary(goal, self.MONDAY + timedelta(days=7))["days"], 0
+        )
+
+    def test_a_day_counts_only_when_it_was_declared_and_proved(self):
+        """The same rule `streaks.py` counts a run by. A digest that counted
+        declarations would tell a builder who declared seven mornings and
+        proved none that they had a complete week."""
+        goal = self.make_goal()
+        self.day(goal, self.MONDAY)
+        self.day(goal, self.MONDAY + timedelta(days=1), proved=False)
+        self.day(goal, self.MONDAY + timedelta(days=2), declared=False)
+        summary = weekly.summary(goal, self.MONDAY)
+        self.assertEqual(summary["days"], 1)
+        self.assertEqual(summary["filed"], 3)
+
+    def test_three_evenings_about_one_person_is_one_person(self):
+        """The rule `gates.accepted_proofs` already enforces at VALIDATION —
+        "the person already counted cannot be counted again". A digest that
+        counted rows would hand back a bigger number than the gate will, in
+        the week the builder is deciding whether the gate is fair."""
+        goal = self.make_goal(phase=Phase.VALIDATION)
+        for i in range(3):
+            self.day(
+                goal,
+                self.MONDAY + timedelta(days=i),
+                accepted=True,
+                subject="Ravi",
+            )
+        summary = weekly.summary(goal, self.MONDAY)
+        self.assertEqual(summary["accepted"], 3)
+        self.assertEqual(summary["people"], 1)
+
+    def test_the_digest_is_written_once_a_week_not_once_a_load(self):
+        """The trigger is lazy — there is no scheduler on this deployment — so
+        the row itself has to be claimed. The dashboard refetches after every
+        turn, so "first request of a new week" is a race unless the claim is
+        one atomic write."""
+        goal = self.make_goal()
+        self.day(goal, self.last_week())
+        for _ in range(3):
+            self.client.get("/api/coach/state/")
+        digests = goal.messages.filter(role=Message.Role.SYSTEM)
+        self.assertEqual(digests.count(), 1)
+        # The half the client reads: SYSTEM now carries two different things,
+        # and only one of them has a turn worth offering to send again.
+        self.assertEqual(digests.get().kind, Message.Kind.DIGEST)
+        goal.refresh_from_db()
+        self.assertEqual(goal.last_digest_week, self.last_week())
+
+    def test_a_week_of_work_that_moved_the_gate_by_zero_still_reads_back(self):
+        """The builder this feature exists for. Seven honest days that banked
+        nothing is invisible at daily grain and is the whole of what weekly
+        grain is for, so the digest has to state the zero rather than quietly
+        report the days and let the number look like progress."""
+        goal = self.make_goal()
+        for i in range(3):
+            self.day(goal, self.last_week() + timedelta(days=i))
+        self.client.get("/api/coach/state/")
+        digest = goal.messages.get(role=Message.Role.SYSTEM).content
+        self.assertIn("3 of 7 days complete", digest)
+        self.assertIn("nothing accepted", digest)
+
+    def test_a_week_with_nothing_declared_writes_nothing(self):
+        """A goal committed on Sunday must not be handed a report card on
+        Monday saying it did nothing last week, and a builder coming back
+        after a month must not walk into a wall of empty weeks. No rows in the
+        window means there is no week to read back — but the marker still
+        moves, so this is asked once and not on every load."""
+        goal = self.make_goal()
+        self.client.get("/api/coach/state/")
+        self.assertFalse(goal.messages.filter(role=Message.Role.SYSTEM).exists())
+        goal.refresh_from_db()
+        self.assertEqual(goal.last_digest_week, self.last_week())
+
+    def test_last_weeks_facts_reach_the_prompt(self):
+        """The cheaper half of the value: Monday's conversation opens knowing
+        what the week held, rather than the coach reading it off a transcript
+        it has to interpret. Absent by default, like the calendar block — a
+        caller with no week measured gets the prompt it always got."""
+        goal = self.make_goal()
+        self.assertEqual(prompts.week_block(None), "")
+        block = prompts.week_block(
+            {"days": 4, "accepted": 2, "people": 2, "advanced_to": "", "filed": 5}
+        )
+        self.assertIn("4 of 7 days complete", block)
+        self.assertIn("2 accepted", block)

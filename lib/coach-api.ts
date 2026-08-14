@@ -127,6 +127,12 @@ export type ChatMessage = {
    * the model is shown. The log has to draw it as something other than the
    * coach speaking. */
   role: "USER" | "COACH" | "SYSTEM";
+  /** Which kind of app-voice row this is, read only when `role` is SYSTEM.
+   * NOTICE is a turn that didn't land and carries the retry; DIGEST is the
+   * week read back on the first visit of a new one, and must not — the turn
+   * above it is unrelated and could be days old. Defaults to NOTICE for rows
+   * written before the field existed, which were all notices. */
+  kind: "NOTICE" | "DIGEST";
   content: string;
   /** The phase the conversation was in when this was said, stamped server-side
    * and never rewritten. "" only for rows written before the field existed. */
@@ -314,6 +320,7 @@ type ServerCheckIn = {
 type ServerMessage = {
   id: number;
   role: "USER" | "COACH" | "SYSTEM";
+  kind?: "NOTICE" | "DIGEST";
   content: string;
   phase?: Phase | "";
   created_at: string;
@@ -428,6 +435,7 @@ const fromServerTransition = (t: ServerTransition): PhaseTransition => ({
 const fromServerMessage = (m: ServerMessage): ChatMessage => ({
   id: m.id,
   role: m.role,
+  kind: m.kind ?? "NOTICE",
   content: m.content,
   phase: m.phase ?? "",
   createdAt: m.created_at,

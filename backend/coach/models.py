@@ -61,6 +61,18 @@ class Goal(SoftDeleteModel):
     )
     # Proofs only count toward the gate if earned in the current phase.
     phase_entered_at = models.DateTimeField(auto_now_add=True)
+    # The Monday of the most recent week this goal's digest has been CONSIDERED
+    # for (coach/weekly.py), which is not the same as written: a week with no
+    # check-ins in it produces no message and still moves this, so the question
+    # is asked once a week rather than on every dashboard load.
+    #
+    # A stored marker rather than something derived from the messages, because
+    # the trigger is lazy — there is no scheduler on this deployment, so "the
+    # first request of a new week" is whichever request happens to arrive
+    # first, and the dashboard refetches after every turn. Matching on the
+    # digest's own text would make builder-facing copy load-bearing in two
+    # languages and would still race. This claims in one atomic UPDATE.
+    last_digest_week = models.DateField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -315,8 +327,24 @@ class Message(SoftDeleteModel):
         # and fed back to the model as its own words on the next turn.
         SYSTEM = "SYSTEM", "System"
 
+    class Kind(models.TextChoices):
+        """What a SYSTEM row is, for the rows where role alone is not enough.
+
+        SYSTEM meant exactly one thing — "that turn didn't land" — until the
+        weekly digest became the second thing the app says in its own voice,
+        and the two want opposite treatment: a notice carries a "Send it
+        again" button built from the turn directly above it, and hanging that
+        off a Monday-morning summary would offer to resend a sentence from
+        last week. Read only on SYSTEM rows; USER and COACH carry the default
+        and nothing looks at it.
+        """
+
+        NOTICE = "NOTICE", "Notice"
+        DIGEST = "DIGEST", "Digest"
+
     goal = models.ForeignKey(Goal, on_delete=models.CASCADE, related_name="messages")
     role = models.CharField(max_length=8, choices=Role.choices)
+    kind = models.CharField(max_length=8, choices=Kind.choices, default=Kind.NOTICE)
     content = models.TextField()
     # The phase the conversation was in, stamped once. Reading it off the goal
     # instead would report today's phase for a message sent weeks ago.

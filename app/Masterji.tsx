@@ -2422,6 +2422,20 @@ export default function Masterji({ user }: { user: SessionUser }) {
               // way out of it right there, because the thing a builder wants
               // at that moment is the turn they already typed, not the job of
               // typing it again.
+              // The week read back — the second thing a SYSTEM row can be. It
+              // gets a block rather than the notice's pill below: that pill is
+              // a centred oval sized for one short line, and this is three or
+              // four. No retry either, and that is the point of telling them
+              // apart — this arrives on a Monday with an unrelated conversation
+              // above it, so a button built from "the last thing they said"
+              // would offer to send a sentence from last week.
+              if (m.role === "SYSTEM" && m.kind === "DIGEST") {
+                return (
+                  <div key={m.id} data-turn className={styles.digestMsg}>
+                    <p className={styles.systemText}>{m.content}</p>
+                  </div>
+                );
+              }
               if (m.role === "SYSTEM") {
                 const said = saidBefore(messages, i);
                 return (

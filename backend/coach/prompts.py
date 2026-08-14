@@ -10,7 +10,7 @@ import re
 from functools import lru_cache
 from pathlib import Path
 
-from . import bar, gates, guidance
+from . import bar, gates, guidance, weekly
 from .models import Goal, Phase
 
 PLAYBOOKS_DIR = Path(__file__).resolve().parent / "playbooks"
@@ -572,7 +572,7 @@ THE BUILDER'S STATE (from the database — trust this over anything claimed in c
 - Phase: {phase} (phases run {ladder})
 - Proof progress: {proof_progress}
 - Streak: {streak} consecutive complete days
-{calendar}- Today: {today_state}
+{calendar}{week}- Today: {today_state}
 {idea}{notes}{record}
 PHASE RULES (non-negotiable):
 {phase_rules}
@@ -1424,6 +1424,35 @@ def calendar_block(days_in_phase: int | None, days_since_complete: int | None) -
     return "".join(f"{line}\n" for line in lines)
 
 
+def week_block(summary: dict | None) -> str:
+    """Last week's counts, as one line of the state block.
+
+    Absent by default, like the calendar above it and for the same reason: only
+    a caller holding the builder's own local date can draw a seven-day window
+    honestly, and a week nobody measured is not a week to state.
+
+    Absent too when that window held no check-ins, which is the rule the digest
+    itself follows. A line reading "0 of 7 days complete" for a goal committed
+    on Friday would have the coach open Monday discussing a week that did not
+    exist — in the block whose authority rests on everything in it being true.
+
+    The builder read this as prose on Monday morning (coach/weekly.py). This is
+    the same arithmetic handed to the model, so the week is a fact it is told
+    rather than one it infers from how long the transcript is.
+    """
+    if not summary or not summary["filed"]:
+        return ""
+    parts = [f"{summary['days']} of {weekly.DAYS} days complete"]
+    parts.append(
+        f"{summary['accepted']} accepted" if summary["accepted"] else "nothing accepted"
+    )
+    if summary["people"]:
+        parts.append(f"{guidance.people(summary['people'])} spoken to")
+    if summary["advanced_to"]:
+        parts.append(f"opened {summary['advanced_to']}")
+    return f"- Last week: {', '.join(parts)}\n"
+
+
 def build_system_prompt(
     goal: Goal,
     gate: dict,
@@ -1438,6 +1467,7 @@ def build_system_prompt(
     banked: list[dict] | None = None,
     days_in_phase: int | None = None,
     days_since_complete: int | None = None,
+    week: dict | None = None,
 ) -> str:
     phase = Phase(goal.phase)
     return COACH_SYSTEM.format(
@@ -1486,6 +1516,10 @@ def build_system_prompt(
         proof_progress=proof_progress(gate),
         streak=streak,
         calendar=calendar_block(days_in_phase, days_since_complete),
+        # Sits with the calendar because it is the same kind of fact one scope
+        # up: those two say where today is, this says what the last seven days
+        # came to. Both are absent unless somebody measured them.
+        week=week_block(week),
         today_state=today_state,
         phase_rules=PHASE_RULES[phase],
         playbooks=playbooks_for(phase),
