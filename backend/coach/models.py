@@ -7,6 +7,9 @@ Check-ins are the daily declare-AM / prove-PM loop; messages are the chat
 transcript. Tenancy rule: views filter by request.user, so foreign ids 404.
 """
 
+import re
+import secrets
+
 from django.conf import settings
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
@@ -768,6 +771,155 @@ class WorkshopMessage(SoftDeleteModel):
 
     def __str__(self):
         return f"{self.role}: {self.content[:40]}"
+
+
+#: The alphabet a join code is minted from: uppercase letters and digits,
+#: minus the five that get misread off a projector or a phone screen — O and 0,
+#: I and 1 and L. A code is read aloud in a room and typed by forty people, so
+#: the character set is a usability decision before it is a security one.
+JOIN_CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+JOIN_CODE_LENGTH = 8
+
+
+def mint_join_code() -> str:
+    """A fresh code. 31^8 ≈ 8.5e11, which is not the security — the membership
+    check is (see Cohort) — but is enough that guessing is not a strategy.
+
+    A module-level function rather than a classmethod because it is a field
+    default, and Django serialises a default into every migration that touches
+    the column: it has to be importable by name forever.
+    """
+    return "".join(secrets.choice(JOIN_CODE_ALPHABET) for _ in range(JOIN_CODE_LENGTH))
+
+
+class Cohort(SoftDeleteModel):
+    """An E-Cell's forty builders, as a LENS over rows that already exist.
+
+    Nothing here computes anything, counts anything, or can be earned. A cohort
+    holds a name and a code; the numbers on its board are the same
+    `accepted_proofs_total`, `contact_proofs` and streak the product already
+    counts for the builder themselves, read through a membership. `gates.py`
+    does not know this table exists and never will.
+
+    That is the whole competitive argument. NEC and NSRCEL cohorts rank on
+    jury-judged self-reports and pitch milestones, so the loudest deck wins;
+    this board has no field a builder can write on it. What a coordinator sees
+    is what the gate accepted, and there is no version of this table that lets
+    them change it.
+
+    **There is no coordinator in this model.** No role, no owner FK, no create
+    endpoint — a cohort is made by staff in the admin, and the coordinator is a
+    person holding the code and an ordinary membership row, reading the same
+    board as everybody else. It is the strongest available form of "no
+    coordinator can bank or unbank anything": not a permission that is checked,
+    but a capability that was never modelled.
+
+    No owner FK is also what keeps `accounts.erasure` safe. That walks the
+    model graph soft-deleting everything hanging off a user, so a `created_by`
+    here would mean one coordinator deleting their account took the board down
+    for the other thirty-nine.
+    """
+
+    name = models.CharField(max_length=120)
+    # What a builder types to join, and the whole of how joining happens.
+    #
+    # No expiry field, deliberately: a deadline nobody set is a support ticket
+    # in three months. Rotation IS the revocation — writing a new code here
+    # leaves the old string matching nothing, so there is no revoked state to
+    # reason about, and closing a cohort to new joins is rotating to a code
+    # nobody has.
+    #
+    # Rotating NEVER touches members (see CohortMember). A code is an
+    # invitation, not a session; a rotation that ejected forty people would
+    # make the safe operation the dangerous one.
+    #
+    # Unique across soft-deleted rows too — `unique=True` is a database
+    # constraint and does not read `deleted_at` — which is the wanted
+    # behaviour: a retired cohort's code must not come back up in somebody
+    # else's hands.
+    join_code = models.CharField(max_length=32, unique=True, default=mint_join_code)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta(SoftDeleteModel.Meta):
+        ordering = ["name"]
+
+    @staticmethod
+    def normalise(code: str) -> str:
+        """One code, however it was typed.
+
+        `abcd-2345`, `ABCD 2345` and `abcd2345` are the same code: it is read
+        off a slide and typed on a phone, and a join that failed on a space
+        would be indistinguishable from a wrong code. Bounded at the column's
+        width so a megabyte in the `code` field is a miss rather than a query.
+        """
+        return re.sub(r"[\s-]", "", code or "").upper()[:32]
+
+    def __str__(self):
+        return self.name
+
+
+class CohortMember(SoftDeleteModel):
+    """One builder's agreement to be counted where their peers can see it.
+
+    **Joining by code IS the consent, and this row is the whole of it.** A
+    builder who has not joined is invisible to every cohort surface — not
+    listed, not ranked, not counted in an aggregate, not discoverable by code —
+    because every query in `coach/cohorts.py` starts from this table filtered
+    to the requester. It is enforced in the queryset and not in a serializer,
+    for the reason tenancy is enforced in the queryset everywhere else here: a
+    check that lives at the edge of the response is a check somebody adds a
+    second caller around.
+
+    Leaving soft-deletes this row and touches nothing else. `Goal`, `CheckIn`,
+    `PhaseTransition` and `GoalRetirement` do not know a cohort existed, so a
+    builder's own record is identical the day after they leave. That is the
+    inverse of the usual arrangement and it is the point: what they agreed to
+    is being *shown*, and withdrawing it costs them nothing they earned.
+
+    Deleting the account leaves every cohort with no code of its own —
+    `accounts.erasure._descend` walks the model graph soft-deleting every
+    `SoftDeleteModel` that hangs off the user, and this is one. Pinned by a
+    test, because the thing that makes it true is a graph walk somebody could
+    one day replace with a hand-written list.
+    """
+
+    cohort = models.ForeignKey(
+        Cohort, on_delete=models.CASCADE, related_name="members"
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="cohort_memberships",
+    )
+    joined_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta(SoftDeleteModel.Meta):
+        ordering = ["joined_at"]
+        constraints = [
+            # Joining twice is the same membership, not a second row — a
+            # builder who taps the button twice, or pastes the code again next
+            # week, must not appear on the board twice.
+            #
+            # Conditional on the soft-delete predicate like every other
+            # constraint in this file, which also makes leaving and rejoining
+            # work: the tombstone does not occupy the slot.
+            models.UniqueConstraint(
+                fields=["cohort", "user"],
+                condition=models.Q(deleted_at__isnull=True),
+                name="one_membership_per_cohort_per_user",
+            )
+        ]
+        # No `indexes`. Both columns this table is ever queried by are foreign
+        # keys, and Django indexes those already; 0071's lesson is that an
+        # index earns its place on a named query or it is dead weight, and a
+        # partial re-index of an implicitly-indexed column on a table with one
+        # row per builder per cohort is not a query plan anybody would notice.
+        # The aggregation's cost is on `coach_checkin`, and the indexes there
+        # already fit it — see coach/cohorts.py.
+
+    def __str__(self):
+        return f"{self.user_id} in {self.cohort_id}"
 
 
 class ChangelogEntry(SoftDeleteModel):

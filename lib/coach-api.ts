@@ -1116,6 +1116,109 @@ export async function shareRecord(
   return data.share_slug;
 }
 
+/* --- cohorts -------------------------------------------------------------- */
+
+/** A cohort you have joined. There is no way to list cohorts you have not:
+ * joining by code is the consent, and a directory would make the code
+ * pointless. */
+export type Cohort = {
+  id: number;
+  name: string;
+  /** Live memberships. People who left are not in it. */
+  members: number;
+};
+
+/** One builder's line on a cohort board — counts, and nothing they typed.
+ *
+ * No goal title, no brief, no proof text, no email. Every number here was
+ * computed by the server from evidence that cleared a gate, which is the whole
+ * difference between this and a leaderboard of self-reports. */
+export type CohortRow = {
+  /** Their first name, or the username it falls back to. */
+  name: string;
+  /** Shared by ties, and null for a member with no active goal — they have
+   * nothing on the board to be ranked on, and ranking an absence is the board
+   * making a judgement the record does not contain. */
+  rank: number | null;
+  hasGoal: boolean;
+  phase: Phase | null;
+  /** Where that phase sits on the ladder, so the client never has to know the
+   * order of the strings. -1 when there is no goal. */
+  phaseIndex: number;
+  acceptedProofs: number;
+  /** The VALIDATION-onward subset: the ones that needed a real person. This is
+   * the column the board is sorted on. */
+  contactProofs: number;
+  streak: number;
+};
+
+export type CohortBoard = { cohort: Cohort; board: CohortRow[] };
+
+type ServerCohort = { id: number; name: string; members: number };
+type ServerCohortRow = {
+  name: string;
+  rank: number | null;
+  has_goal: boolean;
+  phase: Phase | null;
+  phase_index: number;
+  accepted_proofs: number;
+  contact_proofs: number;
+  streak: number;
+};
+
+const fromServerCohort = (c: ServerCohort): Cohort => ({
+  id: c.id,
+  name: c.name,
+  members: c.members,
+});
+
+const fromServerCohortRow = (r: ServerCohortRow): CohortRow => ({
+  name: r.name,
+  rank: r.rank,
+  hasGoal: r.has_goal,
+  phase: r.phase,
+  phaseIndex: r.phase_index,
+  acceptedProofs: r.accepted_proofs,
+  contactProofs: r.contact_proofs,
+  streak: r.streak,
+});
+
+/** The cohorts this builder has joined. Empty is the normal state. */
+export async function getCohorts(): Promise<Cohort[]> {
+  const data = await request<{ cohorts: ServerCohort[] }>("cohorts/");
+  return (data.cohorts ?? []).map(fromServerCohort);
+}
+
+/** One cohort's board. 404 for a cohort you are not in — identical to one that
+ * does not exist, deliberately, so the endpoint cannot be walked to find out
+ * which cohorts there are. */
+export async function getCohortBoard(id: number): Promise<CohortBoard> {
+  const data = await request<{ cohort: ServerCohort; board: ServerCohortRow[] }>(
+    `cohorts/${id}/`
+  );
+  return {
+    cohort: fromServerCohort(data.cohort),
+    board: (data.board ?? []).map(fromServerCohortRow),
+  };
+}
+
+/** Join by code — the act that agrees to be counted where your cohort can see
+ * it. Idempotent: joining one you are already in returns the same membership.
+ * A wrong code is an ApiError with the server's own sentence in it. */
+export async function joinCohort(code: string): Promise<Cohort> {
+  const data = await request<{ cohort: ServerCohort }>("cohorts/join/", {
+    method: "POST",
+    body: JSON.stringify({ code }),
+  });
+  return fromServerCohort(data.cohort);
+}
+
+/** Leave. Removes the membership row and nothing else — every goal, check-in
+ * and proof is untouched, so the record is identical the day after. */
+export async function leaveCohort(id: number): Promise<void> {
+  await request<void>(`cohorts/${id}/membership/`, { method: "DELETE" });
+}
+
 /** `dueHour` is the hour the builder says tonight's proof will land, and it is
  * always sent — null when they named none, which is how an hour gets taken
  * back. The declaration is one statement including its hour, so the server

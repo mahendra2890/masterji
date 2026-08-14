@@ -27,14 +27,31 @@ def last_complete_date(goal: Goal) -> date | None:
     return max(_complete_dates(goal), default=None)
 
 
-def current_streak(goal: Goal, today: date) -> int:
-    complete = _complete_dates(goal)
+def streak_from(complete: set[date], today: date) -> int:
+    """The walk itself, over a set of complete days somebody else assembled.
+
+    Split out of `current_streak` for exactly one caller: `coach/cohorts.py`
+    reads forty builders' complete days in ONE query and then needs this
+    arithmetic per goal, and calling `current_streak` forty times is the N+1
+    that whole module exists to avoid. What it must not do is own a second copy
+    of the walk — a cohort board that disagreed with the builder's own
+    dashboard about their streak would discredit both, and this product's whole
+    argument is that the record is true.
+
+    So there is one implementation and two ways in. Nothing about the rule
+    moved: today only counts once it is complete, so an in-progress day never
+    shows a broken streak at breakfast.
+    """
     day = today if today in complete else today - timedelta(days=1)
     streak = 0
     while day in complete:
         streak += 1
         day -= timedelta(days=1)
     return streak
+
+
+def current_streak(goal: Goal, today: date) -> int:
+    return streak_from(_complete_dates(goal), today)
 
 
 def best_streak(goal: Goal) -> int:

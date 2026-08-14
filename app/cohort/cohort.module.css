@@ -1,0 +1,315 @@
+/* The cohort board. Its own stylesheet rather than a corner of
+   masterji.module.css, for the reason record.module.css has one: this is a
+   separate route with no app chrome around it — no panes, no composer, no
+   coach. A page you read.
+
+   It is deliberately close to the shared record's typography. Both pages make
+   the same argument to the same kind of reader — here is what somebody
+   actually did, and here is why you can check it — and two different visual
+   languages for one claim would weaken both. */
+
+.page {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 48px 24px 64px;
+}
+
+.wordmark {
+  margin: 0;
+  font-size: 15px;
+  color: var(--accent);
+}
+
+.title {
+  margin: 18px 0 0;
+  font-size: 34px;
+  font-style: italic;
+  line-height: 1.15;
+}
+
+.standfirst {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.quiet {
+  margin: 28px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+/* --- one cohort ---------------------------------------------------------- */
+
+.board {
+  margin: 32px 0 0;
+  padding: 20px 0 0;
+  border-top: 1px solid var(--border);
+}
+
+.boardHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.boardName {
+  margin: 0;
+  font-size: 20px;
+  font-style: italic;
+}
+
+.size {
+  color: var(--muted);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.empty {
+  margin: 14px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.rows {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Grid rather than flex so the numbers line up down the page: the whole point
+   of a board is comparing the same column across forty rows, and ragged
+   columns make that a reading exercise. The three figure columns are fixed and
+   equal, and the name takes what is left.
+
+   88px is measured rather than guessed. At 74px "from real contact" wrapped to
+   two lines while "proofs banked" and "day streak" stayed on one, so the cells
+   were different heights and — centred — the three numbers in a row sat at
+   three different heights. A board whose columns cannot be scanned straight
+   down is the one thing this layout exists to prevent. */
+.row {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) 82px repeat(3, 88px);
+  align-items: center;
+  gap: 10px;
+  padding: 11px 0;
+  border-top: 1px solid var(--border);
+  font-size: 14px;
+}
+
+.row:first-child {
+  border-top: none;
+}
+
+.place {
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+}
+
+.who {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.phase {
+  color: var(--muted);
+  font-size: 11.5px;
+  letter-spacing: 0.04em;
+}
+
+/* Number over label, so a narrow column still reads as one thing. Tabular
+   figures because these are meant to be compared vertically. */
+.figure {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-size: 17px;
+  font-variant-numeric: tabular-nums;
+}
+
+.figureValue {
+  /* Two digits wide even when the number is one, which does nothing on the
+     desktop grid above and is the whole point of the mobile block below: there
+     the label sits beside the number, so a 12-day streak shunted its label one
+     character right of every other label in the row. `ch` on tabular figures is
+     exactly one digit. */
+  min-width: 2ch;
+}
+
+.figureLabel {
+  color: var(--muted);
+  font-size: 10.5px;
+  line-height: 1.25;
+}
+
+/* A member between ideas. Dimmed, never struck through or drawn in --bad:
+   closing an idea that did not survive contact is the product working, and a
+   board that scored it as a failure would contradict everything else here. */
+.idle {
+  color: var(--muted);
+}
+
+.between {
+  grid-column: 3 / -1;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+/* --- the two controls ---------------------------------------------------- */
+
+.leave {
+  margin: 16px 0 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12.5px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.leave:hover {
+  color: var(--text);
+}
+
+.leaveBox {
+  margin: 16px 0 0;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.leaveYes,
+.leaveNo {
+  padding: 5px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.leaveYes {
+  border-color: var(--bad);
+  color: var(--bad);
+}
+
+.join {
+  margin: 40px 0 0;
+  padding: 20px 0 0;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+}
+
+.joinLabel {
+  font-size: 15px;
+  font-style: italic;
+}
+
+.joinNote {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.joinRow {
+  margin: 14px 0 0;
+  display: flex;
+  gap: 10px;
+}
+
+/* Monospace and wide-tracked: a join code is read off a projector and typed
+   character by character, and the two jobs this typeface does here are keeping
+   the letters distinct and making a mistyped one findable. */
+.code {
+  flex: 0 1 190px;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 15px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.joinGo {
+  padding: 9px 18px;
+  border: none;
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: var(--accent-ink);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.joinGo:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.error {
+  margin: 10px 0 0;
+  color: var(--bad);
+  font-size: 13px;
+}
+
+.footnote {
+  margin: 36px 0 0;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.link {
+  color: var(--accent);
+}
+
+/* One column of figures below the name on a phone. The grid above is the right
+   shape for comparing forty rows on a laptop and the wrong one at 360px, where
+   six columns leave nothing legible in any of them. */
+@media (max-width: 560px) {
+  .row {
+    grid-template-columns: 40px minmax(0, 1fr);
+    row-gap: 8px;
+  }
+
+  .phase {
+    grid-column: 2;
+  }
+
+  .figure {
+    grid-column: 2;
+    flex-direction: row;
+    align-items: baseline;
+    gap: 7px;
+    font-size: 15px;
+  }
+
+  .figureLabel {
+    font-size: 12px;
+  }
+
+  .between {
+    grid-column: 2;
+  }
+}

@@ -63,6 +63,20 @@ urlpatterns = [
         views.WorkshopChatView.as_view(),
         name="coach_workshop_chat",
     ),
+    # A cohort is a lens over rows that already exist. Tenancy is by
+    # MEMBERSHIP rather than by owner: every one of these is scoped to cohorts
+    # the requester has joined, in the queryset (coach/cohorts.py). There is
+    # deliberately no route for making, renaming or deleting a cohort — that is
+    # staff work in the admin, so a coordinator's whole capability is holding a
+    # code, and the board itself has no write path of any kind.
+    path("cohorts/", views.CohortsView.as_view(), name="coach_cohorts"),
+    path("cohorts/join/", views.CohortJoinView.as_view(), name="coach_cohort_join"),
+    path("cohorts/<int:pk>/", views.CohortBoardView.as_view(), name="coach_cohort_board"),
+    path(
+        "cohorts/<int:pk>/membership/",
+        views.CohortMembershipView.as_view(),
+        name="coach_cohort_membership",
+    ),
     # Public: no auth, no tenancy — the same list for every reader.
     path("changelog/", views.ChangelogView.as_view(), name="coach_changelog"),
 ]
