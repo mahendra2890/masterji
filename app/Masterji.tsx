@@ -626,6 +626,14 @@ export default function Masterji({ user }: { user: SessionUser }) {
   const [filingNow, setFilingNow] = useState(false);
   // Retiring the current goal: the form, and what Masterji said about it.
   const [retiring, setRetiring] = useState(false);
+  // The retire box itself, and a tick that counts the times Masterji opened it
+  // rather than the builder pressing the link. Only the proposed ones scroll:
+  // somebody who clicked "close this goal" is already looking at the control,
+  // and a page that jumps under a press they just made is answering a question
+  // they did not ask. A counter rather than a boolean so a second proposal in
+  // the same conversation moves the page again.
+  const retireBoxRef = useRef<HTMLDivElement>(null);
+  const [closeProposedAt, setCloseProposedAt] = useState(0);
   // The one line about the phase you are in, and whether its box is open. The
   // box shows itself when the line is empty, which is the state every phase
   // starts in — nothing here nags, and ignoring it is a complete answer.
@@ -750,6 +758,35 @@ export default function Masterji({ user }: { user: SessionUser }) {
   useEffect(() => {
     pinLog(wsLogRef.current, wsStreaming !== null || wsPending !== null);
   }, [state?.workshop?.messages.length, wsStreaming, wsPending]);
+
+  // Put a proposed close on screen. An effect rather than a line in the handler
+  // because the box has to exist before anything can scroll to it, and this
+  // fires on the commit that opened it.
+  //
+  // Waits for the turn to end. The proposal arrives as a tool call MID-STREAM,
+  // and the two pins above run on every `streamingText` change — once per token
+  // — so scrolling from the handler would be moving the card under a sentence
+  // still being written. Gating on `streamingText === null` puts this on the
+  // commit where the turn settles instead, which is also when the reply that
+  // says the box is open has finished saying it.
+  //
+  // No `behavior: "smooth"`, and not as an oversight: it is a silent no-op in
+  // at least one Chromium build that scrolls `instant` on the same element
+  // perfectly (measured — 0px moved, twice, with reduced-motion off), and a
+  // scroll that sometimes does nothing is worse than one that does not animate.
+  // `pinLog` above sets `scrollTop` outright for the same reason.
+  //
+  // Not scrollIntoView's usual hazard here either: the nearest scrollable
+  // ancestor is `.side`, the column the goal card lives in, so this moves that
+  // column and leaves the page alone. On a phone the card sits in a
+  // display:none pane whenever the chat is showing, where it is a harmless
+  // no-op — the builder is reading the reply that says the box is open, and it
+  // is open when they cross over. Which is why the pane is not switched for
+  // them: they asked to get out, not to be moved off the answer.
+  useEffect(() => {
+    if (!closeProposedAt || streamingText !== null) return;
+    retireBoxRef.current?.scrollIntoView({ block: "center" });
+  }, [closeProposedAt, streamingText]);
 
   // The composer is the height of what's in it: one row while it's empty, a
   // row taller for every line typed into it, scrolling once it reaches the cap
@@ -1084,6 +1121,16 @@ export default function Masterji({ user }: { user: SessionUser }) {
         },
         onGate: (gate) =>
           setStreamingText((s) => `${s ?? ""}\n\n${gate.detail}`.trim()),
+        // Masterji asked for the close box, so open it. This is the whole of
+        // what propose_goal_close does: nothing has closed, the goal is still
+        // active, and it stays active until onRetire below POSTs a reason and
+        // an exit the builder wrote and pressed. Unlike onGate this appends
+        // nothing to the transcript — there is no server answer to report, and
+        // his own words already say where he sent them.
+        onCloseProposed: () => {
+          setRetiring(true);
+          setCloseProposedAt((n) => n + 1);
+        },
         // Only when the transcript won't carry it. A turn that died before
         // its first word is saved as this exact sentence server-side (`if
         // broke and not content`), so the banner would put it twice on one
@@ -2439,7 +2486,7 @@ export default function Masterji({ user }: { user: SessionUser }) {
                 </button>
               </>
             ) : (
-              <div className={styles.retireBox}>
+              <div className={styles.retireBox} ref={retireBoxRef}>
                 <p className={styles.retirePrompt}>
                   What happened? One honest sentence — it goes on the record.
                 </p>

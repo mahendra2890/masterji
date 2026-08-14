@@ -341,6 +341,44 @@ the work: "nobody is replying to me" is a builder who wants a coach, not one \
 asking to be released. And it changes THIS TURN and nothing else: nothing \
 banks because a builder wavered, and the gate has not read a word of it."""
 
+# The other half of that turn, and the half the block above cannot supply.
+# WHEN_THEY_DOUBT_THE_IDEA hands the coach the true sentences about closing —
+# free, nothing to earn first, the record survives it — and then names closing
+# as one of the two doors. It was doing that to a model with no way to close
+# anything and no rule against saying it had, so a builder who typed "close"
+# twice got "Done. This goal is closed." on a goal that was still ACTIVE, at
+# 0/1 proofs, with no GoalRetirement row. The app being wrong about somebody's
+# record, in the generous direction, is the one failure this product cannot
+# afford — and it persisted, because COACH rows replay as `assistant` and every
+# later turn opened on the model's own false claim contradicting the state block.
+#
+# Sits beside the phase-advance sentence in COACH_SYSTEM, which is the same
+# rule about the other server-owned act. It adds only the mechanism and takes
+# nothing away from the doors: everything above about closing being free is
+# still true and still his to say.
+#
+# COACH_SYSTEM only. The reopened room (REOPENED_SYSTEM) carries
+# WHEN_THEY_DOUBT_THE_IDEA and is handed no tools at all — telling a model
+# about a function it does not have is how the first half of this bug started.
+CLOSING_IS_THEIRS = """CLOSING IS REAL, AND IT IS NOT YOURS TO DO:
+Keep saying the true things above — closing is free, nothing has to be earned \
+first, and the record survives it. What you do not have is the act. A goal \
+closes only when the builder closes it themselves, on the control on their goal \
+card under the phase bar, and that control asks them for two things you cannot \
+supply: one honest sentence about what happened, which goes on the record, and \
+which way it ended. NEVER say a goal is closed, done, retired or ended. Nothing \
+you say closes anything, and somebody told their goal is finished when nothing \
+was written has been flattered about their own record.
+
+When they say they want out, call the propose_goal_close function. It opens \
+that box on their card and does nothing else — the goal is still running after \
+you call it, and stays running until they write the sentence and press an exit. \
+Then say what you did in one line, that the box is open on their card and what \
+it asks them for, and stop. Only ever when they have asked to get out, in \
+words. Opening a close box on somebody who merely had a bad week is a far \
+louder way of asking whether they still believe in this than any sentence is, \
+and a door you open is a doubt you caused."""
+
 # The state block held counts and no dates, so two builders the coach should
 # never say the same thing to were described to it in identical words: day two
 # of VALIDATION and day twenty-one, last night's builder and the one back after
@@ -671,6 +709,8 @@ PHASE RULES (non-negotiable):
 Phase advancement is decided by the SERVER, never by you. If the builder has \
 clearly earned it and asks to move on, call the propose_phase_advance function; \
 the server verifies proofs and answers. Never claim a phase changed yourself.
+
+{closing_rule}
 
 The daily loop is sacred: every morning one declared task, every evening proof. \
 If today's declaration is missing, ask for it first — once, and then let it go; \
@@ -1232,6 +1272,61 @@ def suggest_proof_tool(phase: Phase) -> dict:
         },
     }
 
+# Its neighbour below can be PERFORMED, and this one cannot. That is a real
+# difference and not squeamishness, so it is written down here: somebody will
+# later read these two side by side and try to "finish" this one.
+#
+# propose_phase_advance proposes and the server then decides and acts, because
+# the server owns the answer — gates.try_advance counts accepted proofs and
+# either moves the goal or refuses, and the builder supplies nothing.
+#
+# propose_goal_close OPENS THE CONTROL. IT DOES NOT CLOSE THE GOAL. Both of the
+# inputs a close needs are the builder's, and neither exists anywhere on the
+# server at the moment this is called: RetireView.post 400s without a reason
+# ("Say what happened. You don't have to be proud of it.") because the reason IS
+# the record, and COMPLETED vs ABANDONED is a button they press themselves on
+# the retire box. A close performed from a chat turn would have to invent both
+# — which is the bug this tool exists to fix, one layer down: the app being
+# generously wrong about somebody's own record. Do not wire RetireView to this.
+#
+# So the whole of its effect is one wire event and setRetiring(true) on the
+# client, and the goal is still ACTIVE when the turn ends.
+#
+# Scoped to a builder who has SAID they want out, not one the model has decided
+# is wavering. WHEN_THEY_DOUBT_THE_IDEA conditions its far quieter move on them
+# raising it, twice over — "a doubt you introduce is a doubt you caused" — and
+# this is the loudest way of raising it there is. The card makes that concrete:
+# the box opens IN PLACE of the two doors, so an unprompted call also takes away
+# "not sure about this one?", the route that exists precisely so reconsidering
+# does not have to be spelled "close this goal".
+PROPOSE_GOAL_CLOSE_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "propose_goal_close",
+        "description": (
+            "Open the close box on the builder's goal card. Call ONLY when the "
+            "builder has said they want out of this goal — never to suggest it "
+            "yourself, and never off a bad week they have not called a bad "
+            "week. This OPENS THE CONTROL and closes nothing: the goal is still "
+            "active after you call it, and stays that way until the builder "
+            "writes what happened and presses an exit themselves. Say the box "
+            "is open and what it asks them for. Never say the goal is closed."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "reason": {
+                    "type": "string",
+                    "description": (
+                        "One line on what they said that asked to get out."
+                    ),
+                }
+            },
+            "required": [],
+        },
+    },
+}
+
 PROPOSE_ADVANCE_TOOL = {
     "type": "function",
     "function": {
@@ -1710,6 +1805,11 @@ def build_system_prompt(
         # turn: that one is doubt about themselves, this one is doubt about the
         # idea, and the wrong answer to both is the day's task.
         doubting_the_idea=WHEN_THEY_DOUBT_THE_IDEA,
+        # Not next to the block it answers, but next to the phase-advance
+        # sentence further down: those two are one rule about two server-owned
+        # acts, and a coach reading "never claim a phase changed" is in exactly
+        # the right frame to be told "and you cannot close one at all".
+        closing_rule=CLOSING_IS_THEIRS,
         # Immediately after both, because it is the same argument a third time:
         # a fact about the person that only earns its place in the prompt if the
         # turn it changes is named. Shipped in the same breath as the two state
