@@ -214,9 +214,11 @@ in his name (**#262**).
 
 Reported so the next review does not spend its budget here.
 
-- **The corpus is genuinely method, not content.** Every file names a source, gives a
-  move that fits in one evening, and ends with the same *"Signals you're hiding"*
-  shape so a builder learns the form once. The examples are the target builder's
+- **The corpus is genuinely method, not content.** Every file gives a move that fits
+  in one evening and ends with the same *"Signals you're hiding"* shape, so a builder
+  learns the form once and reads the fifteenth file faster than the first. Fourteen of
+  the sixteen also name a source; the two that do not are #263. The examples are the
+  target builder's
   actual life rather than translated Valley material: kirana shops writing credit in a
   notebook, ₹210 for ₹90 of food when the mess shuts at 21:30, Instagram resellers
   matching UPI texts against DMs, PYQ-sharing and event-discovery named as campus
@@ -290,10 +292,14 @@ a decision *not* to build something.
   is owed second — was called out as *"the hardest copy in the product to get right
   and it is right"* by the 14 August UI review, and the Hinglish version has to be a
   translation of that sentence rather than an occasion to rewrite it.
-- **Do not give the workshop or the reopened room their own corpus.** Both load
-  `choosing-an-idea.md` and nothing else, and that is correct: they are rooms for
-  choosing, not phases, and a room with its own reading list is a phase wearing a
-  different name.
+- **Do not give the workshop or the reopened room their own corpus.** The workshop
+  loads `choosing-an-idea.md` and nothing else; the reopened room
+  (`prompts.REOPENED_SYSTEM`) loads no playbook at all and is handed no tools. Both
+  are correct: they are rooms for choosing, not phases, and a room with its own
+  reading list is a phase wearing a different name. The reopened room's emptiness is
+  especially deliberate — it carries `WHEN_THEY_DOUBT_THE_IDEA` and the record, and
+  nothing that could be mistaken for a bar on a screen whose whole promise is that
+  nothing in it banks.
 
 ## What a model key would settle, and nothing else can
 
