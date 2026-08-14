@@ -126,13 +126,17 @@ const SLIDES: Slide[] = [
         <div className={styles.onboardPanel}>
           <p className={app.wordmark}>मास्टरजी</p>
           <h2 className={app.onboardTitle}>One goal.</h2>
+          {/* The screen's own words, and only the ones the screen now shows
+              above the box. The rest moved behind a disclosure there, and a
+              mock that still quoted the whole paragraph would be a picture of
+              a screen that no longer exists — the same rule the examples
+              below are kept in sync under. A visitor who does what the
+              landing page asks used to read these 90 words here and again on
+              the real screen a minute later. */}
           <p className={app.onboardSub}>
-            Masterji coaches one thing at a time. Pick the problem you&apos;ll
-            test first — not the idea you&apos;ll finish — then it&apos;s one task
-            each morning and proof of it each evening, about two minutes a day.
-            The first thing he asks for is one evening at your desk. You can close
-            it whenever you like, and an idea that dies in front of real people
-            reads as tested on your record — most first ones should.
+            Pick the problem you&apos;ll test first — not the idea you&apos;ll
+            finish. Then it&apos;s one task each morning and proof of it each
+            evening, about two minutes a day.
           </p>
           <Mark n={1}>
             <div className={app.onboardForm}>
