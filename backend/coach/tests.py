@@ -4537,6 +4537,360 @@ class TractionTests(CoachTestCase):
         self.assertEqual(gates.reads_as(goal), "INVALIDATED")
 
 
+class TheOneNumberTests(CoachTestCase):
+    """The one number a builder watches at TRACTION, and everything it is not.
+
+    launch-checklist.md has commanded "One metric. Pick the single number that
+    means 'someone got the value'... and watch only that" for as long as the
+    corpus has existed, and it was a sentence the server had never seen. It is at
+    TRACTION rather than at LAUNCH — where the playbook teaching it is wired —
+    because LAUNCH has finish arithmetic and TRACTION is the phase with none, so
+    TRACTION is the one whose last mile has no number in it at all.
+
+    Every test here is either about the arithmetic being honest or about the
+    product declining to count the result. The load-bearing one is
+    test_a_series_of_numbers_moves_no_gate: the whole safety of putting a flat
+    number at the terminal phase rests on nothing reading it, and the way that
+    stops being true is a later change that finds this field useful.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.goal = self.make_goal(phase=Phase.TRACTION)
+
+    def name_metric(self, name="paid deposits", goal=None):
+        return self.client.post(
+            f"/api/coach/goals/{(goal or self.goal).id}/metric/", {"name": name}
+        )
+
+    def read(self, value, day=None, text="a stranger came back"):
+        """One whole day: declare it, then file the evening with a number on it.
+
+        Both halves, because the number rides the daily loop rather than having an
+        endpoint of its own — and the evening is the end of the day a builder
+        actually knows the number.
+        """
+        when = (day or date.today()).isoformat()
+        self.client.post(
+            "/api/coach/checkins/declare/", {"text": text, "date": when}
+        )
+        return self.client.post(
+            "/api/coach/checkins/prove/",
+            {"text": "notes from it", "date": when, "metric_value": value},
+        )
+
+    def readings(self, n: int, label="paid deposits"):
+        """n days of readings, one per date, oldest last — written straight to the
+        rows because the endpoints cannot backdate this far (see _parse_date)."""
+        CheckIn.objects.bulk_create(
+            CheckIn(
+                goal=self.goal,
+                date=date.today() - timedelta(days=i),
+                phase=self.goal.phase,
+                am_declaration=f"day {i}",
+                metric_value=i,
+                metric_label=label,
+            )
+            for i in range(n)
+        )
+
+    # --- the part that must never move ------------------------------------
+
+    def test_a_series_of_numbers_moves_no_gate(self):
+        """A goal with readings and no proofs reads exactly as it does with
+        neither. This is the reason a flat number is safe at the phase with no
+        finish arithmetic, and it is stated as an equality rather than as a spot
+        check so that a later change which teaches gates.py about this field has
+        to come through here to do it."""
+        bare = gates.gate_status(self.make_goal(user=self.bob, phase=Phase.TRACTION))
+        self.name_metric()
+        for i, value in enumerate([3, 4, 12]):
+            self.read(value, day=date.today() - timedelta(days=i))
+        self.assertEqual(gates.gate_status(self.goal), bare)
+        self.assertEqual(gates.accepted_proofs(self.goal), 0)
+        self.assertEqual(gates.accepted_proofs_total(self.goal), 0)
+        # A dozen deposits is not the finish line, and the win button is what
+        # would say it was.
+        self.assertFalse(gates.at_finish_line(self.goal))
+        # And it buys no exit, because there is no exit and there must not be one.
+        self.assertFalse(gates.try_advance(self.goal)[0])
+
+    def test_traction_still_has_no_proofs_required_entry(self):
+        """at_finish_line's comment explains why that absence has to stay: an
+        entry would give gate_status a next_phase to look up past the end of
+        PHASE_ORDER and 500 the dashboard for the builders who got furthest.
+        Naming a metric is not a reason to give it one."""
+        self.name_metric()
+        self.read(5)
+        self.assertNotIn(Phase.TRACTION, gates.PROOFS_REQUIRED)
+
+    def test_a_number_that_falls_costs_nothing(self):
+        """The case this exists for. A metric going backwards is the honest thing
+        it is there to show, so it must cost no proof, no streak and no phase."""
+        self.name_metric()
+        self.read(9, day=date.today() - timedelta(days=1))
+        self.read(2)
+        self.accept_proofs(self.goal, 1)
+        self.assertTrue(gates.at_finish_line(self.goal))
+        self.assertEqual(gates.reads_as(self.goal, "COMPLETED"), "ACHIEVED")
+
+    # --- where it can be named --------------------------------------------
+
+    def test_the_last_rung_is_the_only_one(self):
+        for phase in (Phase.IDEA, Phase.VALIDATION, Phase.BUILD, Phase.LAUNCH):
+            goal = self.make_goal(user=self.bob, phase=phase)
+            self.client.force_authenticate(self.bob)
+            response = self.name_metric(goal=goal)
+            self.assertEqual(response.status_code, 409, phase)
+            goal.refresh_from_db()
+            self.assertEqual(goal.metric_name, "")
+            goal.delete()
+
+    def test_a_builder_already_standing_in_traction_can_name_one(self):
+        """The one mechanism from the issue body that does not survive the move
+        from LAUNCH unchanged. TRACTION is terminal, so "entering the phase" is
+        the last transition the ladder has and a builder who arrived before this
+        shipped will never make another one — an invitation that fired on the
+        advance would be invisible to exactly the builders who got furthest. So
+        the offer is keyed to the PHASE, which a dashboard load can answer on any
+        morning, including the first one after a deploy."""
+        # No PhaseTransition row at all: this goal has never advanced anywhere.
+        self.assertFalse(self.goal.transitions.exists())
+        self.assertTrue(self.client.get("/api/coach/state/").json()["can_set_metric"])
+        self.assertEqual(self.name_metric().status_code, 200)
+
+    def test_naming_is_offered_nowhere_else(self):
+        goal = self.make_goal(user=self.bob, phase=Phase.LAUNCH)
+        self.client.force_authenticate(self.bob)
+        body = self.client.get("/api/coach/state/").json()
+        self.assertFalse(body["can_set_metric"])
+        # And no placeholder metric to go with it: there is no default number,
+        # because a number the app picked is not one anybody decided to watch.
+        self.assertIsNone(body["metric"])
+        self.assertEqual(goal.metric_name, "")
+
+    def test_a_sentence_and_an_empty_answer_are_both_refused(self):
+        self.assertEqual(self.name_metric("   ").status_code, 400)
+        self.assertEqual(self.name_metric("x" * 61).status_code, 400)
+        self.goal.refresh_from_db()
+        self.assertEqual(self.goal.metric_name, "")
+
+    def test_the_metric_is_the_builders_own(self):
+        self.client.force_authenticate(self.bob)
+        self.assertEqual(self.name_metric().status_code, 404)
+
+    # --- the recorded slip -------------------------------------------------
+
+    def test_a_rename_does_not_relabel_what_was_already_counted(self):
+        """The recorded slip, and the reason the name is stamped on the reading
+        instead of read off the goal. Three evenings that counted deposits must
+        not become three evenings of signups because the builder changed their
+        mind on Friday — that is the record disagreeing with itself in the one
+        direction nothing would detect."""
+        self.name_metric("paid deposits")
+        self.read(3, day=date.today() - timedelta(days=1))
+        self.name_metric("signups")
+        self.read(40)
+
+        series = _state_metric(self.client)["series"]
+        self.assertEqual(
+            [(r["value"], r["label"]) for r in series],
+            [(3, "paid deposits"), (40, "signups")],
+        )
+        # Stated on the record, and counted where it cost something: between two
+        # readings, never as "how many names the field has held".
+        self.assertEqual(_state_metric(self.client)["swaps"], 1)
+
+    def test_a_rename_before_anything_is_counted_leaves_no_mark(self):
+        """The other half of the same rule. Renaming with nothing on the record is
+        a builder fixing their own wording, not a scoreboard being swapped, and
+        recording a slip for it would put something on the record that never
+        happened — the same call LaunchDateView makes about a re-declared date."""
+        self.name_metric("deposits")
+        self.name_metric("paid deposits")
+        self.read(3)
+        metric = _state_metric(self.client)
+        self.assertEqual(metric["swaps"], 0)
+        self.assertEqual([r["label"] for r in metric["series"]], ["paid deposits"])
+
+    def test_the_series_runs_oldest_first_and_says_what_it_dropped(self):
+        self.name_metric()
+        # Written through the ORM rather than the loop: `_parse_date` bounds a
+        # check-in to within a day of the server's date — an unbounded loop date
+        # lets a builder mint a week of backdated proofs — so a month of readings
+        # is not something the endpoints can be asked for.
+        self.readings(views.METRIC_SERIES + 3)
+        metric = _state_metric(self.client)
+        self.assertEqual(len(metric["series"]), views.METRIC_SERIES)
+        self.assertEqual(metric["held"], views.METRIC_SERIES + 3)
+        # Newest kept, oldest dropped — and reading left to right is reading
+        # forward in time, which is the only order a series means anything in.
+        dates = [r["date"] for r in metric["series"]]
+        self.assertEqual(dates, sorted(dates))
+        self.assertEqual(dates[-1], date.today().isoformat())
+
+    # --- what the loop will and won't record -------------------------------
+
+    def test_zero_is_a_reading_and_not_a_missing_one(self):
+        """The evening the number did not move is the one the coach most needs.
+        A default of 0 would make every untouched row in the product claim it,
+        which is why the column is nullable rather than defaulted."""
+        self.name_metric()
+        self.read(0)
+        self.assertEqual([r["value"] for r in _state_metric(self.client)["series"]], [0])
+
+    def test_a_number_never_costs_the_builder_their_day(self):
+        """Ignored rather than refused, in every case it cannot be recorded: a
+        stale client sending one at LAUNCH, a metric nobody has named yet, a
+        typo, a negative. The daily loop is the last thing in this product that
+        may be held hostage by a corroborating detail — the same call _client_day
+        makes about a garbled date and the image path makes about a dead bucket.
+        The response carries the row either way, so nothing is reported as saved
+        that was not.
+        """
+        self.name_metric()
+        for value in ("five", -3, ""):
+            day = date.today()
+            CheckIn.objects.filter(goal=self.goal, date=day).delete()
+            body = self.read(value, day=day).json()["checkin"]
+            self.assertEqual(body["pm_proof_text"], "notes from it", value)
+            self.assertIsNone(body["metric_value"], value)
+            self.assertEqual(body["metric_label"], "", value)
+
+    def test_a_number_with_no_metric_named_is_dropped_and_the_proof_lands(self):
+        body = self.read(7).json()["checkin"]
+        self.assertEqual(body["pm_proof_text"], "notes from it")
+        self.assertIsNone(body["metric_value"])
+        self.assertIsNone(_state_metric(self.client))
+
+    def test_the_morning_can_carry_it_too(self):
+        """DeclareView takes the value as well, which is what makes a reading
+        possible on a day whose proof is about something else — without a second
+        endpoint that would be a fifth thing to have filed."""
+        self.name_metric()
+        body = self.client.post(
+            "/api/coach/checkins/declare/",
+            {"text": "ask the one who came back", "date": date.today().isoformat(),
+             "metric_value": 6},
+        ).json()
+        self.assertEqual(body["metric_value"], 6)
+        self.assertEqual(body["metric_label"], "paid deposits")
+
+    def test_rewording_the_task_does_not_erase_the_day_s_number(self):
+        """Declaring clears the judgement fields, because a verdict on wording
+        the builder has since changed is worse than no verdict. A count of
+        returns is not a verdict about the task, and a re-worded task does not
+        un-happen it."""
+        self.name_metric()
+        when = date.today().isoformat()
+        self.client.post(
+            "/api/coach/checkins/declare/",
+            {"text": "first go", "date": when, "metric_value": 4},
+        )
+        body = self.client.post(
+            "/api/coach/checkins/declare/", {"text": "sharper wording", "date": when}
+        ).json()
+        self.assertEqual(body["am_declaration"], "sharper wording")
+        self.assertEqual(body["metric_value"], 4)
+
+    # --- what the coach is handed ------------------------------------------
+
+    def test_the_coach_gets_the_last_two_and_is_told_not_to_wield_them(self):
+        text = prompts.metric_line(
+            {
+                "name": "paid deposits",
+                "series": [
+                    {"date": "2026-08-11", "value": 1, "label": "paid deposits"},
+                    {"date": "2026-08-12", "value": 3, "label": "paid deposits"},
+                    {"date": "2026-08-14", "value": 5, "label": "paid deposits"},
+                ],
+                "held": 3,
+                "swaps": 0,
+            }
+        )
+        self.assertIn("paid deposits", text)
+        self.assertIn("3 on 2026-08-12 → 5 on 2026-08-14", text)
+        self.assertIn("up 2", text)
+        # The last TWO, not the series: a prompt block that grows by a line an
+        # evening is a transcript pretending to be a fact.
+        self.assertNotIn("2026-08-11", text)
+        self.assertIn("no gate reads it", text)
+        # And absent entirely when they never named one — no default metric, and
+        # no line in the state block about a thing that does not exist.
+        self.assertEqual(prompts.metric_line(None), "")
+
+    def test_the_coach_is_not_handed_a_subtraction_across_a_rename(self):
+        """Two readings under two names are two different measurements. Saying
+        "40, up 37" would be the state block — introduced with "trust this over
+        anything claimed in chat" — inventing growth out of a swap."""
+        text = prompts.metric_line(
+            {
+                "name": "signups",
+                "series": [
+                    {"date": "2026-08-12", "value": 3, "label": "paid deposits"},
+                    {"date": "2026-08-14", "value": 40, "label": "signups"},
+                ],
+                "held": 2,
+                "swaps": 1,
+            }
+        )
+        self.assertIn("do not subtract", text)
+        self.assertNotIn("up 37", text)
+        self.assertIn("changed what they watch 1 time", text)
+
+    def test_the_state_block_carries_it_and_the_bar_still_does_not(self):
+        self.name_metric()
+        self.read(3, day=date.today() - timedelta(days=1))
+        self.read(5)
+        # The name was written by the endpoint, so the instance this test has been
+        # holding since setUp does not know about it.
+        self.goal.refresh_from_db()
+        system = prompts.build_system_prompt(
+            self.goal,
+            gates.gate_status(self.goal),
+            0,
+            "nothing yet",
+            "ENGLISH",
+            metric=views._metric_payload(self.goal),
+        )
+        self.assertIn('Watching: "paid deposits"', system)
+        self.assertIn("→ 5", system)
+        # The number sits in the state list and the bar is untouched underneath
+        # it: what clears TRACTION is still a person who came back or a payment,
+        # and a number the builder typed is not evidence of either.
+        self.assertIn(guidance.PROOF_HINT[Phase.TRACTION], system)
+
+    def test_a_named_metric_with_no_reading_says_so(self):
+        """A fact about the builder, not about the app's own form: they chose a
+        number and have not read it yet, which is a real state on the first
+        morning and must not be reported as a reading of nothing."""
+        self.name_metric()
+        text = prompts.metric_line(_state_metric(self.client))
+        self.assertIn("no reading on the record yet", text)
+        self.assertIn("Nothing counts it", text)
+
+    def test_the_playbook_line_is_still_at_launch_and_traction_teaches_returns(self):
+        """The call this feature had to make: the sentence the metric comes from
+        is wired to LAUNCH while the mechanism lands one rung up. It STAYS at
+        LAUNCH — "watch one number" is a launch-week discipline sitting in a list
+        with "reply to everyone within the hour" — and moving it into
+        coming-back.md would put it inside a document whose thesis is that the
+        only number here is a person's name. The coach carries it forward; the
+        corpus keeps one copy of each rule."""
+        launch = prompts.playbooks_for(Phase.LAUNCH)
+        traction = prompts.playbooks_for(Phase.TRACTION)
+        self.assertIn("One metric.", launch)
+        self.assertNotIn("One metric.", traction)
+        # And what TRACTION's own corpus says instead, which is why the server
+        # records whatever number they chose and refuses none of them: the
+        # judgement about whether it is the RIGHT one lives here, once.
+        self.assertIn("Every other number lies to you at this size", traction)
+
+
+def _state_metric(client) -> dict | None:
+    return client.get("/api/coach/state/").json()["metric"]
+
+
 class ProofLabelsTests(CoachTestCase):
     """Where the two labels come from, on both paths a proof can be accepted.
 

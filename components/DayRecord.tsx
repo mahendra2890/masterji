@@ -75,6 +75,27 @@ export default function DayRecord({
         </p>
       )}
 
+      {/* This day's reading of the one number, labelled with what the number was
+          CALLED that day rather than what it is called now. A day panel is opened
+          months later, and after a rename the goal's current name would put a
+          count of deposits under the word "signups".
+
+          `!= null` and not a truthy test: a reading of 0 is the evening the
+          number did not move, which is the one a builder most needs to see. */}
+      {c.metricValue != null && (
+        <p className={styles.dayLine}>
+          {/* A fixed word in the label column and the metric's own name in the
+              body. The column is 62px of uppercase furniture sized for
+              "Declared" and "Masterji"; a builder-supplied phrase of up to sixty
+              characters belongs on the side that can wrap. */}
+          <span className={styles.dayWho}>Number</span>
+          <span className={styles.dayBody}>
+            {c.metricLabel ? `${c.metricLabel}: ` : ""}
+            {c.metricValue}
+          </span>
+        </p>
+      )}
+
       {c.proofUrl && (
         <p className={styles.dayLine}>
           <span className={styles.dayWho}>Link</span>

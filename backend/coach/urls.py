@@ -29,6 +29,8 @@ urlpatterns = [
         views.PhaseIntentView.as_view(),
         name="coach_phase_intent",
     ),
+    # The one number they watch, at TRACTION. Not a gate — see MetricView.
+    path("goals/<int:pk>/metric/", views.MetricView.as_view(), name="coach_metric"),
     path("goals/<int:pk>/retire/", views.RetireView.as_view(), name="coach_retire"),
     path("goals/<int:pk>/complete/", views.CompleteView.as_view(), name="coach_complete"),
     path("checkins/declare/", views.DeclareView.as_view(), name="coach_declare"),

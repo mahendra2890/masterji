@@ -114,6 +114,32 @@ class Goal(SoftDeleteModel):
         on_delete=models.SET_NULL,
         related_name="successors",
     )
+    # The ONE number the builder is watching, in their own words — "paid
+    # deposits", "orders through the form". Blank until they name one, which is
+    # most of the ladder: this is asked for at TRACTION and nowhere else.
+    #
+    # launch-checklist.md has commanded "One metric. Pick the single number that
+    # means 'someone got the value' (payments, completed actions — not visits)
+    # and watch only that" since the corpus existed, and it was a sentence the
+    # server had never seen. TRACTION is where the number belongs rather than
+    # LAUNCH: it is the phase with no PROOFS_REQUIRED entry (gates.at_finish_line
+    # explains why that absence has to stay), so it is the phase whose last mile
+    # has no arithmetic in it — and bar.BAR[TRACTION] already asks for exactly
+    # this shape of thing once (`returned`, `paid`: "how much in ₹", "what they
+    # did the second time"). A series here is that bar kept over time, not a new
+    # thing to have declared.
+    #
+    # NEVER A GATE. gates.py does not read this field, PROOFS_REQUIRED gains no
+    # TRACTION entry, and a flat number refuses nothing — same terms as the
+    # launch date. It is voice and record: the coach is handed the last two
+    # values as facts, and the record renders the series.
+    #
+    # Set once and editable, and the recorded slip that makes editing honest is
+    # NOT stored here — see CheckIn.metric_label. A rename with nothing counted
+    # under the old name is a builder fixing their own wording; a rename after
+    # three days of numbers is the vanity swap the playbook's "watch only that"
+    # is aimed at, and the series is where the difference shows.
+    metric_name = models.CharField(max_length=60, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -299,6 +325,40 @@ class CheckIn(SoftDeleteModel):
         max_length=12, choices=ProofStatus.choices, default=ProofStatus.NONE
     )
     coach_reaction = models.TextField(blank=True)
+    # Today's reading of the one number the builder chose to watch
+    # (Goal.metric_name), and the name it was read under. TRACTION only, and
+    # NULL on almost every row in the table — most days of most goals were never
+    # asked for a number.
+    #
+    # NULL is the only "no value" there is, which is why this is nullable rather
+    # than defaulted: zero is a real and important reading — the day the metric
+    # did not move is the day the coach most needs to see — and a default of 0
+    # would make every untouched row in the product claim it.
+    #
+    # Nothing reads this that can refuse anything. gates.py has never heard of
+    # it, the judge is not shown it, and a day with a number and no proof banks
+    # nothing while a day with a proof and no number banks everything it always
+    # did.
+    metric_value = models.IntegerField(null=True, blank=True)
+    # The metric's name AS IT STOOD when this value was recorded, stamped beside
+    # it and never rewritten — the same discipline as `phase` above, and for a
+    # closely related reason.
+    #
+    # This is the recorded slip. Goal.metric_name is one field, so a rename would
+    # otherwise re-label every value already on the record: three evenings that
+    # counted deposits would silently become three evenings of signups, and the
+    # coach would be handed "signups: 3 → 5" as a fact about days nobody ever
+    # counted signups on. The record being trustworthy because the server wrote
+    # it is the whole product, and that is the one direction nothing would
+    # detect.
+    #
+    # With the name on the row the trail needs no second table and no timestamp
+    # comparison — which matters, because a name row would carry server UTC and
+    # these values carry the CLIENT's date, and `phase` above documents what
+    # happens when those two are asked to agree. A swap shows up as what it is:
+    # the series says "deposits 3, 4, 5" and then "signups 40", and a rename
+    # nothing was ever counted under leaves no mark, because nothing slipped.
+    metric_label = models.CharField(max_length=60, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

@@ -1931,6 +1931,106 @@
   margin-bottom: 0;
 }
 
+/* Tonight's reading of the one number, on the evening form. A labelled field
+   rather than a bare box with a placeholder: the label is the metric's own name,
+   which is the only thing that makes "5" mean anything, and a placeholder
+   disappears the moment somebody types.
+
+   The name wraps and the field does not shrink past legibility — a metric can be
+   sixty characters and the sidebar is 300px on a laptop. */
+.metricAsk {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.metricAsk > span {
+  flex: 1 1 120px;
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+
+.metricAsk .input {
+  flex: 0 1 110px;
+  margin-bottom: 0;
+}
+
+/* The series, at the top of the record card. Quiet furniture: it is a record the
+   builder kept, not a counter the app is holding them to, so nothing here gets a
+   meter, a ring or an accent — the same restraint .phaseIntent is written with,
+   and for the same reason. Nothing in this block is a gate and it must not learn
+   to look like one. */
+.metricSeries {
+  margin: 0 0 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.metricSeriesLabel {
+  margin: 0 0 6px;
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  overflow-wrap: break-word;
+}
+
+/* What the card holds next to what the record does. Same honesty as the "Show
+   all N" button underneath: a list that quietly hands back fewer readings than
+   exist is the card describing itself as the record. */
+.metricSeriesMore {
+  letter-spacing: 0.04em;
+  text-transform: none;
+}
+
+/* Wraps rather than scrolling. Four readings fit a line and thirty do not, and a
+   horizontal scroller in a sidebar hides the newest reading — which is the one
+   the builder opened the card for. */
+.metricPoints {
+  display: flex;
+  flex-wrap: wrap;
+  /* Wide between readings, tight inside one, so the eye groups a value with its
+     own date rather than with the next reading's. The brackets on a renamed
+     reading do the same job in the text, because a gap does not survive a wrap. */
+  gap: 4px 20px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.metricPoints li {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  font-size: 12.5px;
+}
+
+.metricPointValue {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.metricPointDay {
+  color: var(--muted);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+/* Only rendered on a reading taken under a different name — the seam in a series
+   whose builder changed what they were counting. Stated, never softened: it is
+   the same trail the launch date's move count is, and it is the whole of what
+   makes renaming the metric honest rather than silent. */
+.metricPointWas {
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  overflow-wrap: break-word;
+}
+
 /* What this builder said this phase would produce, under the hint that says
    the same thing to everybody. Quiet, and quieter than the hint above it: it
    is a note they left themselves, not an instruction the app is giving back.

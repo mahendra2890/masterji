@@ -289,7 +289,7 @@ const SLIDES: Slide[] = [
         and it&apos;s the next thing he unlocks.
       </>,
       <>
-        Two things on that card are yours rather than earned. When a phase
+        Three things on that card are yours rather than earned. When a phase
         unlocks you can leave <strong>one line on what it will produce</strong>,
         and he reads it from then on — so he can tell work that&apos;s going
         where you said from work that has wandered. From BUILD you can also{" "}
@@ -298,6 +298,16 @@ const SLIDES: Slide[] = [
         nothing is refused, no streak breaks and no proof is lost — the record
         just says you moved it, which is the only thing that makes naming it
         mean anything.
+      </>,
+      <>
+        The third arrives at the end. In TRACTION you name{" "}
+        <strong>the one number that means somebody got the value</strong> —
+        payments, people coming back, not visits — and log it on the evenings you
+        read it. He gets the last two and can ask about the direction; the record
+        keeps the whole line. No gate reads it either: a number that falls, or
+        sits flat for a week, refuses nothing. Change what you watch and the
+        record says so, beside the readings you took under the old name — a
+        scoreboard you can quietly swap is not one.
       </>,
     ],
     takeaway: (

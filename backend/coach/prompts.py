@@ -714,7 +714,7 @@ THE BUILDER'S STATE (from the database — trust this over anything claimed in c
 - Phase: {phase} (phases run {ladder})
 - Proof progress: {proof_progress}
 - Streak: {streak} consecutive complete days
-{launch}
+{launch}{metric}
 {calendar}{week}- Today: {today_state}
 {intent}{idea}{notes}{record}
 PHASE RULES (non-negotiable):
@@ -1569,6 +1569,85 @@ def launch_line(launch: dict | None) -> str:
     )
 
 
+def metric_line(metric: dict | None) -> str:
+    """The one number the builder chose to watch, as one line of the state block.
+
+    A state line rather than a block, and next to the launch date, because it is
+    the same kind of thing: a number about where this goal is that the builder put
+    there themselves. Everything in it is arithmetic over check-in rows — the last
+    two readings, the subtraction between them, and how many times they changed
+    what they were counting — so the coach can ask about the number without ever
+    having been handed an opinion about whether it is a good one.
+
+    THE LAST TWO READINGS, not the series. The whole series is on the record where
+    the builder can read it; what a coaching turn needs is where it is and which
+    way it moved, and a prompt block that grows by one line an evening is a
+    transcript pretending to be a fact.
+
+    Says nothing about whether the metric is the RIGHT one, deliberately. That
+    judgement is already in the corpus this phase loads — coming-back.md's "the
+    only number in this phase is a person's name. Every other number lies to you
+    at this size" — and a second copy of it here would be a rule in two places,
+    which is how a rule drifts. The division is the point: the server records
+    whatever they chose and refuses nothing, and the playbook is where the coach
+    gets grounds to tell them "signups" is not it.
+
+    A rename is stated and never editorialised, the same way a slipped launch date
+    is. Two readings under two names are two different measurements, so the line
+    says so rather than subtracting them — that is the whole reason the name is
+    stamped on the row (CheckIn.metric_label) instead of read off the goal.
+    """
+    if not metric:
+        return ""
+    name = metric["name"]
+    series = metric["series"]
+    if not series:
+        return (
+            f'- Watching: "{name}" — named, and no reading on the record yet. '
+            f"Nothing counts it and no phase unlocks off it.\n"
+        )
+    latest = series[-1]
+    if len(series) == 1:
+        body = f"{latest['value']} on {latest['date']}, the first reading"
+    else:
+        prior = series[-2]
+        if prior["label"] != latest["label"]:
+            # They swapped what they were counting between these two evenings, so
+            # the difference between the numbers means nothing. Naming both is the
+            # honest version of a series that has a seam in it.
+            body = (
+                f"\"{prior['label']}\" was {prior['value']} on {prior['date']}, then "
+                f"\"{latest['label']}\" {latest['value']} on {latest['date']} — they "
+                f"changed what they count, so those two do not subtract"
+            )
+        else:
+            move = latest["value"] - prior["value"]
+            way = (
+                "unchanged"
+                if move == 0
+                else f"{'up' if move > 0 else 'down'} {abs(move)}"
+            )
+            body = (
+                f"{prior['value']} on {prior['date']} → {latest['value']} on "
+                f"{latest['date']} ({way})"
+            )
+    swaps = metric["swaps"]
+    trail = (
+        ""
+        if not swaps
+        else (
+            f" They have changed what they watch {swaps} "
+            f"time{'' if swaps == 1 else 's'}; earlier readings counted something "
+            f"else."
+        )
+    )
+    return (
+        f'- Watching: "{name}" — {body}.{trail} They chose this number and it is '
+        f"not a bar: no gate reads it, a flat week refuses nothing, and a number "
+        f"that falls costs them no proof and no streak.\n"
+    )
+
+
 def intent_block(intent: str, phase) -> str:
     """What the builder said this phase would produce, if they said anything.
 
@@ -1837,6 +1916,7 @@ def build_system_prompt(
     week_of: date | None = None,
     intent: str = "",
     launch: dict | None = None,
+    metric: dict | None = None,
     predecessor: tuple[str, list[dict]] | None = None,
 ) -> str:
     phase = Phase(goal.phase)
@@ -1908,6 +1988,12 @@ def build_system_prompt(
         # sits, and this one is the only fact in the block the builder put
         # there themselves.
         launch=launch_line(launch),
+        # Directly under the launch date, because the two are the same kind of
+        # fact: the only things in this block the builder put there themselves,
+        # and the only two the gate has never heard of. In that order because it
+        # is the order the ladder asks for them — a date from BUILD, a number at
+        # the end — so a goal carrying both reads as the journey it was.
+        metric=metric_line(metric),
         calendar=calendar_block(days_in_phase, days_since_complete),
         # Sits with the calendar because it is the same kind of fact one scope
         # up: those two say where today is, this says what the last seven days

@@ -169,6 +169,17 @@ class CheckInSerializer(serializers.ModelSerializer):
             "proof_image_url",
             "proof_status",
             "coach_reaction",
+            # This day's reading of the one number, and the name it was read
+            # under. Read-only, like everything else here: the value arrives on
+            # the declare and prove endpoints, which are the two that know which
+            # phase the goal is in and whether a metric has been named at all.
+            #
+            # `metric_label` rides along rather than being taken from the goal on
+            # the client, and that is the whole point of it: after a rename the
+            # goal's name and the row's disagree, and the row is the one that is
+            # true about that evening.
+            "metric_value",
+            "metric_label",
             "attempts",
         ]
         read_only_fields = fields
