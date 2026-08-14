@@ -8,6 +8,7 @@ transcript. Tenancy rule: views filter by request.user, so foreign ids 404.
 """
 
 from django.conf import settings
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
 from common.soft_delete import SoftDeleteModel
@@ -193,6 +194,32 @@ class CheckIn(SoftDeleteModel):
     # late-night advance the two disagree about which day it is.
     phase = models.CharField(max_length=12, choices=Phase.choices, blank=True)
     am_declaration = models.TextField(blank=True)
+    # The hour the builder said tonight's proof would land, 0-23 on their own
+    # clock, or NULL because naming one is optional and most declarations
+    # won't. Set by the declare flow and by nothing else.
+    #
+    # VOICE, NEVER GATE. streaks.py does not read it and gates.py does not read
+    # it: a proof filed at 23:40 against a named 21:00 counts exactly as much
+    # as one filed at 20:59, and the day is complete either way. What it buys
+    # is that views._today_state can put the builder's own word in front of the
+    # coach — "they said it would land by 21:00" — so he can hold them to
+    # something they chose rather than to a rule the product imposed. That
+    # works with no clock anywhere in the system, which is the only reason
+    # this field is here.
+    #
+    # It is deliberately NOT a promise about when anything fires. #142 settled
+    # that the only scheduler this project will have is a free-tier GitHub
+    # Actions `schedule:`, whose runs are delayed by minutes to hours; the
+    # hourly tick that reads this field to pick who is overdue rides in with
+    # #87's job, and even then delivers "shortly after the hour you named"
+    # rather than at it. Every string written around this field has to survive
+    # that, because a commitment device that arrives late teaches the builder
+    # the hour was decorative.
+    due_hour = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0), MaxValueValidator(23)],
+    )
     # Whether this morning's task is the work this phase is actually for.
     # Advisory, never a veto: the builder may do whatever they declared, and
     # a task judged off-phase still earns its proof. UNJUDGED is the honest

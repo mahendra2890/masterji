@@ -158,6 +158,7 @@ class CheckInSerializer(serializers.ModelSerializer):
             "date",
             "phase",
             "am_declaration",
+            "due_hour",
             "declaration_fit",
             "declaration_reaction",
             "proof_ask",

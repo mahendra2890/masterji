@@ -7676,3 +7676,157 @@ class WorkshopSurvivesTheCommitTests(CoachTestCase):
         )
         self.assertNotIn("still owed in full", proof)
         self.assertNotIn("why you think they're there", proof)
+
+
+class DueHourTests(CoachTestCase):
+    """The hour named with the morning's task — #96.
+
+    Everything here is one claim in two halves: the hour is on the record and
+    in the prompt, and it changes NOTHING about what counts. The second half is
+    the one worth guarding. #142 settled that this product's only scheduler
+    will be a best-effort GitHub Actions tick, delayed by minutes to hours, so
+    "he is waiting at 21:00" was never on the table; what shipped is the coach
+    reading their own word back. A day that started to depend on the hour would
+    be a deadline the infrastructure cannot enforce and the product never
+    promised.
+    """
+
+    ACCEPT = '{"verdict": "accept", "reaction": "Theek hai."}'
+
+    def declare(self, text="call 3 tiffin cooks", **extra):
+        return self.client.post(
+            "/api/coach/checkins/declare/", {"text": text, **extra}
+        )
+
+    def prove(self, text="called them, notes attached"):
+        with mock.patch("coach.views.llm.complete", return_value=self.ACCEPT):
+            return self.client.post("/api/coach/checkins/prove/", {"text": text})
+
+    def test_a_declaration_without_an_hour_is_unchanged(self):
+        """The ordinary case, and the one that must not have moved an inch.
+
+        Most declarations will never name an hour — the control is optional and
+        it is one tap past the button. So the whole of the old behaviour is
+        asserted here rather than assumed: the row, the payload, and the exact
+        sentence the coach is handed.
+        """
+        self.make_goal()
+        response = self.declare()
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.data["due_hour"])
+        checkin = CheckIn.objects.get()
+        self.assertIsNone(checkin.due_hour)
+        self.assertEqual(
+            views._today_state(checkin),
+            'declared "call 3 tiffin cooks" — proof still owed tonight.',
+        )
+
+    def test_the_named_hour_reaches_the_prompt(self):
+        """The half of #96 that is buildable with no clock anywhere.
+
+        It is stated as THEIR word ("they said"), not as a deadline, because it
+        is not one — see the acceptance test below. The coach gets a fact he
+        can hold them to; he does not get a cutoff to enforce.
+        """
+        self.make_goal()
+        response = self.declare(due_hour=21)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["due_hour"], 21)
+        checkin = CheckIn.objects.get()
+        self.assertEqual(checkin.due_hour, 21)
+
+        state = views._today_state(checkin)
+        self.assertIn("21:00", state)
+        self.assertIn("they said", state)
+        # And it is in the prompt the coach actually reads, not merely in a
+        # helper's return value.
+        goal = checkin.goal
+        system = prompts.build_system_prompt(
+            goal,
+            gates.gate_status(goal),
+            0,
+            state,
+            self.alice.tone,
+        )
+        self.assertIn("21:00", system)
+
+    def test_midnight_is_an_hour_like_any_other(self):
+        """0 is falsy and this field is nullable, which is the exact shape that
+        turns a named midnight into "they named nothing" everywhere someone
+        writes `if due_hour:`. The two states are distinct all the way out."""
+        self.make_goal()
+        self.assertEqual(self.declare(due_hour=0).data["due_hour"], 0)
+        checkin = CheckIn.objects.get()
+        self.assertEqual(checkin.due_hour, 0)
+        self.assertIn("00:00", views._today_state(checkin))
+
+    def test_a_proof_after_the_named_hour_is_accepted_exactly_as_it_is_today(self):
+        """The invariant the issue is most explicit about: voice, never gate.
+
+        Both builders declare the same task and file the same proof; one of
+        them named 00:00 and files in the evening, hours past their own word.
+        Every outcome the product counts — the verdict, the gate's tally, the
+        streak — has to come back identical, because nothing in streaks.py or
+        gates.py reads this field and nothing may start to.
+        """
+        self.make_goal()
+        self.declare(due_hour=0)
+        named = self.prove()
+
+        self.client.force_authenticate(self.bob)
+        self.make_goal(user=self.bob)
+        self.declare()
+        silent = self.prove()
+
+        self.assertEqual(named.status_code, silent.status_code)
+        self.assertEqual(
+            named.data["checkin"]["proof_status"],
+            silent.data["checkin"]["proof_status"],
+        )
+        self.assertEqual(named.data["checkin"]["proof_status"], "ACCEPTED")
+        self.assertEqual(named.data["gate"]["have"], silent.data["gate"]["have"])
+        self.assertEqual(named.data["streak"], silent.data["streak"])
+        self.assertEqual(named.data["streak"], 1)
+
+    def test_the_hour_is_spent_once_the_proof_is_in(self):
+        """The fact is about an evening that has not happened yet. Once the
+        proof is filed it has been overtaken, and a state block still naming it
+        would be inviting the coach to litigate a filing time — which is the
+        one thing this field must never become."""
+        self.make_goal()
+        self.declare(due_hour=21)
+        self.prove()
+        state = views._today_state(CheckIn.objects.get())
+        self.assertNotIn("21:00", state)
+        self.assertIn("proof submitted", state)
+
+    def test_re_declaring_takes_the_hour_back(self):
+        """A word withdrawn stops being a word. The hour rides on the
+        declaration rather than on an endpoint of its own, so re-declaring
+        states the whole of it — and that is the only way a builder who can no
+        longer make 21:00 gets out of being held to it."""
+        self.make_goal()
+        self.declare(due_hour=21)
+        self.declare(text="call 3 tiffin cooks, properly this time")
+        checkin = CheckIn.objects.get()
+        self.assertIsNone(checkin.due_hour)
+        self.assertNotIn("they said", views._today_state(checkin))
+
+    def test_something_that_is_not_an_hour_is_refused(self):
+        """Loudly, not silently. A builder who named an hour and had it quietly
+        dropped would go on believing their word was on the record, which is
+        the failure this whole field exists to avoid."""
+        self.make_goal()
+        for bad in (24, -1, "nine"):
+            with self.subTest(bad=bad):
+                self.assertEqual(self.declare(due_hour=bad).status_code, 400)
+        self.assertFalse(CheckIn.objects.exists())
+
+    def test_the_declaration_still_lands_when_the_hour_is_left_empty(self):
+        """The client always sends the field and sends "" for "didn't name
+        one", so the empty string is the commonest value this endpoint will
+        ever see for it. It is not a bad hour."""
+        self.make_goal()
+        response = self.declare(due_hour="")
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(CheckIn.objects.get().due_hour)
