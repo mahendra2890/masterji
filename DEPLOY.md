@@ -140,6 +140,123 @@ when a login starts instead.
 5. Declare + prove → proof reaction arrives; streak ticks
 6. All of the above on a phone
 
+## 8. Web push — the evening nudge (optional, and off until you do this)
+
+Nothing below is set by default, and that is the whole design: with the three
+VAPID variables unset the feature is **off end to end** — the subscribe
+endpoint answers 503, the app draws no switch, and the hourly job exits
+cleanly. There is no half-wired state where a builder is asked for
+notification permission the server can never use, which matters because a
+browser gives you that prompt exactly once.
+
+### 8.1 Generate the VAPID keypair
+
+VAPID (RFC 8292) is how Google's and Mozilla's push services know who is
+sending. The private key is the entire authority to push to every subscription
+this app holds — treat it like `DJANGO_SECRET_KEY`. **Never commit either
+half.** Run this locally; it prints two single-line strings and writes nothing
+to disk:
+
+```
+cd backend && uv run python -c "import base64;from cryptography.hazmat.primitives.asymmetric import ec;from cryptography.hazmat.primitives import serialization as s;k=ec.generate_private_key(ec.SECP256R1());b=lambda x:base64.urlsafe_b64encode(x).rstrip(b'=').decode();print('VAPID_PRIVATE_KEY='+b(k.private_numbers().private_value.to_bytes(32,'big')));print('VAPID_PUBLIC_KEY='+b(k.public_key().public_bytes(s.Encoding.X962,s.PublicFormat.UncompressedPoint)))"
+```
+
+The private key comes out 43 characters and the public one 87. Both are
+base64url with the padding stripped, which is the form the browser wants for
+`applicationServerKey` and the form `pywebpush` parses for the signature.
+
+There is also `uv run vapid --gen`, which is the tool most write-ups reach for
+— **do not use it here.** It writes `private_key.pem` / `public_key.pem` into
+the working directory, and pywebpush will not accept the PEM's contents as an
+environment variable (it base64-decodes the string it is handed, and chokes on
+the `-----BEGIN` header). A key file is also the wrong shape for Render, where
+secrets are dashboard values. If you have already run it, delete both `.pem`
+files — `backend/` is not in `.gitignore` for them.
+
+Rotating the keypair invalidates every subscription in the database. Builders
+are re-subscribed silently the next time they open the app, so the cost is one
+missed evening, not a support thread — but there is no reason to rotate
+without one.
+
+### 8.2 Set them on Render (§2's env vars, plus these)
+
+| Variable | Value |
+| --- | --- |
+| `VAPID_PUBLIC_KEY` | the 87-character string printed above |
+| `VAPID_PRIVATE_KEY` | the 43-character string printed above |
+| `VAPID_CONTACT` | `mailto:you@example.com` — required by the spec, and read by actual humans at Mozilla if this sender misbehaves. Use an address you answer. |
+| `NUDGE_TOKEN` | a long random string, e.g. `openssl rand -hex 32`. This is the only thing standing between the open internet and "nudge everybody now". |
+
+`NUDGE_TIMEOUT_S` (default 10) bounds one delivery and needs no setting.
+
+**`NUDGE_TOKEN` unset does not mean "no auth required".** The endpoint refuses
+with 503 while it is empty — see `NudgeRunView` — so a half-finished setup is
+a closed door rather than an open one.
+
+### 8.3 Set the two GitHub Actions secrets
+
+Repo → Settings → Secrets and variables → Actions → **New repository secret**:
+
+| Secret | Value |
+| --- | --- |
+| `API_URL` | `https://masterji-api-XXXX.onrender.com` (no trailing slash) |
+| `NUDGE_TOKEN` | the same string you put on Render |
+
+The `nudges` job in [checks.yml](.github/workflows/checks.yml) exits cleanly
+when either is missing, so a fork's scheduled runs are quiet rather than red.
+
+### 8.4 What actually fires it
+
+An **hourly** `schedule:` trigger on the existing workflow — `17 * * * *` —
+and the job it runs does nothing but `POST /api/coach/nudges/run/`. Every
+decision about who gets a nudge is server-side in
+[backend/coach/nudges.py](backend/coach/nudges.py).
+
+Hourly, with the server selecting who is due, rather than a job set for the
+hour a nudge should arrive: free-tier scheduled runs are best-effort and slip
+by **minutes to hours**, so a job set for 21:00 delivers at a random time.
+This was decided in #142 and the reasoning is worth not re-litigating.
+
+Two GitHub behaviours to know:
+
+- Scheduled workflows only ever run from the **default branch**. A change to
+  the `schedule:` block does nothing until it is on `main`.
+- GitHub **disables scheduled workflows in a repository with no pushes for 60
+  days**, and emails the owner. If nudges stop arriving on a quiet month, that
+  is the first thing to check — Actions → the workflow → *Enable*.
+
+### 8.5 Verify it
+
+There is no way to make a scheduled run happen sooner, so the workflow also
+takes `workflow_dispatch`. Actions → **checks** → *Run workflow*. It runs the
+`nudges` job alone (the check jobs skip themselves on that event) and prints
+the tick's own answer:
+
+```
+{"due": 1, "builders": 1, "sent": 1}
+```
+
+`due: 0` is the normal answer for most hours and means the selection ran and
+found nobody — not a failure. To make yourself due: declare a task, do not
+file a proof, and run it after 17:00 **your local time** (the zone is captured
+from your browser when you subscribe, which is why the server can know that).
+
+Or call it directly:
+
+```
+curl -i -X POST https://masterji-api-XXXX.onrender.com/api/coach/nudges/run/ -H "X-Nudge-Token: $NUDGE_TOKEN"
+```
+
+A 401 means the token does not match; a 503 means `NUDGE_TOKEN` is unset on
+Render.
+
+On the app itself: the switch is the last line of the Today card. Chrome and
+Firefox on Android and desktop just work. **iOS needs the app installed to the
+home screen first** — Safari exposes `PushManager` only to an installed PWA,
+which is why phase one's manifest is a dependency of this rather than a
+neighbour of it. The switch says so on iOS instead of drawing a control that
+cannot work.
+
 ## Optional: OpenTelemetry
 
 Set `OTEL_EXPORTER_OTLP_ENDPOINT` + `OTEL_EXPORTER_OTLP_API_KEY` on Render

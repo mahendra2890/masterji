@@ -1440,3 +1440,59 @@ export async function streamWorkshopChat(
     else if (event.t === "error") events.onError(event.detail);
   });
 }
+
+/* --- the evening nudge (#87) --------------------------------------------- */
+
+/** What this deployment can do about push, asked before anything is offered.
+ *
+ * `configured` is false on every checkout with no VAPID keys set, which is
+ * all of them until DEPLOY.md §8 is done — and the control draws nothing at
+ * all in that case rather than offering a switch that would 503. */
+export type PushConfig = {
+  configured: boolean;
+  publicKey: string;
+  /** The hour the server considers a builder's evening to have started. Sent
+   * so the control can say WHEN the nudge would arrive without a second copy
+   * of the number living over here — app/Masterji.tsx already keeps one for
+   * the Today card and two would be one too many. */
+  eveningFrom: number;
+};
+
+export async function getPushConfig(): Promise<PushConfig> {
+  const data = await request<{
+    configured: boolean;
+    public_key: string;
+    evening_from: number;
+  }>("push/");
+  return {
+    configured: data.configured,
+    publicKey: data.public_key,
+    eveningFrom: data.evening_from,
+  };
+}
+
+/** Hand the server this browser's subscription. Sent verbatim in the shape
+ * `PushSubscription.toJSON()` produces, plus the zone — the server stores the
+ * three strings and nothing else, because the three strings ARE the
+ * permission to push to this device. */
+export async function savePushSubscription(subscription: {
+  endpoint: string;
+  keys: { p256dh: string; auth: string };
+  timezone: string;
+}): Promise<void> {
+  await request("push/", {
+    method: "POST",
+    body: JSON.stringify(subscription),
+  });
+}
+
+/** Drop it. No endpoint means every device on this account, which is the
+ * honest reading of an off switch pressed by somebody who cannot see a
+ * device list — and the only reading available when the browser has already
+ * lost the subscription it would otherwise name. */
+export async function dropPushSubscription(endpoint?: string): Promise<void> {
+  await request("push/", {
+    method: "DELETE",
+    body: JSON.stringify(endpoint ? { endpoint } : {}),
+  });
+}

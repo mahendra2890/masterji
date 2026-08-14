@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import views
+from . import nudges, views
 
 urlpatterns = [
     path("state/", views.StateView.as_view(), name="coach_state"),
@@ -79,4 +79,9 @@ urlpatterns = [
     ),
     # Public: no auth, no tenancy — the same list for every reader.
     path("changelog/", views.ChangelogView.as_view(), name="coach_changelog"),
+    # The evening nudge (#87). The builder's opt-in, and the one endpoint the
+    # hourly workflow calls — see coach/nudges.py for why the second one is
+    # authenticated by a header rather than by a session.
+    path("push/", nudges.PushSubscriptionView.as_view(), name="coach_push"),
+    path("nudges/run/", nudges.NudgeRunView.as_view(), name="coach_nudges_run"),
 ]

@@ -54,4 +54,27 @@ services:
       #   sync: false
       # - key: OTEL_EXPORTER_OTLP_API_KEY
       #   sync: false
+      # Optional web push — the evening nudge (#87). Unset is the default and
+      # turns the feature off end to end: the subscribe endpoint answers 503,
+      # the app draws no control, the hourly job exits clean. Listed here
+      # rather than only in DEPLOY.md so a fresh blueprint deploy can see what
+      # it would be opting into; commented for the same reason the OTEL pair
+      # above is, which is that prompting for four values nobody has yet is a
+      # worse first run than not offering them.
+      #
+      # Generating the keypair is DEPLOY.md §8.1 — and read it rather than
+      # reaching for `vapid --gen`, which produces a PEM that pywebpush will
+      # not parse out of an environment variable.
+      #
+      # NUDGE_TOKEN also has to be set as a GitHub Actions repository secret,
+      # with the same value, alongside API_URL. Setting it here alone leaves
+      # the endpoint locked and the hourly tick unable to knock.
+      # - key: VAPID_PUBLIC_KEY
+      #   sync: false
+      # - key: VAPID_PRIVATE_KEY
+      #   sync: false
+      # - key: VAPID_CONTACT
+      #   sync: false
+      # - key: NUDGE_TOKEN
+      #   sync: false
       # ALLOWED_HOSTS also auto-trusts RENDER_EXTERNAL_HOSTNAME.

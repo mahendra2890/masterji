@@ -74,6 +74,23 @@ def erase(user) -> dict[str, int]:
     counts: dict[str, int] = {}
     _descend(user, stamp, counts, set())
 
+    # Hard deleted, and the only row in this function that is.
+    #
+    # `_descend` walks straight past it — PushSubscription is not a
+    # SoftDeleteModel — and a tombstone would be the wrong answer even if it
+    # were. Every other row here is a record of something the builder did, and
+    # this one is not: it is a live capability to send a message to a device,
+    # held by an account that has just asked to stop existing. This module's
+    # own rule about the email applies to it exactly — a tombstone that still
+    # holds the address is not erasure.
+    #
+    # Nothing is revoked at the push service by deleting it; the browser's
+    # subscription outlives us. What ends is our ability to use it, which is
+    # the whole of what was asked for.
+    counts["accounts.PushSubscription"] = user.push_subscriptions.all().delete()[0]
+    if not counts["accounts.PushSubscription"]:
+        del counts["accounts.PushSubscription"]
+
     user.is_active = False
     # Freed rather than kept. `email` is unique, so a tombstone still holding
     # it would refuse this person a new account with the same Google address

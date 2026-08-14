@@ -23,6 +23,11 @@ dependencies = [
     "opentelemetry-instrumentation-requests>=0.62b0",
     "boto3>=1.35",
     "redis>=5.2", # only imported when CACHE_URL is set — see settings.CACHES
+    # Web push: the VAPID signature and the payload encryption, neither of
+    # which is a thing to hand-roll. It brings `http-ece` and `py-vapid` with
+    # it and reuses the `cryptography` already in this lock, so the added
+    # weight on a 512MB box is two small pure-Python packages.
+    "pywebpush>=2.0",
 ]
 
 [dependency-groups]
