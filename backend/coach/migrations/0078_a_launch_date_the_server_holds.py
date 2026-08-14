@@ -8,7 +8,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('coach', '0076_what_this_phase_will_produce'),
+        ('coach', '0077_what_this_phase_will_produce'),
     ]
 
     operations = [

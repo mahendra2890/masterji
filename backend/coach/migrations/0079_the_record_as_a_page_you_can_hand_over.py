@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('coach', '0077_a_launch_date_the_server_holds'),
+        ('coach', '0078_a_launch_date_the_server_holds'),
     ]
 
     operations = [

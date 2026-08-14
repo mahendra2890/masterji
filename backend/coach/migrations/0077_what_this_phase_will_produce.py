@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('coach', '0075_the_room_reopens_once_per_goal'),
+        ('coach', '0076_the_room_reopens_once_per_goal'),
     ]
 
     operations = [

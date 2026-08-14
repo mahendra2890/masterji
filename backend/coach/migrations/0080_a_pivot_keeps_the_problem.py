@@ -7,7 +7,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('coach', '0078_the_record_as_a_page_you_can_hand_over'),
+        ('coach', '0079_the_record_as_a_page_you_can_hand_over'),
     ]
 
     operations = [
