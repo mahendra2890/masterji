@@ -32,8 +32,8 @@ export default function FailedTries({ attempts }: { attempts: ProofAttempt[] }) 
           )}
           {a.imageUrl && (
             /* eslint-disable-next-line @next/next/no-img-element --
-               presigned URL, re-signed on every read; no static host for
-               next/image to optimise against. */
+               this redirects to a presigned URL on a host that isn't known at
+               build time, so there is nothing for next/image to optimise. */
             <img
               className={styles.tryImage}
               src={a.imageUrl}

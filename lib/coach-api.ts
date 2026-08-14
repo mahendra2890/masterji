@@ -81,7 +81,8 @@ export type ProofAttempt = {
   id: number;
   text: string;
   url: string;
-  /** Signed, short-lived; "" when the try had no image. */
+  /** This app's address for the screenshot; "" when the try had no image.
+   * Same contract as `CheckIn.proofImageUrl` — see there. */
   imageUrl: string;
   reaction: string;
   createdAt: string;
@@ -111,9 +112,10 @@ export type CheckIn = {
   proofMissing: string;
   pmProofText: string;
   proofUrl: string;
-  /** Signed, short-lived link to the screenshot backing this proof. Minted
-   * per read and expires in minutes — never persist or share it. "" when
-   * there's no image or storage isn't configured. */
+  /** This app's address for the screenshot backing this proof — put it in an
+   * <img src> and the server signs a short-lived link and redirects. Not a
+   * credential itself, and not shareable: it needs the reader's own session.
+   * "" when there's no image or storage isn't configured. */
   proofImageUrl: string;
   /** UNJUDGED is filed-but-unread: the model was unreachable when it landed.
    * The day counts — record and streak — but nothing is banked toward the

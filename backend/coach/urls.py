@@ -20,6 +20,22 @@ urlpatterns = [
         name="coach_judge_declaration",
     ),
     path("checkins/prove/", views.ProveView.as_view(), name="coach_prove"),
+    # A proof screenshot, signed on the way past. Two literal routes rather
+    # than one with a <str:kind> segment: `kind` selects a model and an
+    # ownership path, so the set of legal values belongs in the router, where
+    # an unknown one is a 404, and not in a dict lookup that would raise.
+    path(
+        "checkins/<int:pk>/image/",
+        views.ProofImageView.as_view(),
+        {"kind": "checkins"},
+        name="coach_checkin_image",
+    ),
+    path(
+        "attempts/<int:pk>/image/",
+        views.ProofImageView.as_view(),
+        {"kind": "attempts"},
+        name="coach_attempt_image",
+    ),
     path("chat/", views.ChatView.as_view(), name="coach_chat"),
     # The inverse of chat/: available only while there is no goal.
     path(
