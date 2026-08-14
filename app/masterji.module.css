@@ -44,6 +44,54 @@
   padding: 24px;
 }
 
+/* The commit side: the wordmark, what this screen is asking for, the box, and
+   the two things the room produced FOR the box — the pile and the forecast.
+   It was the whole screen until the room learned to fill a second column. */
+.commitSide {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+/* Two columns, but only once there is a conversation to put in the second one.
+   Until the builder's first turn this stays the centred 568px column it has
+   always been — the screen somebody lands on the moment they finish signing up
+   is the one place a layout change buys nothing and can cost the first
+   impression.
+
+   Measured at 1280×720 with eight turns before this: the single column was
+   520px wide with 760px unused beside it, while the conversation was clipped
+   to 320px of 842px vertically. */
+@media (min-width: 821px) {
+  .onboarding[data-room="open"] {
+    max-width: 1120px;
+    display: grid;
+    /* The conversation takes the larger share. It is the thing being read. */
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+    align-items: start;
+    justify-content: initial;
+    gap: 12px 28px;
+  }
+
+  /* Every sentence the room produces points up at the box: the closing line
+     says "Put it in the box above", parkedLabel says "tap to put it in the
+     box", and WORKSHOP_SYSTEM tells the coach to say "the box is right there".
+     Sticky is what makes all three true at the moment they are read. It also
+     strengthens the hierarchy rather than weakening it — the box becomes the
+     only permanently visible control on the screen. */
+  .onboarding[data-room="open"] .commitSide {
+    position: sticky;
+    top: 24px;
+  }
+
+  /* Full width under both, where it was already last in the flow. */
+  .onboarding[data-room="open"] .archive,
+  .onboarding[data-room="open"] .onboardFooter {
+    grid-column: 1 / -1;
+  }
+}
+
 /* No tracking. Devanagari is not a series of separate letters the way Latin
    is: मास्टरजी is four clusters with matras hung off them, and positive
    letter-spacing pulls the parts away from the base they belong to — the
@@ -2317,40 +2365,21 @@
   white-space: nowrap;
 }
 
+/* The turns themselves are .coachMsg / .userMsg / .msgBody / .avatar /
+   .systemMsg — the chat's, unchanged, because this is the chat's activity. The
+   block that used to live here restated all of it at different values: an
+   outlined coach and a filled builder (the inverse of chat), a 14px body, and
+   no avatar at all, so Masterji was faceless in the first conversation a
+   builder ever has with him and his bubble style inverted the moment they
+   committed. What is left here is the log itself, which is genuinely this
+   room's: it sits in a column rather than owning a viewport. */
 .workshopLog {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
   max-height: 320px;
   overflow-y: auto;
   margin-bottom: 10px;
-}
-
-.wsMine,
-.wsTheirs {
-  margin: 0;
-  padding: 8px 11px;
-  border-radius: 10px;
-  font-size: 14px;
-  line-height: 1.45;
-  white-space: pre-wrap;
-  max-width: 88%;
-}
-
-.wsMine {
-  align-self: flex-end;
-  background: var(--border);
-  color: var(--text);
-}
-
-.wsTheirs {
-  align-self: flex-start;
-  border: 1px solid var(--border);
-  color: var(--text);
-}
-
-.wsThinking {
-  color: var(--muted);
 }
 
 /* Parked candidates. Cards, because they are things you pick up — and every
@@ -2440,13 +2469,22 @@
   line-height: 1.4;
 }
 
-/* The openers are the chat pane's block, reused here. Two things it brings
-   with it are wrong in this room, and both were visible:
-   the 38px indent, which exists in chat to clear the coach's avatar — there is
-   no avatar here, so the label and all three chips sat on a left edge 38px
-   inside the title above them and the composer below; and no bottom margin,
-   because in chat the composer band's own border and padding provide the gap.
-   This composer has neither, so the last chip was touching the box. */
+/* The openers keep all three of their overrides, and the middle one is worth
+   the correction: giving the room an avatar does NOT retire the cancelled
+   indent. The openers render only while the room is silent
+   (`!ws?.messages.length`), so there has never been a coach turn above them
+   here and there still isn't — the indent would hang off nothing, which is the
+   bug it was written to fix. In chat the same block sits under a log that is
+   already speaking. Same 38px, opposite answer, because the two rooms show it
+   at opposite moments.
+
+   The bottom margin stays for the same kind of reason: the chat's band ends
+   the log, and here the openers can be the last thing before the composer.
+
+   The composer itself is `.composer` / `.composerRow` / `.composerInput`,
+   unchanged from the chat's, for the same reason as the bubbles: it is the
+   same box, and this room was drawing a second one at 14px that could not
+   grow. */
 .workshop .openers {
   margin-top: 0;
   margin-bottom: 14px;
@@ -2458,11 +2496,10 @@
    row; this column is wider and they fit two to a row.
 
    Wrapping — and the goal examples' metrics with it — makes them the same kind
-   of object as the examples further up this same screen. Both are chips you
-   tap to fill a box you then edit, they are about 200px apart, and having them
-   in two sizes and two layouts is most of what made this screen look
-   unplanned. Scoped rather than changed at the source: in the chat pane the
-   larger chip and the stack are both right. */
+   of object as the examples on this same screen. Both are chips you tap to
+   fill a box you then edit, and having them in two sizes and two layouts is
+   most of what made this screen look unplanned. Scoped rather than changed at
+   the source: in the chat pane the larger chip and the stack are both right. */
 .workshop .openerList {
   flex-direction: row;
   flex-wrap: wrap;
@@ -2474,39 +2511,13 @@
   font-size: 13px;
 }
 
-.workshopComposer {
-  display: flex;
-  gap: 8px;
-  align-items: flex-end;
-}
-
-/* Bottom-aligned against a two-row box, the shared secondary button was a
-   34px control parked beside a 61px one — small enough to read as floating
-   next to the box rather than belonging to it, and under the 40px this repo
-   gives everything else a thumb has to find. It keeps its own height rather
-   than stretching: the box is where the writing happens, and a Send that grew
-   with it would be the tallest thing in the room. */
-.workshopComposer .secondaryBtn {
+/* Send's metrics, re-aimed at the shared composer row. It keeps its own height
+   rather than stretching — the box is where the writing happens, and a Send
+   that grew with it would be the tallest thing in the room — and it clears the
+   40px this repo gives everything a thumb has to find. */
+.workshop .composerRow .secondaryBtn {
   min-height: 40px;
   padding: 8px 18px;
-}
-
-.workshopInput {
-  flex: 1;
-  background: var(--panel, transparent);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 9px 11px;
-  color: var(--text);
-  font: inherit;
-  font-size: 14px;
-  line-height: 1.45;
-  resize: none;
-}
-
-.workshopInput:focus {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
 }
 
 /* No composer once the turns are gone — this replaces it. The refusal is
@@ -2517,6 +2528,44 @@
   color: var(--muted);
   font-size: 13.5px;
   line-height: 1.5;
+}
+
+/* Beside the box rather than under it: the room becomes the card the chat pane
+   is, and owns its own height the way that pane does — the log scrolls inside
+   it and the composer stays put, instead of a 320px window cut into a page
+   that grows around it. The rule-as-group-break is what the single column
+   uses, and a rule across the top of a column is not a group break. */
+@media (min-width: 821px) {
+  .onboarding[data-room="open"] .workshop {
+    margin-top: 0;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    display: flex;
+    flex-direction: column;
+    max-height: calc(100dvh - 48px);
+  }
+
+  .onboarding[data-room="open"] .workshopHead {
+    padding: 14px 16px 0;
+    margin-bottom: 0;
+  }
+
+  .onboarding[data-room="open"] .workshopLog {
+    flex: 1;
+    max-height: none;
+    margin-bottom: 0;
+    padding: 14px 16px;
+  }
+
+  /* The card has no padding of its own — its children carry it, the way
+     .messages and .composer carry the chat pane's. These two are the ones that
+     can be the last thing in it. */
+  .onboarding[data-room="open"] .openers,
+  .onboarding[data-room="open"] .workshopSpent {
+    padding: 0 16px 14px;
+  }
 }
 
 /* Phone: the head stops being a row. At 375px "Not sure yet? Think it through
@@ -2530,15 +2579,48 @@
     gap: 2px;
   }
 
-  /* Send joins the 44px rule the rest of the loop's controls now follow. It has
-     to be said here rather than up in the responsive block: `.workshopComposer
-     .secondaryBtn` above is the same specificity and later in the file, so it
-     wins on source order and the phone kept the 40px.
+  /* The inner scroll goes, because a pane that scrolls inside the page scroll
+     is a trap on a phone — the rule `.side` and `.chat` already follow at this
+     width, and the one this screen was exempt from while it stacked a
+     dashboard and a chat log into a 1442px page and kept the window. */
+  .workshopLog {
+    max-height: none;
+    overflow-y: visible;
+  }
 
-     40 stays the desktop number, and the comment above it still holds — it is
-     about this button not stretching to a two-row box, which a min-height does
-     not make it do. */
-  .workshopComposer .secondaryBtn {
+  /* The left column stops being a box here, and that is what makes the pin
+     below work rather than being a nicety. A sticky element is held by its
+     containing block, so a box pinned inside .commitSide comes unstuck the
+     moment .commitSide scrolls past — which on a phone is exactly when the
+     conversation starts, since the room is stacked under it. `display:
+     contents` hands the children back to .onboarding, which spans the whole
+     screen, so the pin holds all the way down. Measured: without this the box
+     was already 95px above the top of the viewport at 600px of scroll. The
+     12px gap is unchanged, because .onboarding sets the same one. */
+  .commitSide {
+    display: contents;
+  }
+
+  /* Which leaves the box to solve, and it is solved by pinning it rather than
+     by a second pane switcher on a screen with one control. Measured before
+     this at 375×812 with the turns spent: the closing line "…Put it in the box
+     above." sat at y=1286 and the box it names at y=373, so the sentence and
+     its subject could not be on screen together. The halo masks the column
+     sliding under it. */
+  .onboardForm {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    padding-block: 8px;
+    background: var(--bg);
+    box-shadow: 0 0 0 8px var(--bg);
+  }
+
+  /* Send joins the 44px rule the rest of the loop's controls now follow. It has
+     to be said here rather than up in the responsive block: the rule above is
+     the same specificity and later in the file, so it wins on source order and
+     the phone kept the 40px. */
+  .workshop .composerRow .secondaryBtn {
     min-height: 44px;
   }
 }

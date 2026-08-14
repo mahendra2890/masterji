@@ -740,25 +740,38 @@ export default function Masterji({ user }: { user: SessionUser }) {
   // the screen as you typed your answer to it. Only re-pins a log that was
   // already at the bottom — a builder who scrolled up to re-read something
   // keeps their place.
+  const fitBox = useCallback(
+    (box: HTMLTextAreaElement | null, log: HTMLElement | null) => {
+      // display:none, which is how the phone hides whichever pane isn't showing
+      // — and how the two rooms hide each other, since only one of them is ever
+      // mounted. Nothing to measure there, and measuring anyway writes a 0px
+      // height onto the box that the builder then meets when they switch to it.
+      if (!box || !box.offsetParent) return;
+      const pinned =
+        !!log && log.scrollHeight - log.scrollTop - log.clientHeight < 4;
+      // Measured back at one row rather than at whatever the last keystroke
+      // left it: scrollHeight can't report less than the height already set on
+      // the element, so a box that had been tall once could only ever stay tall.
+      box.style.height = "auto";
+      // scrollHeight counts padding but not border, and box-sizing is
+      // border-box repo-wide, so the height we set has to carry the border
+      // itself. Read off the element rather than written as 2px — the border is
+      // CSS's to change.
+      box.style.height = `${box.scrollHeight + box.offsetHeight - box.clientHeight}px`;
+      if (log && pinned) log.scrollTop = log.scrollHeight;
+    },
+    []
+  );
+
+  // Both composers, because there are two rooms and the growing box is what a
+  // composer IS in this product — the workshop's was two fixed rows with
+  // `resize: none`, which is the one place the app told a builder their
+  // thinking had a size limit before they had a goal. Only one of the two is
+  // ever mounted, and the offsetParent guard above skips the other.
   const fitComposer = useCallback(() => {
-    const box = composerRef.current;
-    // display:none, which is how the phone hides whichever pane isn't showing.
-    // Nothing to measure there, and measuring anyway writes a 0px height onto
-    // the box that the builder then meets when they switch to it.
-    if (!box || !box.offsetParent) return;
-    const log = messagesRef.current;
-    const pinned =
-      !!log && log.scrollHeight - log.scrollTop - log.clientHeight < 4;
-    // Measured back at one row rather than at whatever the last keystroke left
-    // it: scrollHeight can't report less than the height already set on the
-    // element, so a box that had been tall once could only ever stay tall.
-    box.style.height = "auto";
-    // scrollHeight counts padding but not border, and box-sizing is border-box
-    // repo-wide, so the height we set has to carry the border itself. Read off
-    // the element rather than written as 2px — the border is CSS's to change.
-    box.style.height = `${box.scrollHeight + box.offsetHeight - box.clientHeight}px`;
-    if (log && pinned) log.scrollTop = log.scrollHeight;
-  }, []);
+    fitBox(composerRef.current, messagesRef.current);
+    fitBox(wsBoxRef.current, wsLogRef.current);
+  }, [fitBox]);
 
   // Fit the box when it attaches, not only when the draft changes. The chat
   // section unmounts with the goal — retire, land on onboarding, commit a new
@@ -770,9 +783,20 @@ export default function Masterji({ user }: { user: SessionUser }) {
   const attachComposer = useCallback(
     (el: HTMLTextAreaElement | null) => {
       composerRef.current = el;
-      if (el) fitComposer();
+      if (el) fitBox(el, messagesRef.current);
     },
-    [fitComposer]
+    [fitBox]
+  );
+
+  // The workshop's, for the same reason and one of its own: the whole no-goal
+  // screen unmounts the moment a goal is committed and mounts again when one is
+  // retired, and `wsDraft` survives both.
+  const attachWsComposer = useCallback(
+    (el: HTMLTextAreaElement | null) => {
+      wsBoxRef.current = el;
+      if (el) fitBox(el, wsLogRef.current);
+    },
+    [fitBox]
   );
 
   // `pane` because the phone mounts this box inside a display:none pane and
@@ -781,7 +805,7 @@ export default function Masterji({ user }: { user: SessionUser }) {
   // its side re-wraps every one of them.
   useEffect(() => {
     fitComposer();
-  }, [draft, pane, fitComposer]);
+  }, [draft, wsDraft, pane, fitComposer]);
 
   useEffect(() => {
     window.addEventListener("resize", fitComposer);
@@ -1094,8 +1118,27 @@ export default function Masterji({ user }: { user: SessionUser }) {
       goalTitle.trim() !== "" && !GOAL_EXAMPLES.includes(goalTitle);
     // Null until the builder's first turn: reading state never opens a room.
     const ws = state.workshop;
+    // Two columns once there is a conversation to put in the second one, and
+    // the centred single column — the screen every builder lands on, tuned
+    // against a real first impression — until then. The room's state (the
+    // meter, the pile, the forecast) is the left column's with the box it
+    // fills; the conversation is the right column's. That is the post-goal
+    // shape, and this screen was holding all of it in one 520px stack with a
+    // 320px window cut in the middle of it.
+    const roomOpen = !!(ws?.messages.length || wsPending !== null);
     return (
-      <main className={styles.onboarding}>
+      <main className={styles.onboarding} data-room={roomOpen ? "open" : "shut"}>
+        {/* The commit side. Sticky at the top of its column so that every
+            sentence the room produces pointing "up at the box" is true at the
+            moment it is read: the closing line names it, `parkedLabel` says
+            "tap to put it in the box", and WORKSHOP_SYSTEM tells the coach to
+            say "the box is right there". Measured before this: at 375×812 with
+            the turns spent, that closing line and the box it names were 913px
+            apart on an 812px viewport, so the two could not be on screen
+            together. It also strengthens the hierarchy the room was built
+            around rather than weakening it — the box becomes the only
+            permanently visible control on the screen. */}
+      <div className={styles.commitSide}>
         <p className={styles.wordmark}>मास्टरजी</p>
 
         {closing ? (
@@ -1256,11 +1299,104 @@ export default function Masterji({ user }: { user: SessionUser }) {
 
         {error && <p className={styles.error}>{error}</p>}
 
+        {/* What the room has produced FOR the box, next to the box. Both of
+            these came out of the conversation and both of them are about the
+            commit rather than about the talking, which is why they moved out
+            of the log's column: the pile is what you pick from and the
+            forecast is what picking would cost. */}
+
+        {/* Parked candidates, and the one his tiebreak landed on. Both fill
+            the commit box and neither commits — the goal-examples bargain,
+            which exists because one tap from "his suggestion" to a database
+            constraint is how a builder ends up coached on somebody else's
+            idea. The pile is capped at three server-side; nothing here
+            enforces it, and nothing here needs to. */}
+        {ws && (ws.candidates.length > 0 || ws.suggestedTitle) && (
+          <div className={styles.parked}>
+            <p id="parked-label" className={styles.parkedLabel}>
+              {ws.candidates.length >= ws.maxCandidates
+                ? `Three parked — that's the lot. Pick one:`
+                : `Parked (${ws.candidates.length}/${ws.maxCandidates}) — tap to put it in the box:`}
+            </p>
+            <ul className={styles.parkedList} aria-labelledby="parked-label">
+              {ws.suggestedTitle && (
+                <li key="suggested">
+                  <button
+                    type="button"
+                    className={styles.parkedPick}
+                    onClick={() => {
+                      setGoalTitle(ws.suggestedTitle);
+                      goalBoxRef.current?.focus();
+                    }}
+                  >
+                    {ws.suggestedTitle}
+                    <span className={styles.parkedPickNote}>his pick</span>
+                  </button>
+                </li>
+              )}
+              {ws.candidates.map((c) => (
+                <li key={c}>
+                  <button
+                    type="button"
+                    className={styles.parkedItem}
+                    onClick={() => {
+                      setGoalTitle(c);
+                      goalBoxRef.current?.focus();
+                    }}
+                  >
+                    {c}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* What committing would cost, in IDEA's own four parts. Under the
+            cards because it is about the candidate they are circling, and a
+            readout rather than a control: every number in it was counted by
+            the server off what the coach extracted, the same transfer bar.py
+            makes one screen later.
+
+            Only once something has surfaced. The turn meter in the room's
+            header is on screen from turn zero because it is a budget being
+            spent and a hard end nobody warned you about is a trapdoor; this is
+            the opposite quantity — progress accruing — and "0 of 4" over an
+            empty room is a checklist a builder is failing before they have
+            said anything. It appears when the first piece lands.
+
+            It never gates. Commit stays the only filled control on the screen
+            and works at 0 of 4 exactly as it does at 4. */}
+        {ws && ws.sketch.have > 0 && (
+          <div className={styles.sketch}>
+            <p className={styles.sketchCount}>
+              You could already write {ws.sketch.have} of the{" "}
+              {ws.sketch.need} pieces IDEA asks for.
+            </p>
+            <p className={styles.sketchOwed}>
+              {ws.sketch.owed.length > 0
+                ? `Still open: ${ws.sketch.owed.join("; ")}.`
+                : "All four. The first evening's proof is already in this conversation."}
+            </p>
+          </div>
+        )}
+      </div>
+
         {/* --- the workshop ---------------------------------------------------
-            The room before the goal. It sits UNDER the commit box on purpose:
-            the box is the point of this screen and the workshop is the way in
-            for a builder who can't fill it yet. Reversing them would make
-            thinking the default and committing the thing you scroll past.
+            The room before the goal, and the same activity as the chat pane —
+            talking to Masterji — so it is now drawn in the same language.
+            Masterji has his face here, his line is unboxed behind it, the
+            builder's is the filled one, the body is 15px and the box grows a
+            line at a time: every one of those was inverted or absent in the
+            first conversation a builder ever has with him.
+
+            What has NOT changed is the hierarchy the room was built with. It
+            is still subordinate — Send is still `secondaryBtn` against the one
+            filled Commit, the room is still the way in for a builder who
+            cannot fill the box rather than the point of the screen, and the
+            turn meter is still on screen from turn zero. Grammar and hierarchy
+            are separable; this screen was paying for the second with the
+            first and getting nothing for it.
 
             Everything here is a control. What the room is FOR is explained in
             the tour, not in help text wedged between the buttons. */}
@@ -1287,103 +1423,43 @@ export default function Masterji({ user }: { user: SessionUser }) {
 
           {(ws?.messages.length || wsPending !== null) && (
             <div className={styles.workshopLog} ref={wsLogRef}>
-              {ws?.messages.map((m) => (
-                <p
-                  key={m.id}
-                  data-turn
-                  className={
-                    m.role === "USER" ? styles.wsMine : styles.wsTheirs
-                  }
-                >
-                  {m.content}
-                </p>
-              ))}
+              {ws?.messages.map((m) =>
+                /* A turn that never landed, in the log's one shape that
+                   belongs to neither speaker — the same dashed pill the chat
+                   uses, because it is the same event: the app saying a turn
+                   broke. It used to be drawn as something Masterji said. */
+                m.role === "SYSTEM" ? (
+                  <div key={m.id} data-turn className={styles.systemMsg}>
+                    <p className={styles.systemText}>{m.content}</p>
+                  </div>
+                ) : (
+                  <div
+                    key={m.id}
+                    data-turn
+                    className={
+                      m.role === "USER" ? styles.userMsg : styles.coachMsg
+                    }
+                  >
+                    {m.role === "COACH" && (
+                      <span className={styles.avatar}>म</span>
+                    )}
+                    <p className={styles.msgBody}>{m.content}</p>
+                  </div>
+                )
+              )}
               {wsPending !== null && (
-                <p data-turn className={styles.wsMine}>
-                  {wsPending}
-                </p>
+                <div data-turn className={styles.userMsg}>
+                  <p className={styles.msgBody}>{wsPending}</p>
+                </div>
               )}
               {wsStreaming !== null && (
-                <p data-turn className={styles.wsTheirs}>
-                  {wsStreaming || <span className={styles.wsThinking}>…</span>}
-                </p>
+                <div data-turn className={styles.coachMsg}>
+                  <span className={styles.avatar}>म</span>
+                  <p className={styles.msgBody}>
+                    {wsStreaming || <span className={styles.thinking}>…</span>}
+                  </p>
+                </div>
               )}
-            </div>
-          )}
-
-          {/* Parked candidates, and the one his tiebreak landed on. Both fill
-              the commit box and neither commits — the goal-examples bargain,
-              which exists because one tap from "his suggestion" to a database
-              constraint is how a builder ends up coached on somebody else's
-              idea. The pile is capped at three server-side; nothing here
-              enforces it, and nothing here needs to. */}
-          {ws && (ws.candidates.length > 0 || ws.suggestedTitle) && (
-            <div className={styles.parked}>
-              <p id="parked-label" className={styles.parkedLabel}>
-                {ws.candidates.length >= ws.maxCandidates
-                  ? `Three parked — that's the lot. Pick one:`
-                  : `Parked (${ws.candidates.length}/${ws.maxCandidates}) — tap to put it in the box:`}
-              </p>
-              <ul className={styles.parkedList} aria-labelledby="parked-label">
-                {ws.suggestedTitle && (
-                  <li key="suggested">
-                    <button
-                      type="button"
-                      className={styles.parkedPick}
-                      onClick={() => {
-                        setGoalTitle(ws.suggestedTitle);
-                        goalBoxRef.current?.focus();
-                      }}
-                    >
-                      {ws.suggestedTitle}
-                      <span className={styles.parkedPickNote}>his pick</span>
-                    </button>
-                  </li>
-                )}
-                {ws.candidates.map((c) => (
-                  <li key={c}>
-                    <button
-                      type="button"
-                      className={styles.parkedItem}
-                      onClick={() => {
-                        setGoalTitle(c);
-                        goalBoxRef.current?.focus();
-                      }}
-                    >
-                      {c}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          {/* What committing would cost, in IDEA's own four parts. It sits
-              under the cards because it is about the candidate they are
-              circling, and it is a readout rather than a control: every number
-              in it was counted by the server off what the coach extracted, the
-              same transfer bar.py makes one screen later.
-
-              Only once something has surfaced. The turn meter above is on
-              screen from turn zero because it is a budget being spent and a
-              hard end nobody warned you about is a trapdoor; this is the
-              opposite quantity — progress accruing — and "0 of 4" over an
-              empty room is a checklist a builder is failing before they have
-              said anything. It appears when the first piece lands.
-
-              It never gates. Commit stays the only filled control on the
-              screen and works at 0 of 4 exactly as it does at 4. */}
-          {ws && ws.sketch.have > 0 && (
-            <div className={styles.sketch}>
-              <p className={styles.sketchCount}>
-                You could already write {ws.sketch.have} of the{" "}
-                {ws.sketch.need} pieces IDEA asks for.
-              </p>
-              <p className={styles.sketchOwed}>
-                {ws.sketch.owed.length > 0
-                  ? `Still open: ${ws.sketch.owed.join("; ")}.`
-                  : "All four. The first evening's proof is already in this conversation."}
-              </p>
             </div>
           )}
 
@@ -1442,31 +1518,44 @@ export default function Masterji({ user }: { user: SessionUser }) {
               can test. Put it in the box above.
             </p>
           ) : (
-            <div className={styles.workshopComposer}>
-              <textarea
-                ref={wsBoxRef}
-                className={styles.workshopInput}
-                placeholder="I don't know what to build yet…"
-                value={wsDraft}
-                rows={2}
-                maxLength={2000}
-                disabled={wsStreaming !== null}
-                onChange={(e) => setWsDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  if (isSendKey(e)) {
-                    e.preventDefault();
-                    void sendWorkshop();
-                  }
-                }}
-              />
-              <button
-                type="button"
-                className={styles.secondaryBtn}
-                disabled={wsStreaming !== null || wsDraft.trim() === ""}
-                onClick={() => void sendWorkshop()}
-              >
-                Send
-              </button>
+            /* The chat's composer band, not a second one. Two fixed rows with
+               `resize: none` was the room telling a builder their answer had a
+               size before they had said anything — in the one conversation
+               where the useful answer is long. It grows a line at a time now,
+               up to the same cap, through the same fitComposer.
+
+               Send stays `secondaryBtn`. That is the safeguard on all of this:
+               the room may speak the chat's language, but Commit above is
+               still the only filled control on the screen. */
+            <div className={styles.composer}>
+              <div className={styles.composerRow}>
+                <textarea
+                  ref={attachWsComposer}
+                  className={styles.composerInput}
+                  placeholder="I don't know what to build yet…"
+                  value={wsDraft}
+                  /* The resting height, not the height — see the same note on
+                     the chat composer. */
+                  rows={1}
+                  maxLength={2000}
+                  disabled={wsStreaming !== null}
+                  onChange={(e) => setWsDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (isSendKey(e)) {
+                      e.preventDefault();
+                      void sendWorkshop();
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  className={styles.secondaryBtn}
+                  disabled={wsStreaming !== null || wsDraft.trim() === ""}
+                  onClick={() => void sendWorkshop()}
+                >
+                  Send
+                </button>
+              </div>
             </div>
           )}
         </section>
