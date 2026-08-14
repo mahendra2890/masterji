@@ -439,6 +439,52 @@ class PhaseTransition(SoftDeleteModel):
         return f"{self.goal_id}: {self.from_phase} → {self.to_phase}"
 
 
+class LaunchCommitment(SoftDeleteModel):
+    """A date the builder named for launching, and every time they moved it.
+
+    APPEND-ONLY, and that is the whole mechanism. A row is never edited: moving
+    the date writes a second row, so what the record holds is not "26 August"
+    but "declared 24 August, moved once, currently 26 August". The visible slip
+    trail IS the consequence — the commitment-device insight without a stake,
+    because nothing here refuses anything. `gates.PROOFS_REQUIRED` is untouched,
+    a blown date refuses no proof and costs no streak, and the coach can say
+    "nine days out" only because a builder chose to say it first.
+
+    Why this exists: shipping-cadence.md's diagnosis is that BUILD dies from
+    drift in week three — "almost done" true for ten days running — and the
+    playbook already instructs "set the launch date before the build feels
+    ready". That was advice the server could not see, cite or count.
+
+    The pond comes with it because launch-checklist.md's ladder is where a
+    launch actually happens, and "launching" with no room in mind is the drift
+    one step later. Named rungs rather than free text: the ladder is the
+    playbook's, and a builder inventing a fifth rung is a builder avoiding the
+    four.
+    """
+
+    class Pond(models.TextChoices):
+        # launch-checklist.md's ladder, in its order. The labels are the
+        # playbook's own words — two copies of a rung would drift, and this one
+        # is the copy a builder reads on a dashboard.
+        TALKED = "TALKED", "The ones who talked to you"
+        ROOMS = "ROOMS", "The rooms they sit in"
+        PUBLIC = "PUBLIC", "The public ponds"
+        ASK = "ASK", "The ask — charging or committed sign-ups"
+
+    goal = models.ForeignKey(
+        Goal, on_delete=models.CASCADE, related_name="launch_commitments"
+    )
+    date = models.DateField()
+    pond = models.CharField(max_length=8, choices=Pond.choices)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta(SoftDeleteModel.Meta):
+        ordering = ["created_at"]
+
+    def __str__(self):
+        return f"{self.goal_id}: launch {self.date} ({self.pond})"
+
+
 class Workshop(SoftDeleteModel):
     """The room before the goal — a metered vestibule, not a phase.
 

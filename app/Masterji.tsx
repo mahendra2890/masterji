@@ -34,6 +34,7 @@ import {
   prove,
   retireGoal,
   setPhaseIntent,
+  setLaunchDate,
   streamChat,
   streamWorkshopChat,
   updateGoalTitle,
@@ -630,6 +631,12 @@ export default function Masterji({ user }: { user: SessionUser }) {
   // starts in — nothing here nags, and ignoring it is a complete answer.
   const [intentDraft, setIntentDraft] = useState("");
   const [namingPhase, setNamingPhase] = useState(false);
+  // The launch date and the room it goes into, and whether the box is open.
+  // Both empty by default and never prefilled with a guess: a date the app
+  // picked is not a commitment anybody made.
+  const [launchDraft, setLaunchDraft] = useState("");
+  const [pondDraft, setPondDraft] = useState("");
+  const [namingLaunch, setNamingLaunch] = useState(false);
   // Whether the room beside the retire box is showing. Client-side only: the
   // room itself is a server row that exists once the builder has said
   // something in it, and this is just which of the two doors is open.
@@ -1005,6 +1012,17 @@ export default function Masterji({ user }: { user: SessionUser }) {
       await setPhaseIntent(state.goal.id, text);
       setNamingPhase(false);
       setIntentDraft("");
+      await refresh();
+    });
+
+  /** Name the day it goes in front of people. Append-only server-side: this
+   * never edits the last answer, it writes another row, so moving the date
+   * leaves the move on the record. Nothing about it can refuse anything. */
+  const onNameLaunch = () =>
+    run(async () => {
+      if (!state?.goal || !launchDraft || !pondDraft) return;
+      await setLaunchDate(state.goal.id, launchDraft, pondDraft);
+      setNamingLaunch(false);
       await refresh();
     });
 
@@ -2086,6 +2104,91 @@ export default function Masterji({ user }: { user: SessionUser }) {
                   </div>
                 </div>
               ))}
+
+            {/* The day they said they'd launch, under the gate meter it sits
+                beside in kind: both are one number about where this goal is.
+                The difference is who put it there — every other number on this
+                card was earned or counted, and this one is the builder's own
+                word, which is the whole of what makes it work.
+
+                A control, and only a control. What a launch date is FOR — that
+                BUILD dies from drift in week three, that the slip trail is the
+                consequence and there is no other one — is a sentence in the
+                tour, not help text wedged in here.
+
+                Not before BUILD: a date on a goal with no artifact is a wish,
+                and the server refuses it. */}
+            {state.canSetLaunch && (
+              <div className={styles.launch}>
+                {state.launch && !namingLaunch ? (
+                  <button
+                    type="button"
+                    className={styles.launchSet}
+                    onClick={() => {
+                      setLaunchDraft(state.launch!.date);
+                      setPondDraft(state.launch!.pond);
+                      setNamingLaunch(true);
+                    }}
+                  >
+                    <span className={styles.launchWhen}>
+                      Launch {formatDay(state.launch.date)} ·{" "}
+                      {state.launch.daysOut === 0
+                        ? "today"
+                        : state.launch.daysOut > 0
+                          ? `${state.launch.daysOut}d out`
+                          : `${Math.abs(state.launch.daysOut)}d ago`}
+                    </span>
+                    {/* Stated, never softened. The trail is the mechanism, and
+                        a move you can hide is not a commitment device. */}
+                    {state.launch.moves > 0 && (
+                      <span className={styles.launchMoved}>
+                        moved {state.launch.moves}×
+                      </span>
+                    )}
+                  </button>
+                ) : (
+                  <div className={styles.launchBox}>
+                    <label className={styles.launchLabel} htmlFor="launch-date">
+                      When does it go in front of them?
+                    </label>
+                    <div className={styles.launchRow}>
+                      <input
+                        id="launch-date"
+                        type="date"
+                        className={styles.input}
+                        value={launchDraft}
+                        min={localDate()}
+                        onChange={(e) => setLaunchDraft(e.target.value)}
+                      />
+                      {/* The ladder is launch-checklist.md's, served rather
+                          than copied here — a builder inventing a fifth rung is
+                          a builder avoiding the four. */}
+                      <select
+                        className={styles.input}
+                        aria-label="Which room you'll launch into"
+                        value={pondDraft}
+                        onChange={(e) => setPondDraft(e.target.value)}
+                      >
+                        <option value="">Which room?</option>
+                        {state.ponds.map((p) => (
+                          <option key={p.value} value={p.value}>
+                            {p.label}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        className={styles.secondaryBtn}
+                        disabled={busy || !launchDraft || !pondDraft}
+                        onClick={onNameLaunch}
+                      >
+                        Set
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             {gate && gate.need > 0 && (
               <>

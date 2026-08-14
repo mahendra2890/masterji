@@ -288,6 +288,17 @@ const SLIDES: Slide[] = [
         here isn&apos;t being behind; talking to people is VALIDATION&apos;s job
         and it&apos;s the next thing he unlocks.
       </>,
+      <>
+        Two things on that card are yours rather than earned. When a phase
+        unlocks you can leave <strong>one line on what it will produce</strong>,
+        and he reads it from then on — so he can tell work that&apos;s going
+        where you said from work that has wandered. From BUILD you can also{" "}
+        <strong>name the day you&apos;ll launch</strong>, and which room
+        you&apos;ll launch into. Neither one is a gate. Miss the date and
+        nothing is refused, no streak breaks and no proof is lost — the record
+        just says you moved it, which is the only thing that makes naming it
+        mean anything.
+      </>,
     ],
     takeaway: (
       <>

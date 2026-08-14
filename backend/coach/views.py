@@ -48,6 +48,7 @@ from .models import (
     CheckIn,
     Goal,
     GoalRetirement,
+    LaunchCommitment,
     Message,
     Phase,
     PhaseTransition,
@@ -623,6 +624,38 @@ def _client_day(request) -> date:
         return timezone.now().date()
 
 
+# Where a launch date can be named. BUILD because that is the phase the
+# playbook's own advice is about — "set the launch date before the build feels
+# ready", against a phase that dies from drift in week three — and LAUNCH
+# because a date that has arrived can still move, and refusing to let it move
+# would turn the honest second row into a reason to say nothing.
+LAUNCH_PHASES = (Phase.BUILD, Phase.LAUNCH)
+
+
+def _launch_payload(goal: Goal, today: date) -> dict | None:
+    """The date they named, how far off it is, and how often it has moved.
+
+    Every number here is arithmetic over rows: the current date is the newest
+    row, the slip count is one less than how many there are, and days_out is a
+    subtraction. Nothing about it is a verdict, which is the point — the visible
+    trail is the whole consequence, and the product never spends a refusal on it.
+    """
+    rows = list(goal.launch_commitments.all())
+    if not rows:
+        return None
+    current = rows[-1]
+    return {
+        "date": current.date.isoformat(),
+        "pond": current.pond,
+        "pond_label": LaunchCommitment.Pond(current.pond).label,
+        "days_out": (current.date - today).days,
+        # How many times they moved it, not how many rows there are: naming a
+        # date for the first time is not a slip.
+        "moves": len(rows) - 1,
+        "first": rows[0].date.isoformat(),
+    }
+
+
 def _current_transition(goal: Goal) -> PhaseTransition | None:
     """The row that opened the phase the goal is in right now, if there is one.
 
@@ -849,6 +882,15 @@ class StateView(APIView):
                 "workshop": _workshop_payload(_open_workshop(request.user)),
                 "workshop_turns": REOPENED_TURNS,
                 "gate": _gate_payload(goal),
+                # Null until they name one, and the control reads that: there is
+                # no default date and no placeholder day, because a date the app
+                # picked is not a commitment anybody made.
+                "launch": _launch_payload(goal, today),
+                "can_set_launch": Phase(goal.phase) in LAUNCH_PHASES,
+                "ponds": [
+                    {"value": p.value, "label": p.label}
+                    for p in LaunchCommitment.Pond
+                ],
                 "streak": streaks.current_streak(goal, today),
                 # The run that was, next to the run that is. A builder who
                 # missed two days sees a zero, and a zero on its own reads as
@@ -1189,6 +1231,94 @@ class AdvanceView(APIView):
             {"advanced": advanced, "phase": goal.phase, "detail": detail},
             status=status.HTTP_200_OK if advanced else status.HTTP_409_CONFLICT,
         )
+
+
+class LaunchDateView(APIView):
+    """Name the day you will launch, and which room you will launch into.
+
+    Append-only: this never updates a row, it writes another. So the record
+    holds the trail rather than the latest answer, and the trail is the entire
+    consequence — Beeminder's commitment device with the stake paid in record
+    instead of rupees. Nothing here refuses anything: no gate reads
+    LaunchCommitment, PROOFS_REQUIRED does not know it exists, and a date that
+    comes and goes costs a builder nothing but the second row.
+
+    Not before BUILD. A launch date on a goal with no artifact is a wish, and
+    the one thing this must not become is a fifth thing to have declared.
+    """
+
+    permission_classes = [IsAuthenticated]
+    # Three months. Not a policy about how long a launch may take — it is the
+    # far end of "a date", past which the answer stops being a commitment and
+    # starts being a way of not making one. The near end is today.
+    MAX_DAYS_OUT = 92
+
+    def post(self, request, pk: int):
+        goal = get_object_or_404(
+            Goal.objects.filter(user=request.user, status=Goal.Status.ACTIVE), pk=pk
+        )
+        if Phase(goal.phase) not in LAUNCH_PHASES:
+            return Response(
+                {
+                    "detail": (
+                        "A date needs something to launch. Name one once you're "
+                        "building."
+                    )
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+        # NOT _parse_date. That one bounds the value to within a day of the
+        # server's date, which is exactly right for a check-in — an unbounded
+        # loop date lets a builder mint a week of backdated proofs — and exactly
+        # wrong here, where the whole point is a day three weeks out. The bound
+        # this one needs is the opposite one: not in the past, and not so far
+        # ahead that it is a way of not choosing.
+        # The builder's own clock arrives as `today`, NOT as `date`. This is the
+        # one endpoint whose body carries two dates, and _client_day reads
+        # `date` — so it read the launch date as the builder's today, which made
+        # "that day has already been" unreachable: naming yesterday moved
+        # "today" to yesterday and the check passed. Found by the test for it.
+        try:
+            today = _parse_date(request.data.get("today"))
+        except ValueError:
+            today = timezone.now().date()
+        try:
+            when = date.fromisoformat(str(request.data.get("date") or ""))
+        except ValueError:
+            return Response(
+                {"detail": "Give a real date — the day you'll put it in front of them."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if when < today:
+            return Response(
+                {"detail": "That's already been. Pick a day you can still work toward."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if (when - today).days > self.MAX_DAYS_OUT:
+            return Response(
+                {
+                    "detail": (
+                        "That's far enough away to be a someday. Pick a date "
+                        "inside the next three months."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        pond = str(request.data.get("pond") or "").strip().upper()
+        if pond not in LaunchCommitment.Pond.values:
+            return Response(
+                {"detail": "Pick which room you're launching into."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        current = _launch_payload(goal, today)
+        # A re-declaration of the same date and pond is not a move, and writing
+        # a row for it would put a slip on the record that never happened — a
+        # double tap, or a builder confirming what they already said.
+        if current and current["date"] == when.isoformat() and current["pond"] == pond:
+            return Response(current, status=status.HTTP_200_OK)
+        LaunchCommitment.objects.create(goal=goal, date=when, pond=pond)
+        logger.info(f"Goal {goal.id} named launch {when} ({pond})")
+        return Response(_launch_payload(goal, today), status=status.HTTP_200_OK)
 
 
 class PhaseIntentView(APIView):
@@ -2083,6 +2213,9 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
             # same for every builder forever, and this one is about the thing
             # they decided on the morning the phase opened.
             intent=_phase_intent(goal),
+            # And the day they said they would launch, if they named one. The
+            # only fact in the state block the builder put there themselves.
+            launch=_launch_payload(goal, today),
         )
         # SYSTEM rows are excluded, not mapped: they are the app talking about a
         # turn that failed, and the only role this mapping had for them was

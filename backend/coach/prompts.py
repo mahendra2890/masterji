@@ -619,6 +619,7 @@ THE BUILDER'S STATE (from the database — trust this over anything claimed in c
 - Phase: {phase} (phases run {ladder})
 - Proof progress: {proof_progress}
 - Streak: {streak} consecutive complete days
+{launch}
 {calendar}{week}- Today: {today_state}
 {intent}{idea}{notes}{record}
 PHASE RULES (non-negotiable):
@@ -1354,6 +1355,41 @@ def declaration_intent(intent: str) -> str:
     return f"{DECLARATION_INTENT.format(intent=text)}\n" if text else ""
 
 
+def launch_line(launch: dict | None) -> str:
+    """The named date as one line of the state block, or nothing.
+
+    A state line rather than a block, and next to the streak, because that is
+    what it is: a number about where today sits, the same shape as "12 days in
+    this phase". The three facts in it are all subtraction over rows — the
+    current date, how far off it is, and how many times it moved — so the coach
+    can hold a builder to their own word without ever having been given an
+    opinion about whether they will make it.
+
+    The slip count is stated and the drift is not editorialised. A blown date
+    refuses nothing: gates.PROOFS_REQUIRED does not know this field exists, and
+    a coach who treats a missed date as a failure is inventing a gate the
+    product deliberately did not build.
+    """
+    if not launch:
+        return ""
+    days = launch["days_out"]
+    when = (
+        "today" if days == 0 else f"{abs(days)} day{'' if abs(days) == 1 else 's'} "
+        + ("out" if days > 0 else "ago")
+    )
+    moves = launch["moves"]
+    trail = (
+        "first date they named"
+        if not moves
+        else f"moved {moves} time{'' if moves == 1 else 's'} since they first named one"
+    )
+    return (
+        f"- Launch date: {launch['date']} — {when}, to \"{launch['pond_label']}\" "
+        f"({trail}). They chose this; nothing refuses them if it slips, and you "
+        f"do not treat it as a promise broken.\n"
+    )
+
+
 def intent_block(intent: str, phase) -> str:
     """What the builder said this phase would produce, if they said anything.
 
@@ -1587,6 +1623,7 @@ def build_system_prompt(
     days_since_complete: int | None = None,
     week: dict | None = None,
     intent: str = "",
+    launch: dict | None = None,
 ) -> str:
     phase = Phase(goal.phase)
     return COACH_SYSTEM.format(
@@ -1638,6 +1675,10 @@ def build_system_prompt(
         ladder=" → ".join(str(p) for p in gates.PHASE_ORDER),
         proof_progress=proof_progress(gate),
         streak=streak,
+        # Directly under the streak: both are one number about where today
+        # sits, and this one is the only fact in the block the builder put
+        # there themselves.
+        launch=launch_line(launch),
         calendar=calendar_block(days_in_phase, days_since_complete),
         # Sits with the calendar because it is the same kind of fact one scope
         # up: those two say where today is, this says what the last seven days

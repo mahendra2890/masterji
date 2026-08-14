@@ -12,6 +12,11 @@ urlpatterns = [
     path("goals/<int:pk>/export/", views.GoalExportView.as_view(), name="coach_export"),
     path("goals/<int:pk>/advance/", views.AdvanceView.as_view(), name="coach_advance"),
     path(
+        "goals/<int:pk>/launch/",
+        views.LaunchDateView.as_view(),
+        name="coach_launch_date",
+    ),
+    path(
         "goals/<int:pk>/intent/",
         views.PhaseIntentView.as_view(),
         name="coach_phase_intent",

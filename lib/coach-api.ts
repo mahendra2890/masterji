@@ -284,6 +284,32 @@ export type CoachState = {
   /** The room's whole turn budget, sent even when no room is open yet so the
    * meter can be read before the first turn is spent. */
   workshopTurns: number;
+  /** The day they said they'd launch, if they said one. Null until then —
+   * there is no default date, because a date the app picked is not a
+   * commitment anybody made. */
+  launch: LaunchDate | null;
+  /** Whether naming one is available yet. BUILD onward: a launch date on a
+   * goal with no artifact is a wish. */
+  canSetLaunch: boolean;
+  /** launch-checklist.md's ladder, served rather than copied here — the
+   * playbook owns the rungs and a second copy would drift. */
+  ponds: { value: string; label: string }[];
+};
+
+/** A launch date and its slip trail. Every number is the server's arithmetic
+ * over append-only rows: moving the date writes another one, so what the
+ * record holds is "declared the 24th, moved once, currently the 26th" rather
+ * than just the answer. No gate reads any of it — the visible trail is the
+ * whole of the consequence. */
+export type LaunchDate = {
+  date: string;
+  pond: string;
+  pondLabel: string;
+  /** Negative once the day has been. Which refuses nothing. */
+  daysOut: number;
+  /** Moves, not rows: naming one for the first time is not a slip. */
+  moves: number;
+  first: string;
 };
 
 /* --- server shapes ------------------------------------------------------ */
@@ -649,6 +675,16 @@ export async function getState(): Promise<CoachState> {
     lifetime_days?: number;
     tone: CoachState["tone"];
     mode?: CoachState["mode"];
+    launch?: {
+      date: string;
+      pond: string;
+      pond_label: string;
+      days_out: number;
+      moves: number;
+      first: string;
+    } | null;
+    can_set_launch?: boolean;
+    ponds?: { value: string; label: string }[];
     workshop?: ServerWorkshop | null;
     workshop_openers?: string[];
     workshop_turns?: number;
@@ -696,6 +732,18 @@ export async function getState(): Promise<CoachState> {
     workshop: data.workshop ? fromServerWorkshop(data.workshop) : null,
     workshopOpeners: data.workshop_openers ?? [],
     workshopTurns: data.workshop_turns ?? 0,
+    launch: data.launch
+      ? {
+          date: data.launch.date,
+          pond: data.launch.pond,
+          pondLabel: data.launch.pond_label,
+          daysOut: data.launch.days_out,
+          moves: data.launch.moves,
+          first: data.launch.first,
+        }
+      : null,
+    canSetLaunch: data.can_set_launch ?? false,
+    ponds: data.ponds ?? [],
   };
 }
 
@@ -853,6 +901,36 @@ export async function setPhaseIntent(
     body: JSON.stringify({ intent }),
   });
   return fromServerTransition(data);
+}
+
+/** Name the day you'll launch, and the room you'll launch into. Append-only:
+ * this never edits the last answer, it writes another row, so the record keeps
+ * the trail. `today` is sent separately from `date` because the body carries
+ * two of them and only one is the builder's clock. */
+export async function setLaunchDate(
+  id: number,
+  when: string,
+  pond: string
+): Promise<LaunchDate> {
+  const data = await request<{
+    date: string;
+    pond: string;
+    pond_label: string;
+    days_out: number;
+    moves: number;
+    first: string;
+  }>(`goals/${id}/launch/`, {
+    method: "POST",
+    body: JSON.stringify({ date: when, pond, today: localDate() }),
+  });
+  return {
+    date: data.date,
+    pond: data.pond,
+    pondLabel: data.pond_label,
+    daysOut: data.days_out,
+    moves: data.moves,
+    first: data.first,
+  };
 }
 
 export async function declare(text: string): Promise<CheckIn> {

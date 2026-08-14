@@ -49,6 +49,7 @@ from .models import (
     CheckIn,
     Goal,
     GoalRetirement,
+    LaunchCommitment,
     Message,
     Phase,
     PhaseTransition,
@@ -785,6 +786,125 @@ class PhaseBriefTests(CoachTestCase):
 
 
 # --- daily loop ----------------------------------------------------------------
+
+
+class LaunchDateTests(CoachTestCase):
+    """A date the builder named, and the trail of every time they moved it.
+
+    What is pinned: the trail is the whole consequence. Nothing here refuses
+    anything — no gate reads the table, a blown date costs no proof and no
+    streak — so every test below is either about the arithmetic being honest or
+    about the product declining to punish somebody for it.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.goal = self.make_goal(phase=Phase.BUILD)
+        self.today = date.today()
+
+    def name_date(self, when: date, pond="ROOMS"):
+        return self.client.post(
+            f"/api/coach/goals/{self.goal.id}/launch/",
+            {"date": when.isoformat(), "pond": pond},
+        )
+
+    def test_a_move_is_a_second_row_and_the_trail_says_so(self):
+        """Never an update. What the record holds is not "26 August" but
+        "declared the 24th, moved once, currently the 26th" — the visible slip
+        trail IS the commitment device, since nothing else costs anything."""
+        first, second = self.today + timedelta(days=7), self.today + timedelta(days=9)
+        self.name_date(first)
+        response = self.name_date(second)
+        self.assertEqual(response.status_code, 200)
+
+        body = response.json()
+        self.assertEqual(body["date"], second.isoformat())
+        self.assertEqual(body["first"], first.isoformat())
+        self.assertEqual(body["moves"], 1)
+        self.assertEqual(body["days_out"], 9)
+        self.assertEqual(self.goal.launch_commitments.count(), 2)
+
+    def test_naming_one_for_the_first_time_is_not_a_slip(self):
+        self.name_date(self.today + timedelta(days=5))
+        self.assertEqual(_state_launch(self.client)["moves"], 0)
+
+    def test_saying_the_same_thing_twice_does_not_write_a_slip(self):
+        """A double tap, or a builder confirming what they already said. A row
+        for it would put a move on the record that never happened."""
+        when = self.today + timedelta(days=5)
+        self.name_date(when)
+        self.name_date(when)
+        self.assertEqual(self.goal.launch_commitments.count(), 1)
+        self.assertEqual(_state_launch(self.client)["moves"], 0)
+
+    def test_a_date_that_has_come_and_gone_refuses_nothing(self):
+        """The one that matters. A blown date is the case this feature exists
+        for, and the product's answer to it is a negative number and a
+        sentence — never a gate, a lost streak or a refused proof."""
+        self.name_date(self.today + timedelta(days=1))
+        LaunchCommitment.objects.filter(goal=self.goal).update(
+            date=self.today - timedelta(days=3)
+        )
+        self.accept_proofs(self.goal, gates.PROOFS_REQUIRED[Phase.BUILD].n)
+        response = self.client.post(f"/api/coach/goals/{self.goal.id}/advance/")
+        self.assertEqual(response.status_code, 200)
+        self.goal.refresh_from_db()
+        self.assertEqual(self.goal.phase, Phase.LAUNCH)
+
+    def test_the_coach_is_told_the_date_and_told_not_to_wield_it(self):
+        text = prompts.launch_line(
+            {
+                "date": "2026-08-26",
+                "pond_label": "The rooms they sit in",
+                "days_out": 9,
+                "moves": 1,
+                "first": "2026-08-24",
+            }
+        )
+        self.assertIn("2026-08-26", text)
+        self.assertIn("9 days out", text)
+        self.assertIn("moved 1 time", text)
+        self.assertIn("The rooms they sit in", text)
+        self.assertIn("nothing refuses them if it slips", text)
+        # And absent entirely when they never named one — no default date, and
+        # no line in the state block about a thing that does not exist.
+        self.assertEqual(prompts.launch_line(None), "")
+
+    def test_a_date_needs_something_to_launch(self):
+        """Not a fifth thing to have declared on day one."""
+        early = self.make_goal(user=self.bob, phase=Phase.IDEA)
+        self.client.force_authenticate(self.bob)
+        response = self.client.post(
+            f"/api/coach/goals/{early.id}/launch/",
+            {"date": (self.today + timedelta(days=5)).isoformat(), "pond": "ROOMS"},
+        )
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("once you're building", response.json()["detail"])
+
+    def test_yesterday_and_a_made_up_room_are_both_refused(self):
+        self.assertEqual(self.name_date(self.today - timedelta(days=1)).status_code, 400)
+        self.assertEqual(
+            self.name_date(self.today + timedelta(days=3), pond="SOMEWHERE").status_code,
+            400,
+        )
+        self.assertFalse(self.goal.launch_commitments.exists())
+
+    def test_the_ponds_are_the_playbooks_ladder(self):
+        """Named rungs rather than free text: the ladder belongs to
+        launch-checklist.md, and a builder inventing a fifth rung is a builder
+        avoiding the four."""
+        ponds = self.client.get("/api/coach/state/").json()["ponds"]
+        self.assertEqual(
+            [p["value"] for p in ponds], ["TALKED", "ROOMS", "PUBLIC", "ASK"]
+        )
+
+    def test_the_date_is_the_builders_own(self):
+        self.client.force_authenticate(self.bob)
+        self.assertEqual(self.name_date(self.today + timedelta(days=5)).status_code, 404)
+
+
+def _state_launch(client) -> dict:
+    return client.get("/api/coach/state/").json()["launch"]
 
 
 class PhaseIntentTests(CoachTestCase):
