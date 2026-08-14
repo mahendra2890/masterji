@@ -194,12 +194,25 @@
   flex-direction: column;
 }
 
+/* Row gap 12px, column gap 14px. The column half is not a new taste: the
+   language switch used to live inside .headerRight, whose gap is 14px, and it
+   is a direct child of the header now — see the note beside it in Masterji.tsx.
+   14px here is what keeps the desktop header pixel-identical to the version
+   where the switch was one level down. */
 .header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 12px 14px;
   padding-bottom: 14px;
+}
+
+/* Desktop: the switch belongs to the control group on the right, so it takes
+   the free space rather than sitting beside the wordmark. Scoped to the header
+   deliberately — the same control renders on the no-goal screen and in the
+   tour's mock, and neither wants a margin. */
+.header > .toneSwitch {
+  margin-left: auto;
 }
 
 .brand {
@@ -2034,6 +2047,15 @@
   .header {
     flex-wrap: wrap;
   }
+
+  /* Nothing here undoes the auto margin above, and that is deliberate rather
+     than an omission — it was measured. Once the header wraps, line one holds
+     the wordmark (146px) and the switch (74px) with 86px of slack, and
+     `space-between` and `margin-left: auto` put the switch in the same place to
+     the pixel: hard against the right edge, in the corner where a language
+     control is conventionally looked for. An override to `margin-left: 0` is
+     dead code, so there isn't one. What moved the switch onto this row was the
+     TSX change; the CSS only has to not fight it. */
 
   /* The right-hand group has to wrap too, not just move to its own line.
      Adding the second language option widened it past 375px, and an
