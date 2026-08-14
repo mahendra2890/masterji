@@ -92,6 +92,40 @@ class GoalSerializer(serializers.ModelSerializer):
         }
 
 
+def _image_path(kind: str, pk: int, key: str) -> str:
+    """Where to ask for a proof image — this app's address for it, not R2's.
+
+    It used to be the signed URL itself, and signing is an S3 operation per
+    row. `StateView` serializes CHECKIN_HISTORY rows with their attempts
+    prefetched, so the dashboard — the most-loaded authenticated endpoint in
+    the product, and the screen every builder opens first — paid for up to
+    ninety-odd signatures inline, to render a list that shows no images at
+    all. The image is behind opening a day.
+
+    Invisible until now only because R2 is optional: an unconfigured deploy
+    skips the whole branch. That makes it a latency cliff that arrives on the
+    day storage is switched on in production, and reads as "the app got slow"
+    rather than as the configuration change it was.
+
+    So the row carries a path and views.ProofImageView signs when the browser
+    actually asks for the bytes. Three things fall out of that, all of them
+    improvements on what was here:
+
+    - The payload holds no credentials of any kind, signed or otherwise.
+    - The link cannot expire before it is used. A URL signed at dashboard load
+      was good for storage.VIEW_URL_TTL — five minutes — and a builder who
+      opened a day after that got a broken image on the record screen.
+    - The bucket is still private and the signature is still short-lived. What
+      changed is when it is minted, not what it protects.
+
+    An empty string still means "no image here", which is what every caller
+    already checks for.
+    """
+    if not key or not storage.is_configured():
+        return ""
+    return f"/api/coach/{kind}/{pk}/image/"
+
+
 class ProofAttemptSerializer(serializers.ModelSerializer):
     image_url = serializers.SerializerMethodField()
 
@@ -101,17 +135,15 @@ class ProofAttemptSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_image_url(self, obj: ProofAttempt) -> str:
-        if not obj.image_key or not storage.is_configured():
-            return ""
-        return storage.view_url(obj.image_key)
+        return _image_path("attempts", obj.pk, obj.image_key)
 
 
 class CheckInSerializer(serializers.ModelSerializer):
     # The pushed-back tries behind this check-in's current proof, oldest
     # first. Callers serializing many rows should prefetch "attempts".
     attempts = ProofAttemptSerializer(many=True, read_only=True)
-    # Signed on read, never stored: the bucket is private and these links
-    # expire in minutes, so a proof image can't leak by being pasted anywhere.
+    # This app's own address for the image, not a signed one — see
+    # _image_path. The signing happens when the image is actually opened.
     proof_image_url = serializers.SerializerMethodField()
 
     class Meta:
@@ -136,9 +168,7 @@ class CheckInSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_proof_image_url(self, obj: CheckIn) -> str:
-        if not obj.proof_image_key or not storage.is_configured():
-            return ""
-        return storage.view_url(obj.proof_image_key)
+        return _image_path("checkins", obj.pk, obj.proof_image_key)
 
 
 class MessageSerializer(serializers.ModelSerializer):

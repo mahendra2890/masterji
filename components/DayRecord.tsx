@@ -93,8 +93,8 @@ export default function DayRecord({
         <p className={styles.dayLine}>
           <span className={styles.dayWho}>Shot</span>
           {/* eslint-disable-next-line @next/next/no-img-element --
-              presigned URL, re-signed on every read; no static host for
-              next/image to optimise against. */}
+              this redirects to a presigned URL on a host that isn't known at
+              build time, so there is nothing for next/image to optimise. */}
           <img
             className={styles.dayImage}
             src={c.proofImageUrl}

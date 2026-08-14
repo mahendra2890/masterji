@@ -1155,22 +1155,77 @@ class ProofImageTests(CoachTestCase):
         )
         self.assertEqual(gates.accepted_proofs(Goal.objects.get()), 0)
 
-    def test_image_url_is_signed_on_read_never_stored(self):
-        """The key is what's persisted; the URL is minted per read and expires.
-        Note the dashboard signs the same row more than once — it appears both
-        as `today` and in `checkins` — which is fine because presigning is
-        local HMAC work, not an API call."""
+    def test_the_dashboard_signs_nothing(self):
+        """The key is what's persisted, the payload carries this app's own
+        address for the image, and no signature is minted until somebody opens
+        one. StateView serializes CHECKIN_HISTORY rows with their attempts, on
+        the screen every builder opens first, to render a list that shows no
+        images at all.
+
+        The count is the argument, not the clock: presigning is local HMAC work
+        (~0.14ms each, so ninety of them is ~13ms), and what is actually paid
+        for is 26KB of short-lived credentials in a payload that had no use for
+        them, plus boto3's ~2s client construction sitting on the hot path
+        instead of on the first image anybody opens."""
         self.declare_today()
         with mock.patch("coach.storage.put_image", return_value=True):
             self.prove(image=self.upload())
-        key = CheckIn.objects.get().proof_image_key
+        checkin = CheckIn.objects.get()
         with mock.patch(
             "coach.storage.view_url", return_value="https://signed"
         ) as signer:
             response = self.client.get("/api/coach/state/")
-        self.assertEqual(response.data["today"]["proof_image_url"], "https://signed")
-        signer.assert_called_with(key)
-        self.assertNotIn(key, str(response.data["today"]))
+        self.assertEqual(
+            response.data["today"]["proof_image_url"],
+            f"/api/coach/checkins/{checkin.pk}/image/",
+        )
+        signer.assert_not_called()
+        self.assertNotIn(checkin.proof_image_key, str(response.data["today"]))
+
+    def test_the_image_is_signed_when_it_is_opened(self):
+        """One signature, for an image somebody is looking at, and a 302 to R2
+        rather than the bytes through this process."""
+        self.declare_today()
+        with mock.patch("coach.storage.put_image", return_value=True):
+            self.prove(image=self.upload())
+        checkin = CheckIn.objects.get()
+        with mock.patch(
+            "coach.storage.view_url", return_value="https://r2.example/signed"
+        ) as signer:
+            response = self.client.get(f"/api/coach/checkins/{checkin.pk}/image/")
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response["Location"], "https://r2.example/signed")
+        signer.assert_called_once_with(checkin.proof_image_key)
+        # The Location is a credential with a five-minute life. Cached, it
+        # would be replayed after expiry and read as a broken image.
+        self.assertEqual(response["Cache-Control"], "no-store")
+
+    def test_a_foreign_proof_image_is_not_reachable(self):
+        """The one thing this endpoint must never get wrong. It is
+        pk-addressable and it hands over a link to somebody's evidence, so
+        tenancy is the queryset filter rather than a check afterwards."""
+        bobs = self.make_goal(user=self.bob)
+        checkin = CheckIn.objects.create(
+            goal=bobs,
+            date=date.today(),
+            phase=bobs.phase,
+            proof_image_key="proofs/999/secret.png",
+        )
+        with mock.patch("coach.storage.view_url", return_value="https://signed") as s:
+            response = self.client.get(f"/api/coach/checkins/{checkin.pk}/image/")
+        self.assertEqual(response.status_code, 404)
+        s.assert_not_called()
+
+    def test_a_row_with_no_image_is_a_404_and_not_a_broken_link(self):
+        """An empty string in the payload and a 404 here are the same fact:
+        the daily loop predates screenshots and works without them."""
+        self.declare_today()
+        checkin = CheckIn.objects.get()
+        self.assertEqual(
+            self.client.get("/api/coach/state/").data["today"]["proof_image_url"], ""
+        )
+        response = self.client.get(f"/api/coach/checkins/{checkin.pk}/image/")
+        self.assertEqual(response.status_code, 404)
 
 
 class LinkCheckTests(SimpleTestCase):
@@ -1437,7 +1492,12 @@ class ProofResubmissionTests(CoachTestCase):
         attempts = response.data["today"]["attempts"]
         self.assertEqual(len(attempts), 1)
         self.assertEqual(attempts[0]["text"], "made a ticket")
-        self.assertEqual(attempts[0]["image_url"], "https://signed")
+        # An address on this app, signed when opened — a pushed-back try's
+        # screenshot rides the same path as the check-in's own.
+        self.assertEqual(
+            attempts[0]["image_url"],
+            f"/api/coach/attempts/{ProofAttempt.objects.get().pk}/image/",
+        )
 
 
 class StateTests(CoachTestCase):

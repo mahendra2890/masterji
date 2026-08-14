@@ -14,7 +14,12 @@ from datetime import date, timedelta
 from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.db.models import Q
-from django.http import HttpResponse, StreamingHttpResponse
+from django.http import (
+    Http404,
+    HttpResponse,
+    HttpResponseRedirect,
+    StreamingHttpResponse,
+)
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from loguru import logger
@@ -814,6 +819,57 @@ class GoalHistoryView(APIView):
                 "streak": streaks.best_streak(goal),
             }
         )
+
+
+class ProofImageView(APIView):
+    """One proof image, signed at the moment the browser asks for it.
+
+    The redirect is the whole design. The serializers hand out this app's own
+    address for an image (serializers._image_path), a plain <img src> reaches
+    it with the session's own first-party cookie, and the signature is minted
+    here — once, for an image somebody is actually looking at, instead of
+    ninety times for a list that renders none of them.
+
+    A 302 rather than proxying the bytes: R2 serves them, this process does
+    not, and a Render web instance streaming screenshots through itself is the
+    version of this that trades a latency cliff for a memory one.
+
+    `no-store` because the Location is a credential with a five-minute life.
+    Cached, it would be replayed after expiry and read as a broken image; the
+    redirect is cheap and correctness is worth the round trip.
+
+    Tenancy is the filter, not a check afterwards — a foreign id 404s here the
+    same way it does on every other pk-addressable endpoint in this file.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    # What each kind of row is called in the URL, and how to reach the user
+    # who owns it. Both keys are the model's own field name for the image, so
+    # nothing here has to remember which is which.
+    SOURCES = {
+        "checkins": (CheckIn, "goal__user", "proof_image_key"),
+        "attempts": (ProofAttempt, "checkin__goal__user", "image_key"),
+    }
+
+    def get(self, request, kind: str, pk: int):
+        model, owner, field = self.SOURCES[kind]
+        row = get_object_or_404(model.objects.filter(**{owner: request.user}), pk=pk)
+        key = getattr(row, field)
+        # Storage switched off, or a row that never had an image. Not an
+        # error: the daily loop predates screenshots and works without them,
+        # so this is the same "there is nothing here" the serializer says with
+        # an empty string.
+        if not key or not storage.is_configured():
+            raise Http404
+        url = storage.view_url(key)
+        if not url:
+            # view_url swallows its own failures and returns "" so a dashboard
+            # never 500s over a screenshot. Same bargain here.
+            raise Http404
+        response = HttpResponseRedirect(url)
+        response["Cache-Control"] = "no-store"
+        return response
 
 
 class GoalExportView(APIView):

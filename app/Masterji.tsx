@@ -2291,8 +2291,8 @@ export default function Masterji({ user }: { user: SessionUser }) {
                 </p>
                 {today.proofImageUrl && (
                   /* eslint-disable-next-line @next/next/no-img-element --
-                     next/image can't optimise a presigned URL that changes
-                     every read, and the host isn't known at build time. */
+                     this redirects to a presigned URL on a host that isn't
+                     known at build time, so there is nothing to optimise. */
                   <img
                     className={styles.proofImage}
                     src={today.proofImageUrl}
