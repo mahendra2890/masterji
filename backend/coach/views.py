@@ -659,6 +659,17 @@ def _client_day(request) -> date:
 # would turn the honest second row into a reason to say nothing.
 LAUNCH_PHASES = (Phase.BUILD, Phase.LAUNCH)
 
+# Where the one number lives. TRACTION and only TRACTION, keyed off the PHASE
+# rather than off the transition into it, and that is the whole answer to the
+# awkward part of putting this at the end of the ladder: TRACTION is terminal, so
+# "entering the phase" is the last transition there is and a builder who arrived
+# before this shipped will never make another one. An invitation that fired on
+# the advance would be invisible to exactly the builders who got furthest. So the
+# question the server asks is "are they in TRACTION, and have they named it yet",
+# which a dashboard load can answer on any morning — including the first one
+# after a deploy.
+METRIC_PHASE = Phase.TRACTION
+
 
 def _launch_payload(goal: Goal, today: date) -> dict | None:
     """The date they named, how far off it is, and how often it has moved.
@@ -681,6 +692,65 @@ def _launch_payload(goal: Goal, today: date) -> dict | None:
         # date for the first time is not a slip.
         "moves": len(rows) - 1,
         "first": rows[0].date.isoformat(),
+    }
+
+
+# How much of the series travels in the state payload. Thirty because TRACTION
+# is the end of the ladder and the series only exists there: a goal that has
+# recorded thirty readings has been in the terminal phase for a month, and the
+# question the number answers ("is it moving") is answered by the recent stretch.
+# Newest kept, oldest dropped — the same rule RECORD_LIMIT follows.
+METRIC_SERIES = 30
+
+
+def _metric_payload(goal: Goal) -> dict | None:
+    """The one number they chose to watch, and every reading of it.
+
+    None until they name one, which is the honest state for most of the ladder:
+    this is asked for at TRACTION and nowhere else, so there is no default metric
+    and no placeholder series — a number the app picked is not one anybody chose
+    to watch.
+
+    Every reading carries the name it was recorded under (CheckIn.metric_label),
+    so `swaps` is a count of adjacent disagreements rather than an inference from
+    timestamps. That is the recorded slip: renaming before anything is counted
+    leaves no mark, because nothing slipped, and renaming after three days of
+    numbers shows up as the series changing what it is about. Computed over ALL
+    the readings, not the window sent — a swap that scrolled off the end of the
+    payload still happened.
+
+    A day run twice can hold two readings, and both are here. The record already
+    renders a repeated day as two cycles (lib/record.cycleOrdinals), and pinning
+    the day to one number would mean deciding which of two things the builder
+    actually did is the real one.
+    """
+    if not goal.metric_name:
+        return None
+    # Values only, oldest last. `-date` is the model's ordering and the wrong end
+    # to truncate from, so the window is taken off the newest and reversed:
+    # dropping the oldest readings is dropping history, dropping the newest would
+    # be dropping the answer.
+    rows = list(
+        goal.checkins.exclude(metric_value=None).order_by("-date", "-created_at")
+    )
+    labels = [row.metric_label for row in reversed(rows)]
+    return {
+        "name": goal.metric_name,
+        "series": [
+            {
+                "date": row.date.isoformat(),
+                "value": row.metric_value,
+                # What it was called that day, which is not always what it is
+                # called now — that difference IS the trail.
+                "label": row.metric_label,
+            }
+            for row in reversed(rows[:METRIC_SERIES])
+        ],
+        "held": len(rows),
+        # How many times they changed what they were watching, counted where it
+        # cost something: between two readings. Never the number of names the
+        # field has held.
+        "swaps": sum(1 for a, b in zip(labels, labels[1:]) if a != b),
     }
 
 
@@ -968,6 +1038,21 @@ class StateView(APIView):
                     {"value": p.value, "label": p.label}
                     for p in LaunchCommitment.Pond
                 ],
+                # The one number they chose to watch, and every reading of it.
+                # Null until they name one — same rule as the launch date, and for
+                # the same reason: there is no default metric, because a number the
+                # app picked is not one anybody decided to watch.
+                #
+                # One source for two readers. The series here is the same list
+                # prompts.metric_line reads, so the coach's "deposits: 3 → 5" and
+                # the record card cannot come to different numbers about the same
+                # days — the property days_in_phase is carried for above.
+                "metric": _metric_payload(goal),
+                # Off the PHASE, never off the transition into it. TRACTION is the
+                # end of the ladder, so a builder who reached it before this
+                # shipped has no advance left to hang an invitation on — see
+                # METRIC_PHASE.
+                "can_set_metric": Phase(goal.phase) is METRIC_PHASE,
                 "streak": streaks.current_streak(goal, today),
                 # The run that was, next to the run that is. A builder who
                 # missed two days sees a zero, and a zero on its own reads as
@@ -1415,6 +1500,110 @@ class LaunchDateView(APIView):
         return Response(_launch_payload(goal, today), status=status.HTTP_200_OK)
 
 
+class MetricView(APIView):
+    """Name the one number you're watching. TRACTION only.
+
+    launch-checklist.md has said "One metric. Pick the single number that means
+    'someone got the value' (payments, completed actions — not visits) and watch
+    only that" for as long as the corpus has existed, and until now it was a
+    sentence the server had never seen. This is the server seeing it.
+
+    At TRACTION rather than at LAUNCH, which is where the playbook that teaches it
+    is wired. LAUNCH has finish arithmetic — Need(n=3, kinds={"action": 1}) — and
+    TRACTION is the phase with no PROOFS_REQUIRED entry, so it is the one whose
+    last mile has no number in it at all. bar.BAR[TRACTION] already asks for this
+    shape once (`returned`, `paid`), which is what makes a series here the phase's
+    own bar kept over time rather than a fifth thing to have declared.
+
+    NOTHING HERE REFUSES ANYTHING, and the shape of this view is where that is
+    enforced: it writes one CharField on the goal, gates.py does not read it,
+    PROOFS_REQUIRED gains no TRACTION entry (giving it one is precisely what
+    at_finish_line's comment says must not happen), and a builder who never calls
+    this has a phase that works exactly as it did. Same terms as the launch date.
+
+    Re-settable, and the slip is recorded on the readings rather than here — see
+    CheckIn.metric_label. Write-once was the alternative and it buys a tidier
+    field at the price of a builder living out their last phase under a typo with
+    a coach quoting it back, which is the trade PhaseIntentView already made the
+    other way.
+    """
+
+    permission_classes = [IsAuthenticated]
+    # A metric is a noun phrase — "paid deposits", "orders through the form". The
+    # cap is what stops it being a sentence: the number has to fit beside a date
+    # in the record and inside one line of the coach's state block, and a metric
+    # you cannot say in four words is more than one metric.
+    MAX_CHARS = 60
+
+    def post(self, request, pk: int):
+        goal = get_object_or_404(
+            Goal.objects.filter(user=request.user, status=Goal.Status.ACTIVE), pk=pk
+        )
+        if Phase(goal.phase) is not METRIC_PHASE:
+            return Response(
+                {
+                    "detail": (
+                        "One number comes later — once somebody has come back or "
+                        "paid, there's something to count."
+                    )
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+        name = " ".join(str(request.data.get("name") or "").split())
+        if not name:
+            return Response(
+                {"detail": "Name the number — the one that means somebody got the value."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if len(name) > self.MAX_CHARS:
+            return Response(
+                {"detail": "Shorter — a metric is a couple of words, not a sentence."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        goal.metric_name = name
+        goal.save(update_fields=["metric_name", "updated_at"])
+        logger.info(f"Goal {goal.id} watches {name!r}")
+        return Response(_metric_payload(goal), status=status.HTTP_200_OK)
+
+
+def _record_metric(goal: Goal, checkin: CheckIn, raw) -> bool:
+    """Today's reading of the one number, if there is one to record.
+
+    Returns whether the row changed, so the callers can put the two fields in
+    their own update_fields rather than saving the whole row.
+
+    IGNORED rather than refused whenever it cannot be recorded — wrong phase, no
+    metric named, not an integer, negative. The daily loop is the one thing in
+    this product that must never be held hostage by a corroborating detail: a
+    stale client sending a number at LAUNCH, or a builder fat-fingering one into
+    the box, must not cost them the declaration or the proof that came with it.
+    That is the same call `_client_day` makes about a garbled date and the same
+    one the image path makes about a dead bucket — and the response carries the
+    serialized row either way, so a value that was not recorded comes back null
+    rather than being reported as saved.
+
+    Negative is refused with the rest of them, and deliberately not clamped:
+    every metric this phase can hold is a count of returns or of rupees, and a
+    reading below zero is a typo, never a measurement.
+    """
+    if raw is None or raw == "":
+        return False
+    if Phase(goal.phase) is not METRIC_PHASE or not goal.metric_name:
+        return False
+    try:
+        value = int(str(raw).strip())
+    except (TypeError, ValueError):
+        return False
+    if value < 0:
+        return False
+    checkin.metric_value = value
+    # Stamped from the goal at the moment the number is written, and never
+    # rewritten afterwards. This is what makes renaming the metric a recorded
+    # slip instead of a silent relabelling of every evening already banked.
+    checkin.metric_label = goal.metric_name
+    return True
+
+
 class PhaseIntentView(APIView):
     """One line, on the day a phase opens: what this phase will produce.
 
@@ -1746,20 +1935,26 @@ class DeclareView(APIView):
         # credit tonight's person to work they had nothing to do with.
         checkin.subject = ""
         checkin.proof_parts = []
-        checkin.save(
-            update_fields=[
-                "am_declaration",
-                "due_hour",
-                "declaration_fit",
-                "declaration_reaction",
-                "proof_ask",
-                "proof_offer",
-                "proof_missing",
-                "subject",
-                "proof_parts",
-                "updated_at",
-            ]
-        )
+        fields = [
+            "am_declaration",
+            "due_hour",
+            "declaration_fit",
+            "declaration_reaction",
+            "proof_ask",
+            "proof_offer",
+            "proof_missing",
+            "subject",
+            "proof_parts",
+            "updated_at",
+        ]
+        # Today's reading of the one number, when the builder has one this
+        # morning. Deliberately NOT cleared alongside the judgement fields above:
+        # those describe the task and become wrong the moment the wording changes,
+        # and a count of returns or of rupees is a fact about the day that a
+        # re-worded task does not un-happen.
+        if _record_metric(goal, checkin, request.data.get("metric_value")):
+            fields += ["metric_value", "metric_label"]
+        checkin.save(update_fields=fields)
         return Response(CheckInSerializer(checkin).data)
 
 
@@ -1923,6 +2118,11 @@ class ProveView(throttles.VoicedThrottleMixin, APIView):
         # get stamped on their first proof rather than staying unattributed.
         if not checkin.phase:
             checkin.phase = goal.phase
+        # The evening's reading of the one number, which is the end of the day the
+        # builder actually knows it. Before the judge is called, so it lands in the
+        # same save as the proof — and read by nothing in that call: the judge
+        # scores the evidence, and a number the builder typed is not evidence.
+        _record_metric(goal, checkin, request.data.get("metric_value"))
 
         # Store it if we can, but never let storage decide whether the work
         # counted: the written proof is the record, the screenshot corroborates
@@ -2425,6 +2625,10 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
             # And the day they said they would launch, if they named one. The
             # only fact in the state block the builder put there themselves.
             launch=_launch_payload(goal, today),
+            # And the one number they chose to watch, at the phase where they were
+            # asked for one. The second fact in the state block the builder put
+            # there themselves, and the second that refuses nothing.
+            metric=_metric_payload(goal),
             # What the idea before this one taught them, when this goal is a
             # pivot. Facts, never counts: the gate has been given nothing.
             predecessor=_predecessor(goal),

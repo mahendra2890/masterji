@@ -134,6 +134,16 @@ export type CheckIn = {
    * phase, and the cycle stays open so filing again gets it a real reading. */
   proofStatus: "NONE" | "ACCEPTED" | "PUSHED_BACK" | "UNJUDGED";
   coachReaction: string;
+  /** This day's reading of the one number the builder watches, or null — which
+   * is almost every row, since the number is only ever asked for at TRACTION.
+   * Zero is a real reading and must not be treated as absent. */
+  metricValue: number | null;
+  /** What that number was CALLED on this day, stamped when the reading was
+   * written and never rewritten. After a rename this disagrees with the goal's
+   * current metric name, and this one is the true thing about this evening —
+   * which is what makes renaming a recorded slip rather than a silent
+   * relabelling of the whole series. */
+  metricLabel: string;
   attempts: ProofAttempt[];
 };
 
@@ -326,6 +336,15 @@ export type CoachState = {
   /** launch-checklist.md's ladder, served rather than copied here — the
    * playbook owns the rungs and a second copy would drift. */
   ponds: { value: string; label: string }[];
+  /** The one number they chose to watch, and every reading of it. Null until
+   * they name one: there is no default metric, because a number the app picked
+   * is not one anybody decided to watch. */
+  metric: Metric | null;
+  /** Whether naming one is available. TRACTION only, and read off the PHASE
+   * rather than off arriving in it — TRACTION is the end of the ladder, so a
+   * builder already standing there has no advance left for an invitation to
+   * ride in on. */
+  canSetMetric: boolean;
 };
 
 /** A launch date and its slip trail. Every number is the server's arithmetic
@@ -342,6 +361,26 @@ export type LaunchDate = {
   /** Moves, not rows: naming one for the first time is not a slip. */
   moves: number;
   first: string;
+};
+
+/** The one number the builder watches at TRACTION, and its readings.
+ *
+ * launch-checklist.md's "One metric. Pick the single number that means 'someone
+ * got the value'... and watch only that", finally held by the server. No gate
+ * reads any of it: a number that falls refuses nothing, costs no proof and
+ * breaks no streak. It is a scoreboard, not a bar. */
+export type Metric = {
+  name: string;
+  /** Oldest first, capped server-side. Each reading carries the name it was
+   * taken under, so a series with a seam in it shows the seam. */
+  series: { date: string; value: number; label: string }[];
+  /** How many readings exist in total, which is more than `series.length` once
+   * a goal has been at TRACTION a long time. */
+  held: number;
+  /** How many times they changed what they were counting, measured between two
+   * readings — so a rename with nothing counted under the old name leaves no
+   * mark, because nothing slipped. */
+  swaps: number;
 };
 
 /* --- server shapes ------------------------------------------------------ */
@@ -401,6 +440,8 @@ type ServerCheckIn = {
   proof_image_url?: string;
   proof_status: CheckIn["proofStatus"];
   coach_reaction: string;
+  metric_value?: number | null;
+  metric_label?: string;
   attempts?: {
     id: number;
     text: string;
@@ -410,6 +451,28 @@ type ServerCheckIn = {
     created_at: string;
   }[];
 };
+type ServerMetric = {
+  name: string;
+  series?: { date: string; value: number; label?: string }[];
+  held?: number;
+  swaps?: number;
+};
+
+/** One shape, two callers — the state payload and the endpoint that names the
+ * metric both return it, and a second copy of this mapping is a second chance
+ * for the record card and the control to disagree about the same series. */
+const fromServerMetric = (m: ServerMetric | null): Metric | null =>
+  m && {
+    name: m.name,
+    series: (m.series ?? []).map((r) => ({
+      date: r.date,
+      value: r.value,
+      label: r.label ?? m.name,
+    })),
+    held: m.held ?? (m.series ?? []).length,
+    swaps: m.swaps ?? 0,
+  };
+
 type ServerMessage = {
   id: number;
   role: "USER" | "COACH" | "SYSTEM";
@@ -481,6 +544,10 @@ const fromServerCheckIn = (c: ServerCheckIn): CheckIn => ({
   proofImageUrl: c.proof_image_url ?? "",
   proofStatus: c.proof_status,
   coachReaction: c.coach_reaction,
+  // `?? null` rather than `|| null`: 0 is a real reading, and the evening the
+  // number did not move is the one worth looking at.
+  metricValue: c.metric_value ?? null,
+  metricLabel: c.metric_label ?? "",
   attempts: (c.attempts ?? []).map((a) => ({
     id: a.id,
     text: a.text,
@@ -721,6 +788,8 @@ export async function getState(): Promise<CoachState> {
     } | null;
     can_set_launch?: boolean;
     ponds?: { value: string; label: string }[];
+    metric?: ServerMetric | null;
+    can_set_metric?: boolean;
     workshop?: ServerWorkshop | null;
     workshop_openers?: string[];
     workshop_turns?: number;
@@ -780,6 +849,8 @@ export async function getState(): Promise<CoachState> {
       : null,
     canSetLaunch: data.can_set_launch ?? false,
     ponds: data.ponds ?? [],
+    metric: fromServerMetric(data.metric ?? null),
+    canSetMetric: data.can_set_metric ?? false,
   };
 }
 
@@ -979,6 +1050,21 @@ export async function setLaunchDate(
   };
 }
 
+/** Name the one number you're watching. TRACTION only — anywhere else is a 409,
+ * and its message is the whole of what the builder needs to read.
+ *
+ * Re-settable, and no gate reads it: a metric that falls, stays flat or gets
+ * renamed refuses nothing. The slip that renaming leaves is on the readings
+ * themselves (`CheckIn.metricLabel`), not here. */
+export async function setMetric(id: number, name: string): Promise<Metric> {
+  const data = await request<ServerMetric>(`goals/${id}/metric/`, {
+    method: "POST",
+    body: JSON.stringify({ name }),
+  });
+  // Never null: the endpoint 400s an empty name, so a 200 means one is set.
+  return fromServerMetric(data)!;
+}
+
 /** Read a shared record by its slug. No auth: this is the one endpoint in the
  * app a signed-out stranger is meant to reach. A missing, revoked or wrong
  * slug is the same 404 in every case — the difference between "no such record"
@@ -1033,14 +1119,28 @@ export async function shareRecord(
 /** `dueHour` is the hour the builder says tonight's proof will land, and it is
  * always sent — null when they named none, which is how an hour gets taken
  * back. The declaration is one statement including its hour, so the server
- * writes the whole of it rather than patching a field at a time. */
+ * writes the whole of it rather than patching a field at a time.
+ *
+ * `metricValue` is today's reading of the one number, for a morning the builder
+ * already has it. Unlike the hour it is omitted rather than sent as null, and
+ * that difference is the two fields' contracts: an absent hour MEANS cleared,
+ * while an absent reading means nothing was read — the server never wipes a
+ * number the day already holds. Ignored outside TRACTION or before a metric is
+ * named, because a number may not cost somebody their declaration, so check the
+ * returned row rather than assuming it landed. */
 export async function declare(
   text: string,
-  dueHour: number | null = null
+  dueHour: number | null = null,
+  metricValue?: number | null
 ): Promise<CheckIn> {
   const data = await request<ServerCheckIn>("checkins/declare/", {
     method: "POST",
-    body: JSON.stringify({ text, date: localDate(), due_hour: dueHour }),
+    body: JSON.stringify({
+      text,
+      date: localDate(),
+      due_hour: dueHour,
+      ...(metricValue == null ? {} : { metric_value: metricValue }),
+    }),
   });
   return fromServerCheckIn(data);
 }
@@ -1060,10 +1160,14 @@ export async function judgeDeclaration(id: number): Promise<CheckIn> {
  * bytes go up, then a vision model reads them, possibly on a cold dyno. */
 const PROVE_WITH_IMAGE_TIMEOUT_MS = 60000;
 
+/** `metricValue` is the evening's reading of the one number — the end of the day
+ * the builder actually knows it. Same contract as `declare`: optional, dropped
+ * rather than refused when it cannot be recorded, so it never costs the proof. */
 export async function prove(
   text: string,
   url: string,
-  image?: File | null
+  image?: File | null,
+  metricValue?: number | null
 ): Promise<{ checkin: CheckIn; gate: Gate | null; streak: number }> {
   let body: BodyInit;
   if (image) {
@@ -1072,9 +1176,17 @@ export async function prove(
     form.set("url", url);
     form.set("date", localDate());
     form.set("image", image);
+    // Only when there is one. An empty string here would reach the server as a
+    // value that is present and unparseable rather than as absent.
+    if (metricValue != null) form.set("metric_value", String(metricValue));
     body = form;
   } else {
-    body = JSON.stringify({ text, url, date: localDate() });
+    body = JSON.stringify({
+      text,
+      url,
+      date: localDate(),
+      ...(metricValue == null ? {} : { metric_value: metricValue }),
+    });
   }
   const data = await request<{
     checkin: ServerCheckIn;

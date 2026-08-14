@@ -35,6 +35,7 @@ import {
   retireGoal,
   setPhaseIntent,
   setLaunchDate,
+  setMetric,
   streamChat,
   streamWorkshopChat,
   updateGoalTitle,
@@ -94,6 +95,15 @@ const GOAL_EXAMPLES = [
  * second task after proving the first gets two rows for one date, and the card
  * would rather show seven rows than promise seven days and count them wrong. */
 const RECORD_PREVIEW = 7;
+
+/** How many readings of the one number fit on the goal card. Four because the
+ * card's line is a direction of travel, not the record: the whole series is in
+ * the record card underneath, and the coach is handed the last two. */
+const METRIC_PREVIEW = 4;
+/** Kept in step with views.MetricView.MAX_CHARS. Here so the box stops taking
+ * characters the server would refuse, rather than accepting a sentence and
+ * bouncing it — the cap is what makes it one metric and not several. */
+const METRIC_NAME_MAX = 60;
 
 const formatDate = (iso: string) =>
   new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short" });
@@ -703,6 +713,15 @@ export default function Masterji({ user }: { user: SessionUser }) {
   const [launchDraft, setLaunchDraft] = useState("");
   const [pondDraft, setPondDraft] = useState("");
   const [namingLaunch, setNamingLaunch] = useState(false);
+  // The one number they watch, and whether the box naming it is open. Same rule
+  // as the launch date and for the same reason: no default and no placeholder,
+  // because a metric the app chose is not one anybody decided to watch.
+  const [metricDraft, setMetricDraft] = useState("");
+  const [namingMetric, setNamingMetric] = useState(false);
+  // Tonight's reading of it, as a string, because that is what an input holds
+  // and "" has to stay distinguishable from 0 all the way to the wire — the
+  // evening the number did not move is the one worth recording.
+  const [pmMetric, setPmMetric] = useState("");
   // Whether the room beside the retire box is showing. Client-side only: the
   // room itself is a server row that exists once the builder has said
   // something in it, and this is just which of the two doors is open.
@@ -1030,7 +1049,14 @@ export default function Masterji({ user }: { user: SessionUser }) {
   const onProve = () =>
     run(async () => {
       if (!pmText.trim()) return;
-      const filed = await prove(pmText.trim(), pmUrl.trim(), pmImage);
+      const filed = await prove(
+        pmText.trim(),
+        pmUrl.trim(),
+        pmImage,
+        // "" is no reading, "0" is a reading of zero. Number("") is 0, so the
+        // emptiness has to be checked before the conversion rather than after.
+        pmMetric.trim() === "" ? null : Number(pmMetric.trim())
+      );
       // Emptying the box is right when the evening is settled — accepted, or
       // pushed back and owed a different answer. An unread proof is neither:
       // nothing was wrong with it, the model just wasn't there, and the only
@@ -1040,7 +1066,19 @@ export default function Masterji({ user }: { user: SessionUser }) {
         setPmText("");
         setPmUrl("");
         setPmImage(null);
+        // Cleared on the same line as the rest of the form, and only when the
+        // evening is settled: a pushed-back proof gets refiled from this box, and
+        // the number is a fact about the day that the push-back did not change.
+        setPmMetric("");
       }
+      await refresh();
+    });
+
+  const onNameMetric = () =>
+    run(async () => {
+      if (!state?.goal || !metricDraft.trim()) return;
+      await setMetric(state.goal.id, metricDraft.trim());
+      setNamingMetric(false);
       await refresh();
     });
 
@@ -2337,6 +2375,85 @@ export default function Masterji({ user }: { user: SessionUser }) {
               </div>
             )}
 
+            {/* The one number, at the end of the ladder. Beside the launch date
+                because they are the same kind of thing: the only two facts on
+                this card the builder put there themselves rather than earned,
+                and the only two nothing counts.
+
+                A control, and only a control — same rule the launch date
+                follows. Why you watch one number and not four, and that a number
+                which falls costs nothing, is a sentence in the tour rather than
+                help text wedged in here.
+
+                TRACTION only, and offered on the phase rather than on arriving
+                in it: TRACTION is the last rung, so a builder who was already
+                standing here when this shipped has no advance left for an
+                invitation to ride in on. */}
+            {state.canSetMetric && (
+              <div className={styles.launch}>
+                {state.metric && !namingMetric ? (
+                  <button
+                    type="button"
+                    className={styles.launchSet}
+                    onClick={() => {
+                      setMetricDraft(state.metric!.name);
+                      setNamingMetric(true);
+                    }}
+                  >
+                    <span className={styles.launchWhen}>
+                      Watching {state.metric.name}
+                      {/* The series, newest last, so it reads the way it moved.
+                          Absent until there is a reading — a metric named this
+                          morning has no line yet, and drawing an empty one would
+                          be the app filling in the builder's answer. */}
+                      {state.metric.series.length > 0 && (
+                        <>
+                          {" · "}
+                          {state.metric.series
+                            .slice(-METRIC_PREVIEW)
+                            .map((r) => r.value)
+                            .join(" → ")}
+                        </>
+                      )}
+                    </span>
+                    {/* Stated, never softened — the same rule the launch date's
+                        move count follows. A swap you can hide is not a record of
+                        what you were watching. */}
+                    {state.metric.swaps > 0 && (
+                      <span className={styles.launchMoved}>
+                        changed {state.metric.swaps}×
+                      </span>
+                    )}
+                  </button>
+                ) : (
+                  <div className={styles.launchBox}>
+                    <label className={styles.launchLabel} htmlFor="metric-name">
+                      Which number means somebody got the value?
+                    </label>
+                    <div className={styles.launchRow}>
+                      <input
+                        id="metric-name"
+                        className={styles.input}
+                        placeholder="paid deposits"
+                        maxLength={METRIC_NAME_MAX}
+                        value={metricDraft}
+                        onChange={(e) => setMetricDraft(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && onNameMetric()}
+                      />
+                      <button
+                        type="button"
+                        className={styles.secondaryBtn}
+                        disabled={busy || !metricDraft.trim()}
+                        onClick={onNameMetric}
+                      >
+                        Set
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             {gate && gate.need > 0 && (
               <>
                 <div className={styles.gateRow}>
@@ -2824,6 +2941,35 @@ export default function Masterji({ user }: { user: SessionUser }) {
                       value={pmUrl}
                       onChange={(e) => setPmUrl(e.target.value)}
                     />
+                    {/* Tonight's reading of the one number, on the evening form
+                        because the evening is when a builder knows it. Only once
+                        they have named one: the box asks for a reading of
+                        something, and "enter a number" with no noun beside it is
+                        the app inventing the metric.
+
+                        Left empty every night rather than carried forward from
+                        yesterday. A prefilled number is a number nobody counted,
+                        and the whole value of the series is that each point is a
+                        thing somebody went and looked at. */}
+                    {state.metric && (
+                      <label className={styles.metricAsk}>
+                        {/* The day first, then the name. "<name> today" reads
+                            cleanly for "signups" and turns into a run-on the
+                            moment the metric is a phrase — and a metric may be
+                            sixty characters. */}
+                        <span>Today&apos;s {state.metric.name}</span>
+                        <input
+                          className={styles.input}
+                          type="number"
+                          min={0}
+                          step={1}
+                          inputMode="numeric"
+                          placeholder="optional"
+                          value={pmMetric}
+                          onChange={(e) => setPmMetric(e.target.value)}
+                        />
+                      </label>
+                    )}
                     {/* Only offered when the bucket is actually wired, so the
                         form never promises to take something the server would
                         drop. */}
@@ -2953,6 +3099,57 @@ export default function Masterji({ user }: { user: SessionUser }) {
           {checkins.length > 0 && (
             <section className={styles.card}>
               <p className={styles.cardLabel}>The record</p>
+              {/* The one number, over the days it was read on — at the top of the
+                  record because that is what it is: a record, kept by the
+                  builder, of the thing they said mattered.
+
+                  Each reading shows the name it was taken UNDER, not the name the
+                  metric has now. After a swap the two disagree, and the row is the
+                  one that is true about that evening — that difference is the
+                  whole of what makes renaming honest instead of silent, and
+                  collapsing it here would put the lie back.
+
+                  Only drawn once there is a reading. A named metric with nothing
+                  counted yet has no series, and an empty one on the record would
+                  be the card describing its own form. */}
+              {state.metric && state.metric.series.length > 0 && (
+                <div className={styles.metricSeries}>
+                  <p className={styles.metricSeriesLabel}>
+                    {state.metric.name}
+                    {state.metric.held > state.metric.series.length && (
+                      <span className={styles.metricSeriesMore}>
+                        {" "}
+                        · last {state.metric.series.length} of{" "}
+                        {state.metric.held}
+                      </span>
+                    )}
+                  </p>
+                  <ul className={styles.metricPoints}>
+                    {state.metric.series.map((r, i) => (
+                      <li key={`${r.date}.${i}`}>
+                        <span className={styles.metricPointValue}>{r.value}</span>
+                        <span className={styles.metricPointDay}>
+                          {formatDay(r.date)}
+                        </span>
+                        {/* Named only where it differs from what they watch now,
+                            because that is the only place it says anything.
+
+                            Bracketed, and that is not softening it. The readings
+                            wrap as a flex row, so on the screen "3 · 13 Aug ·
+                            paid deposits · 40 · 14 Aug" put the old name between
+                            two numbers and read as though it belonged to the
+                            second one. Grouping that survives any wrap has to be
+                            in the text, not in a gap. */}
+                        {r.label !== state.metric!.name && (
+                          <span className={styles.metricPointWas}>
+                            ({r.label})
+                          </span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
               <ul className={styles.history}>
                 {(() => {
                   const ordered = newestFirst(days);
