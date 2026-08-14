@@ -222,11 +222,27 @@
   cursor: default;
 }
 
-/* The quiet row under the onboarding form: sign out, and what's changed. */
+/* The quiet row under the onboarding form: sign out, and what's changed.
+   Wraps, because it ran out of width the moment it went to five items.
+
+   At 390 the five come to 344px inside 342, and `nowrap` does not overflow
+   visibly — it SHRINKS, which is worse than either. Flex takes the width out
+   of the item that will give it up, and the rule below has deliberately taken
+   this row's sign-out button off its min-width, so sign out is the first thing
+   crushed: it was measured at 27px across three lines, next to a two-line
+   "delete account". The one control the comment below is entirely about
+   protecting is the one that collapsed first.
+
+   Wrapping keeps every item at its own width and its 44px target, and it
+   keeps the order the rule below depends on — sign out stays leftmost on the
+   first line and the newest item is the one that drops to the second. The
+   header's own account row (.headerRight) has wrapped from the start, which is
+   why the same five items are fine there and were only wrong here. */
 .onboardFooter {
   display: flex;
   align-items: center;
-  gap: 16px;
+  flex-wrap: wrap;
+  gap: 4px 16px;
   margin-top: 16px;
 }
 
