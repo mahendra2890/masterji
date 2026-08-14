@@ -5,14 +5,17 @@ rewritten, and `gates.py` does not know either of these tables exists — a
 cohort is a lens over rows the product already keeps, so the numbers on its
 board are the same counts the builder's own dashboard shows.
 
-Numbered 0083 with 0081 skipped, and the gap is the point rather than an
-accident. Two sessions were mid-build on 0081 (#98) and 0082 (#96) when this
-branched and neither had pushed, so `main`'s graph could not show either — the
-one collision in this repository that leaves a visible artifact, and the
-cheapest possible fix is to not take a number somebody is already holding.
-0082 landed while this was being built and this was repointed onto it; 0081 is
-still in flight in an open pull request, and depending on 0082 puts this after
-it either way.
+Numbered 0084, and it took three tries to get there — which is the argument for
+checking the leaf again immediately before merging rather than only before
+pushing. This was written as 0081, moved to 0083 to leave room for two sessions
+holding 0081 (#98) and 0082 (#96) that had not pushed, and repointed onto 0082
+when #96 landed mid-build. Then #98 landed too — renumbered to 0083 itself, the
+number this file was sitting on. Both depended on 0082, so merging would have
+put two leaves on `main` and `migrate` would have refused: the deploy stops for
+everybody, and nothing about the diff would have hinted why.
+
+Leaving a gap is not protection. The number a branch is holding is invisible
+until it merges, so the only check that works is the one run last.
 """
 
 import django.db.models.deletion
@@ -26,7 +29,7 @@ import coach.models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('coach', '0082_the_hour_they_named'),
+        ('coach', '0083_the_one_number_they_watch'),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
