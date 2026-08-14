@@ -50,6 +50,7 @@ from .models import (
     WorkshopMessage,
 )
 from .serializers import (
+    BRIEF_CHARS,
     ChangelogEntrySerializer,
     CheckInSerializer,
     GoalSerializer,
@@ -875,6 +876,33 @@ class GoalsView(APIView):
             phase=goal.phase,
             content=WELCOME.format(title=goal.title),
         )
+        # What the room worked out, moved onto the goal before the room is
+        # spent. Both halves are copies rather than a foreign key: the workshop
+        # is a vestibule that closes behind them, and a goal that had to reach
+        # back through it for the idea's own body would be reading from a room
+        # the product says they have left.
+        #
+        # A brief the builder typed at the commit box is never overwritten —
+        # they wrote it after everything the room said, so it is the later
+        # word, not the earlier one.
+        # The same filter that spends it below, rather than _open_workshop:
+        # that helper is guarded on there being no active goal, which stopped
+        # being true one statement ago. Two readers of one row, and they must
+        # not disagree about which room this commit belongs to.
+        workshop = Workshop.objects.filter(
+            user=request.user, status=Workshop.Status.OPEN
+        ).first()
+        if workshop is not None:
+            carried: list[str] = []
+            if workshop.brief and not goal.brief:
+                goal.brief = workshop.brief
+                carried.append("brief")
+            if workshop.candidates:
+                goal.considered = list(workshop.candidates)
+                carried.append("considered")
+            if carried:
+                goal.save(update_fields=[*carried, "updated_at"])
+                logger.info(f"Goal {goal.id} carried {carried} out of the workshop")
         # The workshop is spent by the commit it was for, whether or not the
         # title came out of it — a builder who thought in there and then typed
         # something else entirely still used the room. The next one opens when
@@ -1476,16 +1504,63 @@ class ProveView(throttles.VoicedThrottleMixin, APIView):
         )
 
 
+def _brief_from_workshop(arguments: dict) -> dict | None:
+    """The room's answer to IDEA's bar, from a suggest_goal call.
+
+    The same two functions that will read tonight's real proof do the work
+    here, unchanged: `bar.read` composes the parts into one paragraph, and
+    `bar.labels` counts which of the four came back. The model extracted; the
+    server did the rest, and `parts` is arithmetic over the arguments rather
+    than anything the model was asked to assert about itself.
+
+    Only the four declared part keys are passed on. `bar.read` prefers a `text`
+    argument when it is given one, and suggest_goal's schema does not declare
+    one — so filtering here is what stops an undeclared argument from becoming
+    the paragraph the coach is later told the builder said.
+
+    None means the call carried a title and nothing else, which is every
+    workshop that spent its turns on the tiebreak rather than on the body of
+    the idea. That is a normal room, not a failure, and it leaves the goal
+    exactly as it was before this existed.
+    """
+    given = {
+        part.key: arguments.get(part.key) for part in bar.BAR[Phase.IDEA].parts
+    }
+    labels = bar.labels(Phase.IDEA, given)
+    if not labels.parts:
+        return None
+    text = bar.read(Phase.IDEA, given).text.strip()
+    if not text:
+        return None
+    return {
+        # Trimmed to the same width a hand-written brief is held to: this lands
+        # in a prompt block that has to stay a paragraph, and unlike an
+        # accepted proof there is no row it would then disagree with.
+        "text": text[:BRIEF_CHARS],
+        "parts": labels.parts,
+        "source": "WORKSHOP",
+        "written_at": timezone.now().isoformat(),
+    }
+
+
 def _brief_from_proof(goal: Goal, checkin: CheckIn) -> dict | None:
     """The idea's body, written the one time IDEA's proof is accepted.
 
     None means leave the goal's brief exactly as it is, and there are four ways
     to get it. Three are "this is not that moment" — the verdict was not an
     accept, the evening was earned in some later phase, the row carries no text.
-    The fourth is the one worth stating: **a brief already there is never
-    overwritten.** A builder (or the workshop, once #163 lands) may have written
-    the idea in their own words before anything banked, and the proof arriving
-    later does not get to replace what they said with what they filed.
+    The fourth is the one worth stating: **a brief the BUILDER wrote is never
+    overwritten.** They may have written the idea in their own words before
+    anything banked, and the proof arriving later does not get to replace what
+    they said with what they filed.
+
+    A brief the WORKSHOP wrote is replaced, and the distinction is the point.
+    That one is a paragraph the coach composed out of a conversation, kept
+    because it was better than the blank the goal used to carry — a sketch,
+    made before anything was judged, and possibly covering two of the four
+    parts. This one is the builder's own four-part answer, the only one the
+    gate has ever accepted. When both exist the second is the founding
+    statement of the idea and the first was standing in for it.
 
     Why this reads `pm_proof_text` rather than the four parts as fields: it
     cannot read them, and the reason is a rule rather than an omission. Every
@@ -1514,7 +1589,7 @@ def _brief_from_proof(goal: Goal, checkin: CheckIn) -> dict | None:
     # verdict that advances the goal must still attribute its proof to IDEA.
     if (checkin.phase or goal.phase) != Phase.IDEA:
         return None
-    if goal.brief:
+    if goal.brief and goal.brief.get("source") != "WORKSHOP":
         return None
     text = (checkin.pm_proof_text or "").strip()
     if not text:
@@ -2078,6 +2153,7 @@ class WorkshopChatView(throttles.VoicedThrottleMixin, APIView):
         candidates = list(workshop.candidates or [])
         parked: list[str] = []
         suggested = ""
+        brief: dict | None = None
         refused_park = False
         broke = False
         with tracer.start_as_current_span("coach.workshop") as span:
@@ -2086,7 +2162,10 @@ class WorkshopChatView(throttles.VoicedThrottleMixin, APIView):
                 for kind, payload in llm.stream_chat(
                     system,
                     history,
-                    tools=[prompts.PARK_CANDIDATE_TOOL, prompts.SUGGEST_GOAL_TOOL],
+                    tools=[
+                        prompts.PARK_CANDIDATE_TOOL,
+                        prompts.suggest_goal_tool(),
+                    ],
                 ):
                     if kind == "delta":
                         parts.append(payload)
@@ -2119,6 +2198,14 @@ class WorkshopChatView(throttles.VoicedThrottleMixin, APIView):
                                 # turn replaces the earlier one, the way a later
                                 # suggest_proof replaces the draft.
                                 suggested = title[:200]
+                            # The room's own answer to IDEA's bar, composed and
+                            # counted by the module that will read the real
+                            # thing tonight. Kept whether or not a title came
+                            # with it: the two are separate facts, and thinking
+                            # that arrived without a headline is still thinking.
+                            drafted = _brief_from_workshop(arguments)
+                            if drafted is not None:
+                                brief = drafted
             except Exception as e:
                 logger.error(f"Workshop stream failed: {e}")
                 broke = True
@@ -2130,11 +2217,15 @@ class WorkshopChatView(throttles.VoicedThrottleMixin, APIView):
                 fields.append("candidates")
             if suggested:
                 fields.append("suggested_title")
+            if brief is not None:
+                fields.append("brief")
             if fields:
                 if parked:
                     workshop.candidates = candidates
                 if suggested:
                     workshop.suggested_title = suggested
+                if brief is not None:
+                    workshop.brief = brief
                 workshop.save(update_fields=[*fields, "updated_at"])
                 span.set_attribute("workshop.candidates", len(candidates))
                 logger.info(

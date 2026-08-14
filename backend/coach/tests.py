@@ -6430,3 +6430,192 @@ class WeeklyDigestTests(CoachTestCase):
         )
         self.assertIn("4 of 7 days complete", block)
         self.assertIn("2 accepted", block)
+
+
+class WorkshopSurvivesTheCommitTests(CoachTestCase):
+    """What the room worked out, on the goal it produced.
+
+    The complaint this answers is the product's own loudest one, reproduced one
+    screen later: fifteen turns establish the problem, who has it and where
+    those people are, and IDEA's bar then asks for the problem, one place they
+    already are, why the builder thinks so, and how they would get one
+    conversation. The same four things, of somebody who has just said them.
+
+    Every guard that keeps this context rather than evidence is pinned here.
+    Nothing in it banks, nothing advances, and IDEA's one proof is still owed
+    in full — what changes is that the first morning starts from what they
+    already said.
+    """
+
+    URL = "/api/coach/workshop/chat/"
+
+    ROOM = {
+        "title": "Tiffin for Block C",
+        "problem": "Hostellers miss dinner when labs run late and end up on Maggi",
+        "place": "the Block C mess queue at 8pm",
+    }
+
+    def say(self, arguments):
+        """One workshop turn whose only event is a suggest_goal call."""
+        stream = [("tool_call", {"name": "suggest_goal", "arguments": arguments})]
+        with mock.patch("coach.views.llm.stream_chat", return_value=iter(stream)):
+            response = self.client.post(self.URL, {"content": "this one, then"})
+            b"".join(response.streaming_content)
+        return Workshop.objects.get(user=self.alice)
+
+    def commit(self, title="Tiffin for Block C"):
+        response = self.client.post("/api/coach/goals/", {"title": title})
+        self.assertEqual(response.status_code, 201)
+        return Goal.objects.get(user=self.alice, title=title)
+
+    # --- the room's answer, extracted by the model and counted by the server --
+
+    def test_the_room_answers_ideas_bar_and_the_server_composes_it(self):
+        """The suggest_proof division of labour, one screen earlier: the model
+        extracts the parts, `bar.read` writes the paragraph and `bar.labels`
+        says which of the four came back. `parts` is arithmetic over the
+        arguments — the model is never asked to grade its own answer."""
+        brief = self.say(self.ROOM).brief
+        self.assertEqual(brief["parts"], ["problem", "place"])
+        self.assertEqual(brief["source"], "WORKSHOP")
+        self.assertIn("miss dinner when labs run late", brief["text"])
+        self.assertIn("Block C mess queue", brief["text"])
+        # And the two the room never reached are absent rather than invented.
+        self.assertNotIn("why_there", brief["parts"])
+        self.assertNotIn("first_conversation", brief["parts"])
+
+    def test_a_title_alone_writes_no_brief(self):
+        """Every room that spent its turns on the tiebreak rather than on the
+        body of the idea. A normal workshop, not a failure — and it must leave
+        the goal exactly as it was before any of this existed."""
+        self.assertEqual(self.say({"title": "Tiffin for Block C"}).brief, {})
+        self.assertEqual(self.commit().brief, {})
+
+    def test_an_undeclared_text_argument_cannot_become_the_paragraph(self):
+        """`bar.read` prefers a `text` argument when given one, and
+        suggest_goal's schema does not declare one. Filtering to the four part
+        keys is what stops a model-authored aside from arriving in the coach's
+        prompt as something the builder is on record as having said."""
+        brief = self.say({**self.ROOM, "text": "they will definitely pay for this"})
+        self.assertNotIn("definitely pay", brief.brief["text"])
+
+    # --- the commit line -----------------------------------------------------
+
+    def test_the_commit_carries_the_brief_and_the_pile(self):
+        """Both halves move onto the goal before the room is spent, because the
+        room closes behind them and a goal that reached back through it for the
+        idea's own body would be reading from somewhere they have left."""
+        self.say(self.ROOM)
+        workshop = Workshop.objects.get(user=self.alice)
+        workshop.candidates = ["hostellers miss dinner", "lab slot swaps", "cycle repair"]
+        workshop.save(update_fields=["candidates"])
+
+        goal = self.commit()
+        self.assertEqual(goal.brief["source"], "WORKSHOP")
+        self.assertIn("miss dinner when labs run late", goal.brief["text"])
+        # Every one-liner the room parked, including the one this goal came
+        # from: the commit box is free text, so no server can know which of
+        # them became the title, and a wrong exclusion loses exactly the
+        # thinking the field exists to keep.
+        self.assertEqual(len(goal.considered), 3)
+        self.assertIn("lab slot swaps", goal.considered)
+        # The room is still spent by the commit it was for.
+        self.assertEqual(
+            Workshop.objects.get(user=self.alice).status, Workshop.Status.SPENT
+        )
+
+    def test_the_pile_is_not_the_builders_to_rewrite_afterwards(self):
+        """A record of what they were choosing between, not a list they may
+        edit: the workshop is closed, and rewriting its pile would rewrite the
+        question this goal was the answer to."""
+        self.say(self.ROOM)
+        workshop = Workshop.objects.get(user=self.alice)
+        workshop.candidates = ["hostellers miss dinner"]
+        workshop.save(update_fields=["candidates"])
+        goal = self.commit()
+
+        response = self.client.patch(
+            f"/api/coach/goals/{goal.id}/", {"considered": ["something else"]}
+        )
+        self.assertEqual(response.status_code, 200)
+        goal.refresh_from_db()
+        self.assertEqual(goal.considered, ["hostellers miss dinner"])
+
+    def test_a_brief_typed_at_the_box_outranks_the_rooms(self):
+        """They wrote it after everything the room said, so it is the later
+        word and not the earlier one."""
+        self.say(self.ROOM)
+        response = self.client.post(
+            "/api/coach/goals/",
+            {"title": "Tiffin for Block C", "brief": {"text": "My own words for it."}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 201)
+        goal = Goal.objects.get(user=self.alice)
+        self.assertEqual(goal.brief["source"], "BUILDER")
+        self.assertEqual(goal.brief["text"], "My own words for it.")
+
+    # --- what a sketch is worth once a verdict exists ------------------------
+
+    def test_an_accepted_proof_replaces_the_rooms_sketch_and_not_the_builders(self):
+        """The reversal worth stating. A workshop brief is a paragraph the
+        coach composed before anything was judged, possibly covering two of the
+        four parts; an accepted IDEA proof is the builder's own four-part
+        answer and the only one the gate has ever seen. When both exist the
+        second is the founding statement and the first was standing in for it.
+
+        A brief the builder typed is the other case and keeps its ground: that
+        is also their own words, and the proof does not get to overwrite what
+        they said with what they filed."""
+        goal = self.make_goal()
+        checkin = CheckIn.objects.create(
+            goal=goal,
+            date=date.today(),
+            phase=Phase.IDEA,
+            proof_status=CheckIn.ProofStatus.ACCEPTED,
+            pm_proof_text="The four-part answer as I filed it.",
+            proof_parts=["problem", "place", "why_there", "first_conversation"],
+        )
+
+        goal.brief = {"text": "the room's sketch", "parts": ["problem"], "source": "WORKSHOP"}
+        replaced = views._brief_from_proof(goal, checkin)
+        self.assertIsNotNone(replaced)
+        self.assertEqual(replaced["source"], "PROOF")
+        self.assertEqual(replaced["text"], "The four-part answer as I filed it.")
+
+        goal.brief = {"text": "my own words", "parts": [], "source": "BUILDER"}
+        self.assertIsNone(views._brief_from_proof(goal, checkin))
+
+    # --- the first morning ---------------------------------------------------
+
+    def test_the_first_morning_is_told_what_the_room_did_not_cover(self):
+        """#163's other half. Naming the gaps is right here and wrong for an
+        accepted proof: no gate has passed on this, IDEA's proof is owed in
+        full, and the parts the conversation never reached are exactly what
+        that evening is for."""
+        block = prompts.idea_block(
+            {"text": "the sketch", "parts": ["problem", "place"], "source": "WORKSHOP"}
+        )
+        self.assertIn("never to be asked for again", block)
+        self.assertIn("still owed in full", block)
+        self.assertIn("why you think they're there", block)
+        self.assertIn("how you'd get one conversation this week", block)
+        # The two it did cover are not listed as owed.
+        self.assertNotIn("one specific place these people already are", block)
+
+        # A room that covered all four says so instead of listing nothing.
+        whole = prompts.idea_block(
+            {
+                "text": "the sketch",
+                "parts": ["problem", "place", "why_there", "first_conversation"],
+                "source": "WORKSHOP",
+            }
+        )
+        self.assertIn("already covers all four", whole)
+
+        # And a brief the gate wrote is never audited back at the coach.
+        proof = prompts.idea_block(
+            {"text": "the filed answer", "parts": ["problem"], "source": "PROOF"}
+        )
+        self.assertNotIn("still owed in full", proof)
+        self.assertNotIn("why you think they're there", proof)
