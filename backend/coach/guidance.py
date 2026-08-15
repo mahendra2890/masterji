@@ -8,6 +8,14 @@ all of it is the single source of truth — the dashboard reads these over the
 API rather than keeping its own copy, because two copies drift and only one of
 them is the one gates.py enforces.
 
+It is also every OTHER sentence the product says in its own voice — the welcome
+written at goal creation, the brief for a phase just earned, the receipts, the
+refusals and the workshop's spent-turn exits, at the bottom of this file. They
+were in views.py until #293, which meant a reviewer asked to check what the
+coach says had to know that half of it was in a file called views. There is one
+home now, and this is it: coach-visible copy goes here, not next to the code
+that happens to send it.
+
 Examples are written here, not harvested. The repo is public and the corpus a
 builder learns from should be as auditable as the gate that judges them.
 """
@@ -483,3 +491,288 @@ WORKSHOP_OPENERS = [
     "Is my idea too obvious?",
     "Someone's already built this.",
 ]
+
+
+# --- The coach's own sentences, moved here from views.py ------------------
+#
+# Everything below is what the product says in its own voice at a moment the
+# HTTP layer happens to be the one that reaches it: the welcome written at goal
+# creation, the brief for a phase just earned, the receipts for a wordless
+# tool-call turn, the two refusals and the workshop's spent-turn exits. They
+# lived in views.py for no reason but where the code that sends them sits, which
+# meant a reviewer asked to check what the coach says had to know that half of
+# it was in a file called views.
+#
+# Moved verbatim, comments included. Nothing here changed wording.
+
+# Named, never pointed at. "Above" was true in no layout the product has:
+# on a laptop the check-in is the LEFT column, and on a phone it is behind a
+# tab you can't see while you're reading this. Both spellings sent half the
+# builders looking in the wrong place on the one screen where they have no
+# idea yet which half of the app does what. "Today" is the label on the card
+# and on the phone tab, so it survives the breakpoint.
+WHERE_TO_FILE = "Today"
+
+# Ends on the gate, not on "talking to me records nothing on its own", which
+# is the first thing a builder ever reads from him and told them their half
+# of the deal was worthless before they had said a word. It was also out of
+# date: he drafts the evening's proof from the conversation, so the chat is
+# where the proof comes FROM even though it is not where it lands. Same order
+# as the note under the reply box — what he does with it first, the gate
+# second — and the promise waits on a declaration for the same reason
+# _offer_target does: with no task to hang notes on, there is nothing to write
+# up yet.
+#
+# The second sentence is the commit screen's reframe arriving a moment later,
+# and it is here rather than only there because this is the first thing the
+# coach himself says: "this is yours now" is the whole of what the builder had
+# to go on, and it reads as a lock rather than as the start of a test. The
+# reframe is one sentence and no more — the message's job past that point is the
+# phase in front of them, and the record promise (an idea that dies in front of
+# real people reads as tested) belongs on the screen where the hesitation
+# actually happens, not stacked on top of the week's instructions.
+WELCOME = (
+    'Goal locked: "{title}". Rule one: one goal at a time, and this is yours '
+    "now. What you picked is the problem you test first, not an idea you are "
+    "stuck with. You start in IDEA — write a one-paragraph problem statement, then "
+    "the route to these people: one place they already are, why you think "
+    "they're there, and how you'd get one conversation this week. No names "
+    "needed, and you won't message anyone until VALIDATION. Declare today's "
+    f"task under {WHERE_TO_FILE} and I'll write tonight's proof out of what "
+    "you tell me here — but nothing counts until you file it there."
+)
+
+# What the phase a builder just EARNED is for, in the register WELCOME uses.
+#
+# The asymmetry this exists to close: signing up writes the 107 words above,
+# which brief IDEA completely, and earning a phase wrote five — gates.py's
+# "Phase unlocked: X → Y." — for the four transitions that are the bigger
+# context switch of the two. IDEA is desk work the builder was just briefed on;
+# BUILD arrives with a different count, a kind requirement the earlier phases
+# never had, and a nine-word PHASE_HINT that is the same for every builder
+# forever.
+#
+# Keyed by the phase moved INTO, so IDEA has no entry and cannot: nobody
+# advances into it, and WELCOME already briefs it at the only moment a goal is
+# ever there.
+#
+# Distilled from each phase's playbooks rather than written fresh. The corpus
+# already says what each phase is for, and a brief teaching something it does
+# not would be a second bar arriving by the back door — one the builder reads
+# once, at speed, and never sees again. What each one adds past the playbook is
+# the COUNT: it is the half PHASE_HINT has no room for, and without it the
+# first thing to name the new bar is a refusal.
+UNLOCKED_BRIEF = {
+    Phase.VALIDATION: (
+        "VALIDATION is three conversations with three different people — the "
+        "same willing friend three times is one person, and it is the server "
+        "counting, not me. Ask what they did the last time this happened, not "
+        "whether they would use your app: people are honest about what they "
+        "did and fantasists about what they'll do. Each night is one "
+        "conversation — who, three things in their own words, what they last "
+        "did about it, and what you asked them to give up."
+    ),
+    Phase.BUILD: (
+        "BUILD wants two nights of evidence, and at least one has to be a real "
+        "person touching the thing — two links nobody opened is an artifact, "
+        "not this phase. Scope by subtraction: whatever the first ten users "
+        "could live without goes on the later list, and the later list is "
+        "where features go to be forgotten. If it can't be in front of "
+        "somebody within a week, it isn't the small version yet."
+    ),
+    Phase.LAUNCH: (
+        "LAUNCH is three nights in front of strangers, and one of them has to "
+        "be somebody acting — posting is not somebody acting. Climb one rung a "
+        "day: the people who already talked to you, the rooms they sit in, the "
+        "public ponds, then the ask. A no with the reason they gave is "
+        "evidence and counts; silence is not."
+    ),
+    Phase.TRACTION: (
+        "TRACTION is the last rung — there is no phase above it, and what it "
+        "asks for is one stranger who came back on their own, or who paid. Two "
+        "people using it once each is not that. Recruit one at a time, "
+        "over-serve the first ten embarrassingly, and watch returns rather "
+        "than signups: signups are the number that flatters."
+    ),
+}
+
+# Said when the builder sharpens the wording of a goal nothing has been banked
+# against yet. In the transcript rather than only in the response, because the
+# transcript is the memory: a title that changed with nothing said about it makes
+# every message above it read as though it had always been about the new wording.
+#
+# Both wordings are named. WELCOME froze the original at the top of the log
+# already, so nothing is being hidden — this is the line that connects the two
+# without the builder having to scroll for it.
+TITLE_SHARPENED = (
+    'Reworded: "{before}" → "{after}". Nothing is banked against this goal yet, '
+    "so nothing moved — same goal, sharper sentence. The days and the streak are "
+    "where they were."
+)
+
+# And the refusal, once the record does point at the wording. Names the condition
+# rather than the rule, and leaves the honest door open: the sentence about a goal
+# kept out of guilt is the one the coach already uses in the personal register.
+TITLE_LOCKED = (
+    "There is proof on the record filed against this wording, so it stays as it "
+    "is — those evenings were for this goal, and renaming it now would quietly "
+    "rewrite what they were for. Keep it, or close it honestly and start the one "
+    "you'd choose now."
+)
+
+# A draft Masterji wrote out of the conversation with no check-in to pin it
+# to. It used to end at a server log: the builder had done the work, said it
+# out loud, and watched the reply go by with no sign that any of it had been
+# written up or thrown away. The draft is theirs, so it goes back to them —
+# in the transcript, where declaring first costs them the declaration and not
+# the writing-up as well.
+#
+# Said ONLY when nothing was declared today. There is a second evening with
+# nothing to pin a draft to and it is the opposite situation — see
+# OFFER_DAY_CLOSED.
+OFFER_NO_DECLARATION = (
+    "That reads like tonight's proof — but there's no task declared this "
+    "morning, so I have nothing to pin it to. Declare one under "
+    f"{WHERE_TO_FILE} and file this:\n\n{{offer}}"
+)
+
+# The same handed-back draft on an evening that is already finished: today's
+# task was declared, proved and closed, so there is no open cycle — and the
+# line above would be a flat contradiction of the card the builder is looking
+# at, which reads "Declared: <task>" with a green "✓ accepted" under it. It
+# said that in real use: a builder closed out a VALIDATION conversation, kept
+# talking, described more work, and was told nothing had been declared this
+# morning.
+#
+# So this one names what actually happened and offers the way on. More than
+# one cycle a day is a supported thing, not a loophole (see CheckIn's
+# docstring) — "Declare another task" is the button waiting on that card.
+OFFER_DAY_CLOSED = (
+    "That reads like another proof — but today's cycle is already declared, "
+    "filed and closed, so I have nothing open to pin it to. If this is a "
+    "second piece of real work, declare another task under "
+    f"{WHERE_TO_FILE} and file this against it:\n\n{{offer}}"
+)
+
+# Said when Masterji spends a whole turn writing tonight's proof and adding
+# nothing to it. The draft itself is deliberately NOT repeated here: it is on
+# the check-in, where one tap files it, and two copies of one offer means one
+# of them does nothing. This is the receipt for the other copy. Without it the
+# turn was silent — the work landed on the Today card and the chat, the screen
+# the builder was actually watching, showed their message with no answer under
+# it. A tool call is not a reason to say nothing to someone who just spoke.
+OFFER_LANDED = (
+    "Wrote tonight's proof up from what you just told me — it's under "
+    f"{WHERE_TO_FILE}, yours to edit before you file it."
+)
+
+# The same receipt for a turn that banked a PART of tonight's proof and said
+# nothing around it. It has to carry the gap: notes that don't say what is still
+# owed read as a finished proof the builder can go and file, and they'd be
+# pushed back for a piece nobody told them was missing.
+NOTES_LANDED = (
+    "Noted what you've given me so far — it's under "
+    f"{WHERE_TO_FILE}. Still need: {{missing}}"
+)
+
+# The morning's version of OFFER_LANDED: the receipt for a turn that wrote
+# today's task down and said nothing around it. Same argument as its neighbour
+# — a tool call is not a reason to say nothing to someone who just spoke — and
+# the draft is deliberately not repeated here, because it is in the box on the
+# card where one tap declares it, and a second copy in the chat is the one the
+# builder cannot press.
+#
+# It has to say that nothing is declared yet. That is the whole difference
+# between this and OFFER_LANDED: filing a proof is the end of the day and a
+# builder who misreads the receipt has still done the work, but a builder who
+# reads this as "declared" spends the day owing a proof against a task the
+# server has never been told about.
+DECLARATION_LANDED = (
+    "Put today's task in the box under "
+    f"{WHERE_TO_FILE} — in your words, as I heard them. Nothing is declared "
+    "until you press it."
+)
+
+# On the wire when the model drops the turn, and in the transcript too when it
+# drops it before the first token. Those turns used to save no reply at all,
+# and the refetch that ends every turn then replaced the bubble the builder
+# was watching with a record of them talking to themselves. The banner
+# carrying this is gone by tomorrow morning. The hole in the day isn't.
+STREAM_BROKE = "Masterji lost the thread — try again."
+
+# The workshop's three receipts, and the same argument as OFFER_LANDED above:
+# a tool call is not a reason to say nothing to someone who just spoke. It is
+# the room that can least afford the silence. The workshop is reachable before
+# a goal exists, so this is often a builder's first exchange with the product;
+# the meter counts their own rows, so the turn that bought the silence is the
+# turn that spent the budget; and the thing that *did* happen landed on a panel
+# beside the conversation, which they may not be looking at. Nothing about that
+# turn reads as broken. It reads as being ignored.
+#
+# Each is streamed as a delta AND saved as the turn's content, exactly the way
+# OFFER_LANDED is, so the refetch that ends the turn cannot replace the bubble
+# the builder just watched arrive with a record of them talking to themselves.
+#
+# Count-neutral wording, because one turn may park more than one: what these
+# say is the state of the pile after the turn, which is true however many calls
+# built it.
+PARKED_LANDED = (
+    "Written down — {have} of {maximum} ideas parked, room for {left} more."
+)
+# The full pile gets its own sentence, because what changed at the cap is not
+# the count: the room stops collecting and the only move left is choosing
+# between what is on the board. prompts.PARKING_FULL says the same thing to the
+# model; this is the builder's half of it.
+PARKED_LANDED_FULL = (
+    "Written down — that's {maximum} of {maximum} and the pile is full. "
+    "Nothing more gets parked; from here it's choosing between them."
+)
+
+# The forecast's receipt. It carries what is still open for NOTES_LANDED's
+# reason one room over: a count with nothing owed beside it reads as a finished
+# thing, and a builder who thinks the bar is met walks into a gate nobody told
+# them about. The arithmetic is bar.owed's — the same subtraction
+# prompts.sketch_state does for the prompt, said to the builder instead.
+SKETCH_LANDED = (
+    "Filled in what a first evening's proof needs, from what you just told me "
+    "— {have} of {need} parts. Still open: {owed}."
+)
+SKETCH_LANDED_FULL = (
+    "That's all {need} parts a first evening's proof needs, already sitting in "
+    "this conversation. Nothing left to sharpen in here."
+)
+
+# The title's receipt. It names the box rather than repeating the title, for
+# OFFER_LANDED's reason: the title is on screen in a field the builder can
+# edit, and a second copy in the chat is the one they cannot. The second
+# sentence is the GOAL_EXAMPLES bargain said out loud — this room suggests, and
+# committing stays a thing the builder does.
+GOAL_SUGGESTED_LANDED = (
+    "Put a title in the goal box — yours to edit. Committing to it is yours "
+    "too; nothing here has done that for you."
+)
+
+# Said when the turns are gone. Names the exit, in the register of every other
+# refusal in this file: what they have, and the one door still open.
+#
+# The count is interpolated, never written out in words. WORKSHOP_TURNS owns the
+# number, and a refusal that spells it in prose is a second copy that goes stale
+# the first time the cap moves — the same drift the gate's three number-quoting
+# surfaces already cost this codebase once.
+WORKSHOP_SPENT = (
+    "That's the workshop done — {turns} turns, and thinking time is over. "
+    "You don't need a better idea; you need one you can test. Pick the one you "
+    "could ask somebody about this week, put it in the box, and commit. The "
+    "first thing it asks for is one evening at your desk."
+)
+
+# The reopened room's version. Same shape and the same rule about the number,
+# and a different exit, because the door out of this one is not the commit box:
+# it is the three things that were always available, said once more without a
+# recommendation attached.
+REOPENED_SPENT = (
+    "That's this room done — {turns} turns, once per goal. Nothing here changed "
+    "your record and nothing was supposed to. You have the same three moves you "
+    "walked in with: finish the bar in front of you, sharpen the wording, or "
+    "close it today and pick again. Whichever it is, it's yours to make."
+)

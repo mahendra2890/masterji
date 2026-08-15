@@ -27,7 +27,7 @@
 // Copy rule for this file: every number, refusal and worked example here is
 // quoted from the thing that produces it — gates.PROOFS_REQUIRED,
 // gates.try_advance, guidance.PHASE_HINT/PROOF_HINT/PROOF_EXAMPLES/GATE_NUDGE,
-// views.WELCOME, prompts.WHEN_IT_IS_NOT_ABOUT_THE_WORK. If one of those
+// guidance.WELCOME, prompts.WHEN_IT_IS_NOT_ABOUT_THE_WORK. If one of those
 // changes and this file doesn't, the tour teaches a product that no longer
 // exists.
 //
