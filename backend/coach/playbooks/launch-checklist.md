@@ -18,8 +18,11 @@ each time to a new pond, each time asking a little more plainly for money.
 3. **The public ponds.** A launch post where builders and early adopters
    look. India-first products: LinkedIn and Twitter/X threads with a demo
    video shot on your phone beat a polished page.
-4. **The ask.** Somewhere on the ladder, start charging or taking committed
-   sign-ups. Free feedback flatters; a ₹99 payment tells the truth.
+4. **The ask.** Attach it to every rung above: start charging or taking
+   committed sign-ups from rung one. This is the rung you cannot skip —
+   the phase does not close until a stranger has acted on the ask. Free
+   feedback flatters; a ₹99 payment tells the truth. How to ask it:
+   `the-first-rupee.md`.
 
 ## The rules
 - **Launch before you're ready.** If it didn't feel slightly too early, you
@@ -32,8 +35,9 @@ each time to a new pond, each time asking a little more plainly for money.
 
 ## What counts as PROOF for Masterji
 - A public post that's live, with the link.
-- A user you didn't know before, doing the core action (show the log,
-  screenshot, or payment).
+- **Required to leave LAUNCH:** a user you didn't know before, doing the
+  core action (show the log, screenshot, or payment). The other two count
+  too — but a phase made only of posts and rejections does not close.
 - A rejection with the reason written down — a real no teaches more than a
   polite maybe.
 
