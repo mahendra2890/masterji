@@ -1006,7 +1006,7 @@ class IntraPhaseBeatTests(CoachTestCase):
 class PhaseBriefTests(CoachTestCase):
     """An earned phase says what it is for, and a refused one still doesn't.
 
-    Signing up writes views.WELCOME's 107 words. Unlocking a phase wrote five,
+    Signing up writes guidance.WELCOME's 107 words. Unlocking a phase wrote five,
     and the phase being unlocked into is the one carrying a bar the builder has
     never met. These pin the two halves that could quietly come apart: that the
     brief rides the unlock, and that it never rides a refusal — where the
@@ -1022,7 +1022,7 @@ class PhaseBriefTests(CoachTestCase):
         # One row, not two: an advance is one thing the coach said.
         self.assertEqual(said.count(), 1)
         self.assertIn("Phase unlocked: IDEA → VALIDATION.", said.first().content)
-        self.assertIn(views.PHASE_BRIEF[Phase.VALIDATION], said.first().content)
+        self.assertIn(guidance.UNLOCKED_BRIEF[Phase.VALIDATION], said.first().content)
 
     def test_refused_advance_is_not_briefed(self):
         """Equality rather than a not-in: the refusal is the sentence this
@@ -1049,7 +1049,7 @@ class PhaseBriefTests(CoachTestCase):
         """Keyed by the phase moved INTO, so this is every phase but the first.
         IDEA is excluded rather than missing: nobody advances into it, and
         WELCOME briefs it at the only moment a goal is ever there."""
-        self.assertEqual(set(views.PHASE_BRIEF), set(gates.PHASE_ORDER[1:]))
+        self.assertEqual(set(guidance.UNLOCKED_BRIEF), set(gates.PHASE_ORDER[1:]))
 
     def test_the_terminal_phase_is_briefed_too(self):
         """TRACTION is the one the wiring is most likely to drop: it is the
@@ -1059,7 +1059,7 @@ class PhaseBriefTests(CoachTestCase):
         self.accept_proofs(goal, 3)
         self.client.post(f"/api/coach/goals/{goal.pk}/advance/")
         said = Message.objects.filter(goal=goal).first().content
-        self.assertIn(views.PHASE_BRIEF[Phase.TRACTION], said)
+        self.assertIn(guidance.UNLOCKED_BRIEF[Phase.TRACTION], said)
 
 
 # --- daily loop ----------------------------------------------------------------
@@ -3405,7 +3405,7 @@ class ChatTests(CoachTestCase):
         self.assertEqual(
             list(goal.messages.values_list("role", flat=True))[-2:], ["USER", "SYSTEM"]
         )
-        self.assertEqual(goal.messages.latest("id").content, views.STREAM_BROKE)
+        self.assertEqual(goal.messages.latest("id").content, guidance.STREAM_BROKE)
 
     def test_a_failure_notice_is_never_shown_to_the_model_as_its_own_words(self):
         """The history sent up maps every non-USER row to "assistant". A notice
@@ -3439,7 +3439,7 @@ class ChatTests(CoachTestCase):
                 ).streaming_content
             )
         self.assertNotIn(
-            views.STREAM_BROKE, [m["content"] for m in seen["history"]]
+            guidance.STREAM_BROKE, [m["content"] for m in seen["history"]]
         )
         # The builder's own words are untouched — only the notice is dropped.
         self.assertIn("you there?", [m["content"] for m in seen["history"]])
@@ -5590,8 +5590,8 @@ class ProofOfferTests(CoachTestCase):
         self.chat()
         said = Message.objects.filter(role=Message.Role.COACH).latest("id").content
         self.assertIn(self.DRAFT, said)
-        self.assertIn(views.WHERE_TO_FILE, said)
-        self.assertIn(views.OFFER_NO_DECLARATION.format(offer=self.DRAFT), said)
+        self.assertIn(guidance.WHERE_TO_FILE, said)
+        self.assertIn(guidance.OFFER_NO_DECLARATION.format(offer=self.DRAFT), said)
 
     def test_a_finished_day_is_not_told_nothing_was_declared(self):
         """The bug this pair of strings exists to fix, seen in real use: the
@@ -5607,8 +5607,8 @@ class ProofOfferTests(CoachTestCase):
         self.chat(text=self.SECOND)
         said = Message.objects.filter(role=Message.Role.COACH).latest("id").content
         self.assertIn(self.SECOND, said)
-        self.assertIn(views.OFFER_DAY_CLOSED.format(offer=self.SECOND), said)
-        self.assertNotIn(views.OFFER_NO_DECLARATION.format(offer=self.SECOND), said)
+        self.assertIn(guidance.OFFER_DAY_CLOSED.format(offer=self.SECOND), said)
+        self.assertNotIn(guidance.OFFER_NO_DECLARATION.format(offer=self.SECOND), said)
         # And the closed cycle is left exactly as the builder earned it: the
         # draft is a sentence in the transcript, not a scribble on a row whose
         # proof is already on the record.
@@ -5667,10 +5667,10 @@ class ProofOfferTests(CoachTestCase):
         # Equality, not a substring: the receipt points at the draft and must
         # never restate it, or the builder gets two copies of one offer and
         # only the one on the check-in files anything when tapped.
-        self.assertEqual(said, views.OFFER_LANDED)
+        self.assertEqual(said, guidance.OFFER_LANDED)
         events = [json.loads(raw) for raw in body.splitlines() if raw.strip()]
         self.assertEqual(
-            [e["text"] for e in events if e["t"] == "delta"], [views.OFFER_LANDED]
+            [e["text"] for e in events if e["t"] == "delta"], [guidance.OFFER_LANDED]
         )
         self.assertEqual(CheckIn.objects.get().proof_offer, self.DRAFT)
 
@@ -6029,8 +6029,8 @@ class RunningNotesTests(CoachTestCase):
         would be pushed back for a piece nobody told them was missing."""
         self.draft(said="")
         said = Message.objects.filter(role=Message.Role.COACH).latest("id").content
-        self.assertEqual(said, views.NOTES_LANDED.format(missing=self.GAP))
-        self.assertIn(views.WHERE_TO_FILE, said)
+        self.assertEqual(said, guidance.NOTES_LANDED.format(missing=self.GAP))
+        self.assertIn(guidance.WHERE_TO_FILE, said)
 
     def test_he_is_told_not_to_make_them_say_it_twice(self):
         system = prompts.build_system_prompt(
@@ -7417,7 +7417,7 @@ class WorkshopTests(CoachTestCase):
         self.assertEqual(events[0]["t"], "error")
         rows = self.workshop().messages.all()
         self.assertEqual(rows[1].role, WorkshopMessage.Role.SYSTEM)
-        self.assertEqual(rows[1].content, views.STREAM_BROKE)
+        self.assertEqual(rows[1].content, guidance.STREAM_BROKE)
 
     # --- a tool call is not a reason to say nothing --------------------------
 
@@ -10712,13 +10712,13 @@ class DeclarationOfferTests(CoachTestCase):
         builder's own message with nothing under it."""
         self.chat(events=[("tool_call", {"name": "suggest_declaration", "arguments": {"task": self.TASK}})])
         row = Message.objects.filter(role=Message.Role.COACH).get()
-        self.assertEqual(row.content, views.DECLARATION_LANDED)
+        self.assertEqual(row.content, guidance.DECLARATION_LANDED)
 
     def test_the_receipt_says_nothing_is_declared_yet(self):
         """The difference between this receipt and OFFER_LANDED. A builder who
         reads it as 'declared' spends the day owing a proof against a task the
         server was never told about."""
-        self.assertIn("Nothing is declared until you press it", views.DECLARATION_LANDED)
+        self.assertIn("Nothing is declared until you press it", guidance.DECLARATION_LANDED)
 
     def test_declaring_spends_the_draft(self):
         self.chat()
