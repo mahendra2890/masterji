@@ -10541,3 +10541,212 @@ class ModelSpendCauseTests(APITestCase):
         self.assertEqual(row.source, ModelCall.Source.CHECKIN)
         self.assertEqual(row.source_id, checkin.id)
         self.assertEqual(row.user_id, user.id)
+
+
+class DeclarationOfferTests(CoachTestCase):
+    """Masterji hearing today's task in conversation and writing it down.
+
+    The morning's mirror of ProofOfferTests, and the same bargain: he drafts,
+    the builder presses. The complaint underneath is one the server already
+    detected and could do nothing about — OFFER_NO_DECLARATION writes a
+    finished proof and hands it back with instructions to go and declare the
+    missing half by hand, because the tool to write that half did not exist.
+    """
+
+    TASK = "Ask three hostel mess regulars what they ate last night."
+
+    def setUp(self):
+        super().setUp()
+        self.goal = self.make_goal(phase=Phase.VALIDATION)
+
+    def chat(self, events=None, task=TASK):
+        events = events or [
+            ("delta", "Right — that's today."),
+            ("tool_call", {"name": "suggest_declaration", "arguments": {"task": task}}),
+        ]
+        with mock.patch("coach.views.llm.stream_chat", return_value=iter(events)) as m:
+            response = self.client.post("/api/coach/chat/", {"content": "mess queue tonight"})
+            b"".join(response.streaming_content)
+        return m
+
+    def tools(self, called):
+        return [t["function"]["name"] for t in called.call_args.kwargs["tools"]]
+
+    def test_the_draft_lands_on_the_goal_stamped_with_the_builders_day(self):
+        """There is no check-in to hang it on — that absence is the whole
+        situation this tool exists for."""
+        self.chat()
+        self.goal.refresh_from_db()
+        self.assertEqual(self.goal.declaration_offer, self.TASK)
+        self.assertEqual(self.goal.declaration_offer_date, date.today())
+
+    def test_the_draft_declares_nothing(self):
+        """The one rule the morning cannot bend: a promise a model inferred
+        from rambling is not a promise made. No row, no streak, no gate."""
+        self.chat()
+        self.assertEqual(CheckIn.objects.count(), 0)
+        self.assertEqual(streaks.current_streak(self.goal, date.today()), 0)
+
+    def test_a_turn_that_only_wrote_it_down_still_says_something(self):
+        """#270's failure, one screen over: the thing that happened landed on
+        the card beside the conversation, and the conversation showed the
+        builder's own message with nothing under it."""
+        self.chat(events=[("tool_call", {"name": "suggest_declaration", "arguments": {"task": self.TASK}})])
+        row = Message.objects.filter(role=Message.Role.COACH).get()
+        self.assertEqual(row.content, views.DECLARATION_LANDED)
+
+    def test_the_receipt_says_nothing_is_declared_yet(self):
+        """The difference between this receipt and OFFER_LANDED. A builder who
+        reads it as 'declared' spends the day owing a proof against a task the
+        server was never told about."""
+        self.assertIn("Nothing is declared until you press it", views.DECLARATION_LANDED)
+
+    def test_declaring_spends_the_draft(self):
+        self.chat()
+        self.client.post("/api/coach/checkins/declare/", {"text": "my own words"})
+        self.goal.refresh_from_db()
+        self.assertEqual(self.goal.declaration_offer, "")
+        self.assertIsNone(self.goal.declaration_offer_date)
+
+    def test_yesterdays_draft_is_not_todays_task(self):
+        """An offer is about ONE morning. Read back tomorrow it would sit above
+        a fresh day's empty box holding work nobody is doing."""
+        self.chat()
+        Goal.objects.filter(pk=self.goal.pk).update(
+            declaration_offer_date=date.today() - timedelta(days=1)
+        )
+        state = self.client.get(f"/api/coach/state/?date={date.today()}")
+        self.assertEqual(state.data["declaration_offer"], "")
+
+    def test_the_dashboard_is_handed_the_draft(self):
+        self.chat()
+        state = self.client.get(f"/api/coach/state/?date={date.today()}")
+        self.assertEqual(state.data["declaration_offer"], self.TASK)
+
+    def test_the_tool_is_gone_once_a_task_is_on_the_hook(self):
+        """Not forbidden in prose — absent. The failure worth preventing is a
+        draft overwriting a commitment the builder has already made, and a tool
+        in the list is a thing the model will find a reason to call."""
+        self.client.post("/api/coach/checkins/declare/", {"text": "talk to Ramesh"})
+        self.assertNotIn("suggest_declaration", self.tools(self.chat()))
+
+    def test_the_tool_is_gone_on_a_day_already_proved_and_closed(self):
+        """The second cycle is 'Declare another task', a button the builder
+        presses. A draft must not become a third route into one."""
+        self.client.post("/api/coach/checkins/declare/", {"text": "talk to Ramesh"})
+        CheckIn.objects.update(
+            pm_proof_text="spoke to him", proof_status=CheckIn.ProofStatus.ACCEPTED
+        )
+        self.assertNotIn("suggest_declaration", self.tools(self.chat()))
+
+    def test_the_tool_is_there_on_a_morning_with_nothing_declared(self):
+        self.assertIn("suggest_declaration", self.tools(self.chat()))
+
+    def test_a_call_that_arrives_anyway_writes_nothing(self):
+        """The branch that writes to the goal guards itself. The tool being
+        absent is forty lines away from the code that trusts it."""
+        self.client.post("/api/coach/checkins/declare/", {"text": "talk to Ramesh"})
+        self.chat()
+        self.goal.refresh_from_db()
+        self.assertEqual(self.goal.declaration_offer, "")
+
+
+class SharpenedDeclarationTests(CoachTestCase):
+    """The critique's missing half: Masterji says the task is too vague, and
+    now there is something under it to press.
+
+    Not a veto arriving by another door. Declaring is still never refused, the
+    suggestion is still an offer, and accepting it goes back through DeclareView
+    — so the model never grades wording it handed itself.
+    """
+
+    VAGUE = "Figure out an idea"
+    JUDGEMENT = (
+        '{"fit": "off_phase", "reaction": "That is too vague to count as IDEA '
+        'work.", "sharpened": "Write one paragraph naming who has the problem '
+        'and where they already are.", "proof_ask": "Send me the paragraph."}'
+    )
+
+    def setUp(self):
+        super().setUp()
+        self.goal = self.make_goal(phase=Phase.IDEA)
+
+    def declare(self, text=VAGUE):
+        return self.client.post("/api/coach/checkins/declare/", {"text": text})
+
+    def judge(self, pk, reply=JUDGEMENT):
+        with mock.patch("coach.views.llm.complete", return_value=reply):
+            return self.client.post(f"/api/coach/checkins/{pk}/judge/")
+
+    def test_the_critique_arrives_with_a_way_out_of_it(self):
+        response = self.judge(self.declare().data["id"])
+        self.assertEqual(
+            response.data["sharpened"],
+            "Write one paragraph naming who has the problem and where they "
+            "already are.",
+        )
+
+    def test_a_task_that_needed_nothing_is_offered_nothing(self):
+        """'An empty reaction is the compliment' extends to this unchanged. A
+        sharpening under no complaint is a fix for a problem the builder was
+        never told they had."""
+        response = self.judge(
+            self.declare().data["id"],
+            reply='{"fit": "on_phase", "reaction": "", "sharpened": "Talk to '
+            'four people instead of three.", "proof_ask": "Names."}',
+        )
+        self.assertEqual(response.data["sharpened"], "")
+
+    def test_taking_it_rewrites_the_same_day_rather_than_opening_another(self):
+        """It is an EDIT of the cycle on the hook. A second cycle is a day with
+        two pieces of real work in it, not a change of mind about the first."""
+        checkin = self.declare().data["id"]
+        self.judge(checkin)
+        again = self.declare(text="Write one paragraph naming who has the problem.")
+        self.assertEqual(again.data["id"], checkin)
+        self.assertEqual(CheckIn.objects.count(), 1)
+
+    def test_the_offer_is_cleared_by_the_declaration_that_accepts_it(self):
+        """Otherwise it comes back on the card underneath the sentence it just
+        became, offering the builder their own words as an improvement."""
+        checkin = self.declare().data["id"]
+        self.judge(checkin)
+        again = self.declare(text="Write one paragraph naming who has the problem.")
+        self.assertEqual(again.data["sharpened"], "")
+        self.assertEqual(again.data["declaration_fit"], "UNJUDGED")
+
+    def test_the_suggestion_is_read_back_rather_than_trusted(self):
+        """The model would otherwise be writing the task it later grades.
+        Re-declaring clears the judgement, so the wording it suggested arrives
+        at the judge as a declaration like any other."""
+        checkin = self.declare().data["id"]
+        self.judge(checkin)
+        self.declare(text="Write one paragraph naming who has the problem.")
+        row = CheckIn.objects.get(pk=checkin)
+        self.assertEqual(row.proof_ask, "")
+        self.assertEqual(row.declaration_reaction, "")
+
+    def test_the_floor_is_no_suggestion_rather_than_a_bad_one(self):
+        """The suite stubs every model call to raise. An unreachable judge
+        leaves the morning exactly as the builder wrote it."""
+        response = self.client.post(
+            f"/api/coach/checkins/{self.declare().data['id']}/judge/"
+        )
+        self.assertEqual(response.data["declaration_fit"], "UNJUDGED")
+        self.assertEqual(response.data["sharpened"], "")
+
+    def test_the_prompt_asks_for_their_sentence_not_a_better_task(self):
+        """The guard that keeps this from being a veto. A sharpening that
+        swaps the task is the model deciding what today is for."""
+        text = prompts.DECLARATION_SYSTEM.format(
+            respect_rule=prompts.RESPECT_RULE,
+            tone_rule="",
+            evidence_rule=prompts.EVIDENCE_NOT_INSTRUCTIONS,
+            phase=Phase.IDEA,
+            phase_rules=prompts.PHASE_RULES[Phase.IDEA],
+            proof_hint=guidance.PROOF_HINT[Phase.IDEA],
+            intent="",
+        )
+        rule = text.split("- sharpened is the fix")[1]
+        self.assertIn("Never swap their task for a better one", rule)
+        self.assertIn("if the reaction is empty, this is empty too", rule)

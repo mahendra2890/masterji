@@ -554,6 +554,16 @@ export default function Masterji({ user }: { user: SessionUser }) {
   // half-typed words survive a closed tab, and there is no half-made choice
   // here to lose.
   const [amHour, setAmHour] = useState("");
+  // The morning's box, so the drafted task can put the caret in it — same job
+  // pmBoxRef does one screen later.
+  const amBoxRef = useRef<HTMLTextAreaElement>(null);
+  // Rewording the task already on the hook. An EDIT of today's open cycle, not
+  // a second one: DeclareView updates the cycle still owing its proof, and this
+  // control only renders on a card that has one. `declaringAgain` below is the
+  // other thing and stays the other thing — that opens a new cycle after
+  // tonight's proof has landed, which is a day with two pieces of real work in
+  // it rather than a change of mind about the first.
+  const [rewording, setRewording] = useState(false);
   const [pmText, setPmText] = useState("");
   const [pmUrl, setPmUrl] = useState("");
   const [pmImage, setPmImage] = useState<File | null>(null);
@@ -908,6 +918,14 @@ export default function Masterji({ user }: { user: SessionUser }) {
     if (filingNow) pmBoxRef.current?.focus();
   }, [filingNow]);
 
+  // The same move for the morning's box, which the reword control reveals the
+  // same way. Separate effect rather than one with both flags in it: they open
+  // two different boxes, and a shared dependency list would move the caret into
+  // the evening's whenever the morning's opened.
+  useEffect(() => {
+    if (rewording) amBoxRef.current?.focus();
+  }, [rewording]);
+
   const run = async (fn: () => Promise<void>) => {
     setError("");
     setBusy(true);
@@ -961,6 +979,10 @@ export default function Masterji({ user }: { user: SessionUser }) {
         setAmText("");
         setAmHour("");
         setDeclaringAgain(false);
+        // The reword box shuts on the write that answers it. Left open it
+        // would sit over the freshly declared task holding the words the
+        // builder just sent, which reads as a press that did nothing.
+        setRewording(false);
         // A second cycle starts at its own morning. Without this, declaring
         // again after an early filing would drop the builder straight back
         // onto the evening form for a task thirty seconds old.
@@ -2678,10 +2700,48 @@ export default function Masterji({ user }: { user: SessionUser }) {
                     next one.
                   </p>
                 )}
+                {/* Today's task as Masterji heard it, written from work the
+                    builder already described in chat. The morning's half of the
+                    bargain the evening has had all along: he writes it down,
+                    they press the button. Nothing here declares anything, and
+                    the server would not let it — the draft lives on the goal
+                    precisely because no check-in exists until Declare it is
+                    pressed.
+
+                    ABOVE the prompt, for the reason the proof draft sits above
+                    the ask: this is the answer and "One task, out loud" is the
+                    question, and a card that asks first makes the builder read
+                    a request they have already answered before it will show
+                    them the answer.
+
+                    It renders only in this branch, which is the branch with
+                    nothing declared — so it can never appear where "Declared:"
+                    goes. That is the guard, and it is structural rather than a
+                    condition somebody has to maintain. */}
+                {state.declarationOffer && (
+                  <div className={styles.proofOffer}>
+                    <p className={styles.proofOfferLabel}>
+                      Masterji heard today&apos;s task
+                    </p>
+                    <p className={styles.proofOfferText}>
+                      {state.declarationOffer}
+                    </p>
+                    <button
+                      className={styles.proofOfferBtn}
+                      onClick={() => {
+                        setAmText(state.declarationOffer);
+                        amBoxRef.current?.focus();
+                      }}
+                    >
+                      Use this — edit it below if it&apos;s not right
+                    </button>
+                  </div>
+                )}
                 <p className={styles.todayPrompt}>
                   Morning. One task, out loud:
                 </p>
                 <textarea
+                  ref={amBoxRef}
                   className={styles.textarea}
                   rows={2}
                   placeholder="Today I will…"
@@ -2747,6 +2807,108 @@ export default function Masterji({ user }: { user: SessionUser }) {
                 )}
                 {judging && !today.declarationReaction && (
                   <p className={styles.judging}>Masterji is reading it…</p>
+                )}
+                {/* The critique's missing half. Until now the card could say a
+                    task was too vague or off-phase and offer nothing to do
+                    about it — a problem named in the one room where fixing it
+                    is free, under a control that said "File tonight's proof".
+
+                    Quieter than the reaction above it and always below it: the
+                    declared task is the builder's and stays the heading, and
+                    this is an offer sitting under a criticism, not a correction
+                    anybody has to accept. Taking it fills the box and they
+                    press Declare it themselves, which re-runs the judgement —
+                    so a suggestion accepted verbatim is read back as a
+                    declaration rather than trusted as one, and the model does
+                    not get to write the wording it will later grade.
+
+                    Hidden while the box is open: it is already in there. */}
+                {today.sharpened && !rewording && (
+                  <div className={styles.sharpenOffer}>
+                    <p className={styles.sharpenOfferLabel}>
+                      Sharper, if you want it
+                    </p>
+                    <p className={styles.proofOfferText}>{today.sharpened}</p>
+                    <button
+                      className={styles.sharpenOfferBtn}
+                      onClick={() => {
+                        setAmText(today.sharpened);
+                        setAmHour(
+                          today.dueHour === null ? "" : String(today.dueHour)
+                        );
+                        setRewording(true);
+                      }}
+                    >
+                      Use this instead — edit it below if it&apos;s not right
+                    </button>
+                  </div>
+                )}
+                {/* Rewording the task on the hook, offered whether or not there
+                    is a suggestion under it: the reaction can be right while
+                    the sharpening is wrong, and the builder may have their own
+                    better sentence. DeclareView has supported this write all
+                    along — it updates the open cycle and clears the judgement
+                    — and its docstring justifies leaving that endpoint
+                    unthrottled on exactly this action, which the card had no
+                    way to perform.
+
+                    An EDIT of today's cycle, never a second one. It renders
+                    only in this branch, whose condition is a cycle still owing
+                    its proof, so the write below lands on that row rather than
+                    opening another — "Declare another task" stays the one door
+                    into a second cycle. The hour rides along because
+                    re-declaring states the whole promise (DeclareView clears an
+                    absent one), so it is seeded from the row rather than left
+                    blank, which would quietly take back an hour they named. */}
+                {rewording ? (
+                  <div className={styles.reword}>
+                    {/* Three rows, unlike the morning box above, which is two.
+                        That one opens empty and grows as somebody types; this
+                        one opens with a whole sentence already in it, and at
+                        two rows a sharpening long enough to be worth offering
+                        arrives with its last line cut in half. Same rule the
+                        evening's prefilled box already follows. */}
+                    <textarea
+                      ref={amBoxRef}
+                      className={styles.textarea}
+                      rows={3}
+                      value={amText}
+                      onChange={(e) => setAmText(e.target.value)}
+                    />
+                    <div className={styles.declareRow}>
+                      <button
+                        className={styles.primaryBtn}
+                        disabled={busy || !amText.trim()}
+                        onClick={onDeclare}
+                      >
+                        Declare it
+                      </button>
+                      <DueHourSelect value={amHour} onChange={setAmHour} />
+                      <button
+                        className={styles.linkBtn}
+                        onClick={() => {
+                          setRewording(false);
+                          setAmText("");
+                          setAmHour("");
+                        }}
+                      >
+                        leave it as it is
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    className={styles.linkBtn}
+                    onClick={() => {
+                      setAmText(today.amDeclaration);
+                      setAmHour(
+                        today.dueHour === null ? "" : String(today.dueHour)
+                      );
+                      setRewording(true);
+                    }}
+                  >
+                    reword today&apos;s task
+                  </button>
                 )}
                 {/* The morning, finished — and said so, which is the whole
                     change here. This card used to answer a declaration by

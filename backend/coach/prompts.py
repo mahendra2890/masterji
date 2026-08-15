@@ -772,7 +772,9 @@ What usually counts as proof here: {proof_hint}
 
 Reply with STRICT JSON only, no markdown fences:
 {{"fit": "on_phase" | "off_phase", "reaction": "<1-2 sentences in Masterji's voice, \
-or an empty string>", "proof_ask": "<one sentence: exactly what to submit tonight \
+or an empty string>", "sharpened": "<the same task rewritten so it clears the bar \
+your reaction just named, one sentence in their own terms, or an empty string>", \
+"proof_ask": "<one sentence: exactly what to submit tonight \
 to show this task was done>"}}
 
 Rules:
@@ -788,6 +790,15 @@ and it is a refusal wearing a question.
 has been done yet — but don't manufacture a complaint to avoid praising one \
 either. A task that is already the right size and specific enough earns an \
 empty reaction, and an empty reaction is the compliment.
+- sharpened is the fix for the complaint you just made, not a second complaint. \
+Write it ONLY when the reaction says something is wrong with the task — if the \
+reaction is empty, this is empty too, and a task that needed nothing gets \
+nothing. It is the SAME task, still theirs: keep their subject, their verb and \
+their scope, and add only what your reaction said was missing — a number, a \
+name, a place, a finish line. Never swap their task for a better one, never \
+widen a day's work into a week's, and never turn an off-phase task into the \
+phase work they chose to step around. They are still the ones who decide what \
+today is for; this only writes their own sentence more precisely.
 - proof_ask is about the task they actually declared, not the phase in general \
 — and hardest of all when fit is off_phase, which is the one case where the two \
 come apart. If they said they'd talk to three shopkeepers, ask for the three \
@@ -1330,6 +1341,55 @@ def suggest_proof_tool(phase: Phase) -> dict:
             },
         },
     }
+
+# The morning's mirror of suggest_proof, on the same bargain: the model writes
+# it down, the builder files it. Nothing here declares anything.
+#
+# The server decides whether this tool is on the table at all — it is handed to
+# the model only on a day with nothing declared and nothing already proved and
+# closed (ChatView.post). So "only useful before a task is declared" is a fact
+# about the turn rather than an instruction the model has to be trusted with,
+# and the two failures that would matter — overwriting the task a builder has
+# already committed to, and opening a third route into a second cycle — are not
+# reachable from here.
+#
+# One argument and no bar-shaped ones, unlike suggest_proof. That tool's
+# arguments ARE the phase's bar because the evening is counted; a declaration is
+# counted by nobody, and a morning schema that asked for the bar in pieces would
+# be teaching the model to design the day rather than to write down what the
+# builder just said they would do.
+SUGGEST_DECLARATION_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "suggest_declaration",
+        "description": (
+            "Write down today's task as the builder has just described it, in "
+            "their own words, one sentence, sized to a single day. Call this "
+            "as soon as they have said what they are going to do today — and "
+            "call it again if they change it, since each call replaces the "
+            "last. This DECLARES NOTHING: it puts the sentence in the declare "
+            "box on their card and they press the button themselves. Never "
+            "write down work they have not said they will do, and never use "
+            "this to assign them something. Say what you have to say to them "
+            "in the same turn; a turn that only calls this is a turn they "
+            "spent getting no answer."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "task": {
+                    "type": "string",
+                    "description": (
+                        "The one task, as they said it — specific enough that "
+                        "tonight's proof of it would be obvious. Not a "
+                        "description of what they ought to do."
+                    ),
+                }
+            },
+            "required": ["task"],
+        },
+    },
+}
 
 # Its neighbour below can be PERFORMED, and this one cannot. That is a real
 # difference and not squeamishness, so it is written down here: somebody will

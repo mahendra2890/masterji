@@ -262,6 +262,24 @@ NOTES_LANDED = (
     f"{WHERE_TO_FILE}. Still need: {{missing}}"
 )
 
+# The morning's version of OFFER_LANDED: the receipt for a turn that wrote
+# today's task down and said nothing around it. Same argument as its neighbour
+# — a tool call is not a reason to say nothing to someone who just spoke — and
+# the draft is deliberately not repeated here, because it is in the box on the
+# card where one tap declares it, and a second copy in the chat is the one the
+# builder cannot press.
+#
+# It has to say that nothing is declared yet. That is the whole difference
+# between this and OFFER_LANDED: filing a proof is the end of the day and a
+# builder who misreads the receipt has still done the work, but a builder who
+# reads this as "declared" spends the day owing a proof against a task the
+# server has never been told about.
+DECLARATION_LANDED = (
+    "Put today's task in the box under "
+    f"{WHERE_TO_FILE} — in your words, as I heard them. Nothing is declared "
+    "until you press it."
+)
+
 # On the wire when the model drops the turn, and in the transcript too when it
 # drops it before the first token. Those turns used to save no reply at all,
 # and the refetch that ends every turn then replaced the bubble the builder
@@ -1176,6 +1194,21 @@ class StateView(APIView):
                 # cannot drift.
                 "days_in_phase": streaks.days_in_phase(goal, today),
                 "today": CheckInSerializer(checkin).data if checkin else None,
+                # Today's task as Masterji heard it in chat, waiting to fill the
+                # declare box. Scoped to the builder's own date here rather than
+                # served off the goal, because "still today" is a question only
+                # the client's clock can answer and this is the request that
+                # carries it — read back tomorrow, yesterday's draft is a task
+                # nobody is doing sitting above a fresh morning's empty box.
+                #
+                # Top-level rather than on `today`, and that is not a detail:
+                # the row it would ride on does not exist yet. An offer is what
+                # there is INSTEAD of a check-in.
+                "declaration_offer": (
+                    goal.declaration_offer
+                    if goal.declaration_offer_date == today
+                    else ""
+                ),
                 "checkins": CheckInSerializer(
                     goal.checkins.prefetch_related("attempts")[:CHECKIN_HISTORY],
                     many=True,
@@ -1915,14 +1948,23 @@ def _react_to_retirement(retirement, verdict: str, tone: str) -> str:
         return stock[verdict]
 
 
-def _react_to_declaration(goal: Goal, text: str, tone: str) -> tuple[str, str, str]:
-    """Read this morning's task: does it belong to the phase, and what would
-    prove it tonight? Returns (fit, reaction, proof_ask).
+def _react_to_declaration(
+    goal: Goal, text: str, tone: str
+) -> tuple[str, str, str, str]:
+    """Read this morning's task: does it belong to the phase, what would make it
+    sharper, and what would prove it tonight? Returns (fit, reaction, sharpened,
+    proof_ask).
 
     Advisory only, by design. Declaring is never refused — a builder is
     allowed to spend a day off-phase, and the gate at the end of the phase is
     what makes that cost something. Blocking here would hand the model a veto
     it must not have, and turn a coaching moment into an invisible refusal.
+
+    `sharpened` does not soften that and is not the veto arriving by another
+    door: it is a sentence with a button under it, on a card where the builder
+    can equally reword the task themselves or leave it exactly as they wrote it.
+    What it removes is the dead end — a critique naming a problem with no
+    control under it, in the one room where acting on it is free.
 
     Same deterministic floor as _react_to_proof: any failure logs and leaves
     the check-in UNJUDGED with no tailored ask, so the form falls back to the
@@ -1964,14 +2006,21 @@ def _react_to_declaration(goal: Goal, text: str, tone: str) -> tuple[str, str, s
             if payload.get("fit") == "off_phase"
             else CheckIn.DeclarationFit.ON_PHASE
         )
+        reaction = str(payload.get("reaction") or "")
         return (
             fit,
-            str(payload.get("reaction") or ""),
+            reaction,
+            # Dropped when there is no complaint to fix. The prompt already says
+            # so, but the pairing is what makes the card honest — a sharpening
+            # under nothing reads as a critique the builder never got, and the
+            # button under it as a correction they are being asked to accept for
+            # a reason nobody gave. Empty reaction, empty offer, no control.
+            str(payload.get("sharpened") or "") if reaction else "",
             str(payload.get("proof_ask") or ""),
         )
     except Exception as e:
         logger.error(f"Declaration reaction failed: {e}")
-        return CheckIn.DeclarationFit.UNJUDGED, "", ""
+        return CheckIn.DeclarationFit.UNJUDGED, "", "", ""
 
 
 class DeclareView(APIView):
@@ -2040,6 +2089,12 @@ class DeclareView(APIView):
         # a drafted proof would be evidence for work they are no longer doing.
         checkin.declaration_fit = CheckIn.DeclarationFit.UNJUDGED
         checkin.declaration_reaction = ""
+        # With the reaction it belongs to, and for the same reason twice over: a
+        # sharpening of wording the builder has since changed is a fix for a
+        # complaint nobody is making any more, and this endpoint is exactly how
+        # an accepted sharpening arrives — so leaving it would put the offer
+        # back on the card underneath the sentence it just became.
+        checkin.sharpened = ""
         checkin.proof_ask = ""
         checkin.proof_offer = ""
         checkin.proof_missing = ""
@@ -2053,6 +2108,7 @@ class DeclareView(APIView):
             "due_hour",
             "declaration_fit",
             "declaration_reaction",
+            "sharpened",
             "proof_ask",
             "proof_offer",
             "proof_missing",
@@ -2068,6 +2124,21 @@ class DeclareView(APIView):
         if _record_metric(goal, checkin, request.data.get("metric_value")):
             fields += ["metric_value", "metric_label"]
         checkin.save(update_fields=fields)
+        # The morning's draft is spent the moment a task is declared, whether or
+        # not this is the draft. Something is now on the hook, and an offer that
+        # outlived it would sit above a card that already reads "Declared: …",
+        # inviting the builder to replace their own commitment with a sentence
+        # the model wrote before they made it.
+        if goal.declaration_offer:
+            goal.declaration_offer = ""
+            goal.declaration_offer_date = None
+            goal.save(
+                update_fields=[
+                    "declaration_offer",
+                    "declaration_offer_date",
+                    "updated_at",
+                ]
+            )
         return Response(CheckInSerializer(checkin).data)
 
 
@@ -2106,6 +2177,7 @@ class JudgeDeclarationView(throttles.VoicedThrottleMixin, APIView):
             (
                 checkin.declaration_fit,
                 checkin.declaration_reaction,
+                checkin.sharpened,
                 checkin.proof_ask,
             ) = _react_to_declaration(
                 checkin.goal, checkin.am_declaration, request.user.tone
@@ -2114,6 +2186,7 @@ class JudgeDeclarationView(throttles.VoicedThrottleMixin, APIView):
             update_fields=[
                 "declaration_fit",
                 "declaration_reaction",
+                "sharpened",
                 "proof_ask",
                 "updated_at",
             ]
@@ -2769,13 +2842,24 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
         # Both readers take the same object off the same `today`, so the draft
         # and the sentence explaining where it can't go can never disagree
         # about the day.
+        day_closed = target is None and _day_closed(goal, today)
         return _ndjson(
             self._events(
                 goal,
                 system,
                 history,
                 target,
-                day_closed=target is None and _day_closed(goal, today),
+                day_closed=day_closed,
+                # Whether today's task can still be written down, decided here
+                # rather than left to the model: the tool is only on the table
+                # on a morning with nothing on the hook and nothing already
+                # declared, filed and closed. That makes the two failures worth
+                # worrying about unreachable rather than forbidden — it cannot
+                # overwrite a commitment the builder has already made, and it
+                # cannot become a third route into a second cycle, which is
+                # "Declare another task" and stays a button they press.
+                may_declare=target is None and not day_closed,
+                day=today,
                 turn_id=turn.id,
             )
         )
@@ -2787,12 +2871,15 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
         history: list[dict],
         offer_target: CheckIn | None = None,
         day_closed: bool = False,
+        may_declare: bool = False,
+        day: date | None = None,
         turn_id: int | None = None,
     ):
         parts: list[str] = []
         advance_proposed = False
         close_proposed = False
         offered = missing = ""
+        declared = ""
         labels = bar.Labels(subject="", parts=[])
         broke = False
         # Inside the generator rather than around the call that returns it: the
@@ -2813,6 +2900,13 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
                     history,
                     tools=[
                         prompts.PROPOSE_ADVANCE_TOOL,
+                        # Only on a morning it could be used — see may_declare.
+                        # Handed over conditionally rather than always, because
+                        # a tool in the list is a thing the model will find a
+                        # reason to call, and every reason it could find on an
+                        # afternoon with a task already on the hook is one this
+                        # product does not want acted on.
+                        *([prompts.SUGGEST_DECLARATION_TOOL] if may_declare else []),
                         # Opens the retire box on the goal card, and that is the
                         # whole of it — see PROPOSE_GOAL_CLOSE_TOOL, which says
                         # at length why this one has no server half. Nothing
@@ -2835,6 +2929,21 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
                             # RetireView, reached from the box this opens, with
                             # a reason and an outcome only the builder has.
                             close_proposed = True
+                        elif name == "suggest_declaration" and may_declare:
+                            # One string, replaced by a later call in the same
+                            # turn the way the proof draft is: a builder who
+                            # changed their mind mid-conversation should find
+                            # the second answer in the box, not the first.
+                            #
+                            # The `and may_declare` is belt and braces. The tool
+                            # is not in the list above when it is false, so a
+                            # call cannot arrive — but this branch is the one
+                            # that writes to the goal, and a guard that is only
+                            # true because of something forty lines away is a
+                            # guard the next edit can move.
+                            declared = str(
+                                payload.get("arguments", {}).get("task") or ""
+                            ).strip()
                         elif name == "suggest_proof":
                             # The model sends the parts; bar.read does the
                             # counting, and what is still owed is arithmetic
@@ -2858,6 +2967,30 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
                 yield _line({"t": "error", "detail": STREAM_BROKE})
 
             content = "".join(parts)
+
+            # The morning's draft, on the goal because there is no check-in yet
+            # — that absence is the whole situation the tool exists for, and
+            # opening a row here would be the app declaring on the builder's
+            # behalf. Stamped with their own date so tomorrow does not open on
+            # yesterday's task (Goal.declaration_offer_date).
+            #
+            # A row rather than a wire event, for the reason its evening
+            # counterpart is: the client refetches state when the turn ends and
+            # reads the offer off the payload with everything else, so the draft
+            # outlives the turn it was made in and is still in the box tomorrow
+            # morning if they close the tab tonight.
+            if declared:
+                goal.declaration_offer = declared[: settings.DECLARATION_MAX_CHARS]
+                goal.declaration_offer_date = day
+                goal.save(
+                    update_fields=[
+                        "declaration_offer",
+                        "declaration_offer_date",
+                        "updated_at",
+                    ]
+                )
+                span.set_attribute("declaration.offered", True)
+                logger.info(f"Declaration drafted for goal {goal.id}")
 
             # A drafted proof is a row, not a wire event: the client refetches
             # state the moment the turn ends and reads the offer off the
@@ -2944,6 +3077,14 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
                 )
                 yield _line({"t": "delta", "text": receipt})
                 content = receipt
+            elif declared and not content:
+                # The same receipt one screen earlier. Reached only when the
+                # whole turn was this tool call, which is the failure #310 fixed
+                # in the workshop: the thing that happened landed on the card
+                # beside the conversation, and the conversation showed the
+                # builder's own message with nothing under it.
+                yield _line({"t": "delta", "text": DECLARATION_LANDED})
+                content = DECLARATION_LANDED
             if advance_proposed:
                 advanced, detail = gates.try_advance(goal)
                 span.set_attribute("gate.advanced", advanced)
