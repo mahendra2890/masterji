@@ -1,11 +1,12 @@
 from django.urls import path
-from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+from rest_framework_simplejwt.views import TokenRefreshView
 
 from . import oauth, views
 
 urlpatterns = [
-    # Token-in-body flow (API clients, curl, tests)
-    path("token/", TokenObtainPairView.as_view(), name="token_obtain_pair"),
+    # Token-in-body flow (API clients, curl, tests). Throttled: the only
+    # password it can check is the superuser's — see ThrottledTokenObtainPairView.
+    path("token/", views.ThrottledTokenObtainPairView.as_view(), name="token_obtain_pair"),
     path("token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
     # Cookie flow (browser)
     path("google/login/", oauth.google_login, name="google_login"),

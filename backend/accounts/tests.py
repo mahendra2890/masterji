@@ -6,11 +6,15 @@ lockout. It must still be possible to refresh, log out and log back in.
 """
 
 from datetime import UTC, date, datetime, timedelta
+from unittest import mock
 
 import jwt
 from django.conf import settings
-from django.urls import reverse
+from django.core.cache import cache
+from django.test import TestCase, override_settings
+from django.urls import resolve, reverse
 from rest_framework.test import APITestCase
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from coach.models import (
@@ -23,7 +27,9 @@ from coach.models import (
 )
 
 from . import erasure
+from .middleware import KEY_PREFIX
 from .models import PushSubscription, User
+from .views import ThrottledTokenObtainPairView
 
 
 class CookieRefreshTests(APITestCase):
@@ -360,3 +366,160 @@ class AccountErasureTests(APITestCase):
         # Soft, not gone: the operator's record of what was spent survives in
         # all_objects, attached to an account whose identity has been erased.
         self.assertIsNotNone(ModelCall.all_objects.get(id=mine.id).deleted_at)
+
+
+class PasswordLoginCeilingTests(APITestCase):
+    """The two surfaces here that take a password, and the ceiling on each.
+
+    Neither can unlock a builder: sign-in is Google and every account carries
+    `set_unusable_password()`. What they can unlock is the operator's superuser,
+    whose admin session reads every builder's record — so an unmetered guessing
+    run against either one is the whole distance to full compromise if that
+    password is ever weak or reused.
+
+    What is pinned is that a 429 arrives at all. Before this, eighty rapid wrong
+    passwords against `/api/auth/token/` were eighty 401s, and the absence was
+    invisible from the outside — which is exactly how it survived this long.
+    """
+
+    def setUp(self):
+        # Both ceilings count in the default cache, which is process-wide and
+        # outlives a test. An uncleared bucket would leak a refusal into the
+        # next test, or hide one.
+        cache.clear()
+        self.addCleanup(cache.clear)
+        self.admin = User.objects.create_superuser(
+            username="rootadmin", email="root@example.com", password="c0rrect-horse"
+        )
+
+    def _guess(self, password="wrong"):
+        return self.client.post(
+            reverse("token_obtain_pair"),
+            {"username": "rootadmin", "password": password},
+            format="json",
+        )
+
+    def test_the_token_endpoint_is_the_throttled_view(self):
+        """The scope is the whole mechanism, and it is an attribute somebody
+        could drop while the endpoint keeps working perfectly."""
+        self.assertIs(
+            resolve(reverse("token_obtain_pair")).func.cls,
+            ThrottledTokenObtainPairView,
+        )
+        self.assertEqual(ThrottledTokenObtainPairView.throttle_scope, "login")
+        self.assertIn(
+            "login", settings.REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"]
+        )
+
+    def test_the_token_endpoint_stops_answering_wrong_passwords(self):
+        with mock.patch.dict(ScopedRateThrottle.THROTTLE_RATES, {"login": "3/hour"}):
+            self.assertEqual([self._guess().status_code for _ in range(3)], [401] * 3)
+            self.assertEqual(self._guess().status_code, 429)
+
+    def test_the_ceiling_counts_the_address_not_the_username(self):
+        """Otherwise it is no ceiling at all: a guessing run picks a new
+        username per request and walks straight through."""
+        with mock.patch.dict(ScopedRateThrottle.THROTTLE_RATES, {"login": "3/hour"}):
+            for i in range(3):
+                self.client.post(
+                    reverse("token_obtain_pair"),
+                    {"username": f"nobody{i}", "password": "wrong"},
+                    format="json",
+                )
+            self.assertEqual(self._guess().status_code, 429)
+
+    def test_a_correct_password_still_mints_a_token(self):
+        """The ceiling is not a lock. Ten an hour is far above the once-per-
+        fifteen-minutes an API client holding its own token actually needs."""
+        response = self._guess("c0rrect-horse")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("access", response.json())
+
+
+@override_settings(
+    # The admin's login template asks staticfiles for admin/css/base.css, and
+    # the manifest storage this project deploys with needs a collectstatic run
+    # to answer. Nothing here depends on static files.
+    STORAGES={
+        "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+        "staticfiles": {
+            "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"
+        },
+    },
+    ADMIN_LOGIN_MAX_FAILURES=3,
+)
+class AdminLoginCeilingTests(TestCase):
+    """`/admin/login/` is Django's own view, so DRF's throttling never runs for
+    it and a `throttle_scope` on it would be silently ignored. The ceiling is
+    middleware instead — and it counts failures rather than requests, so the
+    operator cannot lock themselves out by knowing their own password."""
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+        User.objects.create_superuser(
+            username="rootadmin", email="root@example.com", password="c0rrect-horse"
+        )
+
+    def _login(self, password, **extra):
+        return self.client.post(
+            reverse("admin:login"),
+            {"username": "rootadmin", "password": password, "next": "/admin/"},
+            **extra,
+        )
+
+    def test_wrong_passwords_stop_being_answered(self):
+        # Django re-renders the form on a bad password — a 200 that is a
+        # failure, which is why the middleware reads the redirect rather than
+        # the status class.
+        self.assertEqual([self._login("wrong").status_code for _ in range(3)], [200] * 3)
+        refused = self._login("wrong")
+        self.assertEqual(refused.status_code, 429)
+        self.assertEqual(refused["Retry-After"], str(settings.ADMIN_LOGIN_FAILURE_WINDOW_S))
+
+    def test_the_right_password_gets_in_and_clears_the_count(self):
+        """A staff member who fumbles the password twice and then types it
+        correctly must not be one keystroke from a lockout for the rest of the
+        hour."""
+        self._login("wrong")
+        self._login("wrong")
+        self.assertEqual(self._login("c0rrect-horse").status_code, 302)
+
+        self.client.logout()
+        # Counter cleared: the next wrong guess is answered, not refused.
+        self.assertEqual(self._login("wrong").status_code, 200)
+
+    def test_reading_the_form_is_not_a_guess(self):
+        """Only POSTs check a password. If GETs counted, opening the login page
+        four times would refuse a sign-in nobody had attempted yet."""
+        for _ in range(10):
+            self.client.get(reverse("admin:login"))
+        self.assertEqual(self._login("c0rrect-horse").status_code, 302)
+
+    def test_the_bucket_is_the_forwarded_address(self):
+        """In production the client address arrives in X-Forwarded-For from the
+        same proxy chain this deployment already trusts for -Proto and -Host.
+        Keying on REMOTE_ADDR instead would put every visitor behind the proxy
+        in one bucket, which is one attacker locking out the operator."""
+        for _ in range(4):
+            self._login("wrong", HTTP_X_FORWARDED_FOR="203.0.113.7")
+        self.assertEqual(
+            self._login("wrong", HTTP_X_FORWARDED_FOR="203.0.113.7").status_code, 429
+        )
+        # A different address still gets its own three.
+        self.assertEqual(
+            self._login("wrong", HTTP_X_FORWARDED_FOR="198.51.100.4").status_code, 200
+        )
+
+    def test_the_lockout_does_not_extend_itself(self):
+        """The window is fixed, not sliding: `cache.add` starts it and is a
+        no-op afterwards. A sliding window would let an attacker who keeps
+        hammering hold the operator out indefinitely."""
+        for _ in range(3):
+            self._login("wrong")
+        key = f"{KEY_PREFIX}:127.0.0.1"
+        self.assertEqual(cache.get(key), 3)
+        # Refused requests never reach the view, so they add nothing.
+        self._login("wrong")
+        self._login("wrong")
+        self.assertEqual(cache.get(key), 3)
