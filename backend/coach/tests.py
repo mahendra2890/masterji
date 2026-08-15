@@ -6809,13 +6809,51 @@ class WorkshopTests(CoachTestCase):
         self.assertEqual(views._turns_used(workshop), 1)
 
     def test_the_turns_left_the_client_shows_is_the_servers_own_count(self):
+        """One source for the meter, and it is the one the refusal agrees with.
+
+        This test is named for an invariant it used to check on the wrong copy.
+        It read `turns_left` off the `done` event, which subtracted from
+        WORKSHOP_TURNS rather than from the room's own budget — correct here by
+        coincidence, because this room's budget IS 15, and wrong in the reopened
+        room, which nothing drove. The number is now sent once, by
+        _workshop_payload, computed against _turn_budget.
+        """
         _, events = self.say()
-        done = events[-1]
-        self.assertEqual(done["t"], "done")
-        self.assertEqual(done["turns_used"], 1)
-        self.assertEqual(done["turns_left"], views.WORKSHOP_TURNS - 1)
         payload = self.client.get("/api/coach/state/").json()["workshop"]
         self.assertEqual(payload["turns_left"], views.WORKSHOP_TURNS - 1)
+        self.assertEqual(payload["turns_total"], views.WORKSHOP_TURNS)
+        # And nowhere else. A second copy on the wire is what produced the bug:
+        # nothing read it, so nothing could notice it disagreeing.
+        self.assertEqual(events[-1], {"t": "done"})
+        self.assertNotIn("sketch", [e["t"] for e in events])
+
+    def test_the_reopened_rooms_meter_counts_its_own_budget(self):
+        """The case the wire's copy got wrong and no test drove: a five-turn
+        room reported fourteen left after one turn, against a server that
+        refuses at four."""
+        self.make_goal()
+        _, events = self.say("I don't think this is going anywhere")
+        payload = self.client.get("/api/coach/state/").json()["workshop"]
+        self.assertEqual(payload["turns_total"], views.REOPENED_TURNS)
+        self.assertEqual(payload["turns_left"], views.REOPENED_TURNS - 1)
+        self.assertEqual(events[-1], {"t": "done"})
+
+    def test_both_wires_end_the_same_way(self):
+        """The two streams are meant to look alike. `done` is the sentinel each
+        of them closes with, and it carries nothing on either — a payload on one
+        half of a symmetry is how the two drifted apart in the first place."""
+        goal = self.make_goal()
+        with mock.patch(
+            "coach.views.llm.stream_chat", return_value=iter([("delta", "Kaam dikhao.")])
+        ):
+            chat = self.client.post("/api/coach/chat/", {"content": "which stack?"})
+            body = b"".join(chat.streaming_content).decode()
+        chat_events = [json.loads(line) for line in body.splitlines() if line.strip()]
+        goal.delete()
+
+        _, room_events = self.say()
+        self.assertEqual(chat_events[-1], {"t": "done"})
+        self.assertEqual(room_events[-1], chat_events[-1])
 
     # --- the parking lot -----------------------------------------------------
 
@@ -6936,7 +6974,7 @@ class WorkshopTests(CoachTestCase):
         arrived, so there is nowhere in it to round two up to four — and a part
         the model invented is not one of IDEA's, because bar.labels walks the
         bar rather than the payload."""
-        _, events = self.say(
+        self.say(
             stream=self.sketch(
                 problem="hostellers miss dinner when labs run late",
                 place="the Block C mess queue at 9pm",
@@ -6944,7 +6982,11 @@ class WorkshopTests(CoachTestCase):
             )
         )
         self.assertEqual(self.workshop().sketch_parts, ["problem", "place"])
-        card = [e for e in events if e["t"] == "sketch"][0]
+        # Read off the state payload, which is where the client reads it: the
+        # count used to be sent a second time as a `sketch` wire event nobody
+        # dispatched, and this assertion was the only thing that ever looked at
+        # it.
+        card = self.client.get("/api/coach/state/").json()["workshop"]["sketch"]
         self.assertEqual(card["have"], 2)
         self.assertEqual(card["need"], 4)
 

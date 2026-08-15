@@ -3425,11 +3425,6 @@ class WorkshopChatView(throttles.VoicedThrottleMixin, APIView):
                         "refused": refused_park,
                     }
                 )
-            # A row for the same reason the two above are rows: the client
-            # refetches when the turn ends, and a meter that only existed in
-            # the stream would reset itself under a builder who was reading it.
-            if sketched is not None:
-                yield _line({"t": "sketch", **_sketch_payload(sketched)})
             notice = False
             if broke and not content:
                 content = STREAM_BROKE
@@ -3465,17 +3460,32 @@ class WorkshopChatView(throttles.VoicedThrottleMixin, APIView):
                     ),
                     content=content,
                 )
-            # The count the client should show next, computed after this turn's
-            # row landed. Sent on `done` so the meter and the server's own
-            # refusal threshold are the same number.
-            used = _turns_used(workshop)
-            yield _line(
-                {
-                    "t": "done",
-                    "turns_used": used,
-                    "turns_left": max(WORKSHOP_TURNS - used, 0),
-                }
-            )
+            # The stream's end, and nothing else on it. Bare, exactly like
+            # ChatView's — the two wires are meant to look alike, and this is
+            # the sentinel both of them close with.
+            #
+            # It used to carry `turns_used` and `turns_left`, which is a
+            # sentence worth leaving here because the numbers looked like the
+            # careful thing to do. The comment above them promised the meter and
+            # the server's refusal threshold would be the same number, and then
+            # subtracted from WORKSHOP_TURNS (15) rather than from
+            # _turn_budget(workshop) — so a reopened room, whose budget is
+            # REOPENED_TURNS (5), reported 14 left out of 5 after one turn. The
+            # server would have refused at 4.
+            #
+            # Nothing ever read it, which is why nobody found it: streamWorkshopChat
+            # dispatches `delta`, `candidates` and `error`, and the client takes
+            # the meter off the state refetch that ends every turn
+            # (_workshop_payload, which computes it against the real budget and
+            # says so). A wrong number under a comment asserting the invariant it
+            # breaks, in the one place structurally incapable of being noticed.
+            #
+            # So the fix is not a second copy computed correctly. Two sources for
+            # one number is what produced this; the payload is the one the client
+            # reads and the one the refusal agrees with, and it stays the only
+            # one. The `sketch` event above went the same way and for the same
+            # reason — the client reads `w.sketch` off that same payload.
+            yield _line({"t": "done"})
 
 
 # --- the product's own record ---------------------------------------------
