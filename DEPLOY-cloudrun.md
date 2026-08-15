@@ -43,7 +43,7 @@ budget *alerts* do not cap spending; spend caps do.
 
 ## 1. Secrets
 
-Eight secrets, created by hand because their values must not pass through a
+Nine secrets, created by hand because their values must not pass through a
 shell history, a CI log, or a chat transcript.
 
 **Read the live service, not `render.yaml`.** The blueprint has R2 and web push
@@ -59,6 +59,18 @@ they fail in different ways if they are not:
 | `DJANGO_SECRET_KEY` | `SIMPLE_JWT` has no `SIGNING_KEY`, so it falls back to `SECRET_KEY`, as does the `signing.dumps` protecting the OAuth `state`. A new key invalidates every refresh token, admin session and in-flight login. |
 | `VAPID_PRIVATE_KEY` + `VAPID_PUBLIC_KEY` | A browser's push subscription is bound to the `applicationServerKey` it subscribed with, which `nudges.py` serves from `VAPID_PUBLIC_KEY`. A new keypair silently orphans every existing subscription — they stay in the table and stop being deliverable. |
 | `NUDGE_TOKEN` | Has to match the GitHub Actions repository secret of the same name, or the hourly tick gets a 401. |
+
+**`EDGE_SHARED_SECRET` is the ninth and it is new here** — Render never needed
+it, because Render's host was not separately reachable in the way this one is.
+It has to match the Vercel environment variable of the same name exactly, and
+unlike the three above, getting it wrong does not degrade one feature: it
+returns 403 for the entire API. §8 is the order that has no window in which one
+side has it and the other does not. A fresh value is correct — nothing else
+signs anything with it:
+
+```bash
+openssl rand -hex 32
+```
 
 **`masterji-secret-key` must be Render's existing `DJANGO_SECRET_KEY`, copied
 out of the Render dashboard — not a fresh one.** `SIMPLE_JWT` sets no
@@ -82,6 +94,7 @@ printf '%s' '<R2_ACCESS_KEY_ID>'     | gcloud secrets create masterji-r2-access-
 printf '%s' '<R2_SECRET_ACCESS_KEY>' | gcloud secrets create masterji-r2-secret-access-key  --data-file=- --replication-policy=automatic --project portfolio-502209
 printf '%s' '<VAPID_PRIVATE_KEY>'    | gcloud secrets create masterji-vapid-private-key     --data-file=- --replication-policy=automatic --project portfolio-502209
 printf '%s' '<NUDGE_TOKEN>'          | gcloud secrets create masterji-nudge-token           --data-file=- --replication-policy=automatic --project portfolio-502209
+printf '%s' '<EDGE_SHARED_SECRET>'   | gcloud secrets create masterji-edge-shared-secret    --data-file=- --replication-policy=automatic --project portfolio-502209
 ```
 
 Then let Cloud Run's runtime service account read them — **before** creating the
@@ -90,7 +103,7 @@ Job or the service, or both fail with `Permission denied on secret`:
 ```bash
 for s in masterji-secret-key masterji-database-url masterji-google-client-secret \
          masterji-openai-api-key masterji-r2-access-key-id masterji-r2-secret-access-key \
-         masterji-vapid-private-key masterji-nudge-token; do
+         masterji-vapid-private-key masterji-nudge-token masterji-edge-shared-secret; do
   gcloud secrets add-iam-policy-binding "$s" \
     --member="serviceAccount:697438837887-compute@developer.gserviceaccount.com" \
     --role="roles/secretmanager.secretAccessor" --project portfolio-502209
@@ -191,8 +204,17 @@ OPENAI_API_KEY=masterji-openai-api-key:latest,\
 R2_ACCESS_KEY_ID=masterji-r2-access-key-id:latest,\
 R2_SECRET_ACCESS_KEY=masterji-r2-secret-access-key:latest,\
 VAPID_PRIVATE_KEY=masterji-vapid-private-key:latest,\
-NUDGE_TOKEN=masterji-nudge-token:latest"
+NUDGE_TOKEN=masterji-nudge-token:latest,\
+EDGE_SHARED_SECRET=masterji-edge-shared-secret:latest"
 ```
+
+`--allow-unauthenticated` stays, and that is not an oversight now that
+`EDGE_SHARED_SECRET` exists. Google's own authentication is not what is being
+used here: Vercel calls this service from the public internet rather than from
+inside GCP, so an IAM-authenticated service would need a service-account
+credential living in Vercel. The boundary is instead a shared secret checked in
+Django (`accounts.middleware.EdgeSecretMiddleware`) — see §8 for what that
+does and does not buy.
 
 `R2_ENDPOINT` is absent on purpose — `settings.py` derives it from
 `R2_ACCOUNT_ID`. Without the four R2 values `storage.is_configured()` returns
@@ -224,6 +246,12 @@ is on under `DJANGO_DEBUG=0`, so Django sees whichever Host the Vercel proxy
 forwards — the public one — while anything hitting the API directly (curl,
 the keep-warm ping, your own verification) arrives as the `run.app` host.
 
+Both entries are still needed once §8's gate is on. The gate refuses requests
+that arrive without the secret; it does not stop the `run.app` host being the
+Host header on the ones that arrive with it, which is every request Vercel
+forwards. Removing either entry would break the thing it names, not tighten
+anything.
+
 ### The `^|^` prefix, and why not `^@^`
 
 gcloud splits a `--set-env-vars` / `--update-env-vars` list on commas, and two
@@ -254,6 +282,21 @@ is a blast-radius limit, not a capacity plan.
 ```bash
 curl -s https://masterji-api-697438837887.asia-southeast1.run.app/api/health/
 ```
+
+**That one still works without the secret, and it is the only thing that
+does.** `/api/health/` is exempt from §8's gate on purpose — it is what the
+deploy check, the keep-warm ping and `proxy.ts`'s wake probe all call. Every
+other direct request needs the header, which is the operator route §8 keeps
+open:
+
+```bash
+curl -s -H "X-Masterji-Edge: $EDGE_SHARED_SECRET" \
+  https://masterji-api-697438837887.asia-southeast1.run.app/api/coach/changelog/
+```
+
+A bare `curl` to anything but `/api/health/` answering **403 with a body of
+`No.`** is this working, not a fault. That is worth knowing before it is
+mistaken for one at three in the morning.
 
 For anything past the health check, add the Cloud Run callback to the Google
 OAuth client (Console → Credentials → Authorized redirect URIs, trailing slash
@@ -302,6 +345,143 @@ Until step 1, nothing a user touches has changed. Push notifications are worth
 leaving until after the switch rather than testing in parallel: both services
 hold the same VAPID keypair and read the same subscription table, so whichever
 one is knocked can deliver to a real device.
+
+## 8. The edge secret, and the number it unlocks
+
+### What this is for
+
+The `run.app` host answers the public internet. That was deliberate and
+documented, and it had one consequence nobody was charging it for: Django had
+**two front doors with different numbers of proxies in front of them.**
+
+| path | hops that append to `X-Forwarded-For` |
+| --- | --- |
+| browser → Vercel → Google front end → Django | 2 |
+| attacker → Google front end → Django | 1 |
+
+DRF keys every anonymous ceiling on `NUM_PROXIES`, which is **one integer**. Set
+it to 2 and the direct door stays forgeable; set it to 1 and every real visitor
+shares one bucket. So the number could not be set at all, and the ceilings in
+front of the operator's password did not bind — measured on 15 August 2026:
+twelve rotating-header requests walked around a live 429 on `/api/auth/token/`,
+and thirty-two consecutive wrong passwords through the primary domain never
+produced one.
+
+`EDGE_SHARED_SECRET` deletes the second door. `proxy.ts` stamps every request
+it forwards; `accounts.middleware.EdgeSecretMiddleware` refuses anything
+unstamped. One chain, one number.
+
+**What it is not.** A shared secret is weaker than an identity: it sits in two
+places and a leak reopens the path until it is rotated. It was chosen over a
+Google-signed ID token because Vercel calls this service from the public
+internet rather than from inside GCP, so IAM would mean a service-account
+private key living in Vercel with its own rotation story. This closes the hole
+that was actually measured — *anonymous* direct access — and is checkable in
+`backend/accounts/tests.py` rather than only in production.
+
+### Setting it, or rotating it
+
+**There is no window in which one side has a value the other does not**, and
+that matters more than it usually does: a mismatch is a total outage of the
+API, not a degraded feature. Django compares against exactly one value, so the
+order is what keeps it safe:
+
+1. Set it in **Vercel** first (Settings → Environment Variables → all
+   environments) and **redeploy — the redeploy is the step, not a formality.**
+   `proxy.ts` reads the value when it is built, so a variable set without a
+   deploy is a variable the running edge does not have. Django does not have
+   the variable yet either, so its gate is still inert and the stamped header
+   is ignored — no effect either way.
+2. Confirm the app still works. It must, because nothing is checking yet.
+3. Then set it on **Cloud Run**:
+
+   ```bash
+   printf '%s' '<new value>' | gcloud secrets versions add masterji-edge-shared-secret \
+     --data-file=- --project portfolio-502209
+   gcloud run services update masterji-api --region asia-southeast1 \
+     --project portfolio-502209 --update-secrets EDGE_SHARED_SECRET=masterji-edge-shared-secret:latest
+   ```
+
+4. Verify both directions with §6's two curls: `/api/health/` answers without
+   the header, anything else answers `403` without it and normally with it.
+
+Rolling back is step 3 in reverse — clear the variable on Cloud Run and the
+gate goes inert again, which is the property that makes this safe to try.
+
+**Do not put this value in `render.yaml` or the Render dashboard.** Render's
+service has no second door and the gate is inert there; adding it would only
+create a third place to keep in sync.
+
+### Then: the number
+
+This is the step the whole thing was for, and it should be done *with* the
+rollout rather than left as a follow-up. It is one page load.
+
+1. Turn the instrument on:
+
+   ```bash
+   gcloud run services update masterji-api --region asia-southeast1 \
+     --project portfolio-502209 --update-env-vars LOG_FORWARDED_HEADERS=1
+   ```
+
+2. Load any page through `https://masterji.mscsoftwares.in` in a browser.
+3. Read the one line `ForwardedHeaderLogMiddleware` wrote:
+
+   ```bash
+   gcloud run services logs read masterji-api --region asia-southeast1 \
+     --project portfolio-502209 --limit 50 | grep forwarded-headers
+   ```
+
+4. **Count the addresses the proxies appended** — that is the number, and it is
+   the count of hops that add to the header, not the total number of addresses
+   in it. Set it:
+
+   ```bash
+   gcloud run services update masterji-api --region asia-southeast1 \
+     --project portfolio-502209 --update-env-vars DRF_NUM_PROXIES=<n>
+   ```
+
+5. Turn the instrument back off — it writes client addresses to the log, so it
+   is a measurement somebody takes and then stops taking:
+
+   ```bash
+   gcloud run services update masterji-api --region asia-southeast1 \
+     --project portfolio-502209 --update-env-vars LOG_FORWARDED_HEADERS=0
+   ```
+
+6. **Re-run the probe that failed.** This is the confirmation, and without it
+   the number is still a guess:
+
+   ```bash
+   # Eleven wrong guesses from a fixed client, then a twelfth — expect a 429.
+   for i in $(seq 1 12); do
+     curl -s -o /dev/null -w "%{http_code} " -X POST \
+       https://masterji.mscsoftwares.in/api/auth/token/ \
+       -H 'Content-Type: application/json' \
+       -d '{"username":"nobody","password":"wrong"}'
+   done; echo
+   # Then twelve more from that same, already-refused client, each with a
+   # different X-Forwarded-For. Before: 401 x12. After: they must stay 429.
+   for i in $(seq 1 12); do
+     curl -s -o /dev/null -w "%{http_code} " -X POST \
+       https://masterji.mscsoftwares.in/api/auth/token/ \
+       -H "X-Forwarded-For: 203.0.113.$i" \
+       -H 'Content-Type: application/json' \
+       -d '{"username":"nobody","password":"wrong"}'
+   done; echo
+   ```
+
+   The second loop still answering `401` means the header is still buying fresh
+   buckets and `<n>` is too high. One bucket for every visitor — where one
+   attacker refuses everybody — is what too low looks like, and it shows up as
+   real users being refused rather than in this probe, so prefer re-measuring
+   step 3 to trying numbers.
+
+`DRF_NUM_PROXIES` is deliberately left **unset in this repository**: it is a
+fact about the deployment's proxy chain, and writing a guess into
+`config/settings.py` is the thing that block spends thirty lines refusing to
+do. Once measured, set it as an environment variable above and record the value
+and the date in this section.
 
 ## Keep-warm
 

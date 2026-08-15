@@ -31,7 +31,14 @@ Counted in the default cache, so this is shared exactly as far as CACHES is —
 with CACHE_URL set it is one counter for the deployment, and without it one per
 process, which is a weaker ceiling and still a ceiling. Same caveat, in the
 same words, as the throttle rates in settings.
+
+Two other middlewares live here because they are about the same request
+metadata this one keys on: `ForwardedHeaderLogMiddleware` is the instrument for
+`NUM_PROXIES`, and `EdgeSecretMiddleware` is what makes that number knowable at
+all. Each says why in its own docstring.
 """
+
+import hmac
 
 from django.conf import settings
 from django.core.cache import cache
@@ -43,6 +50,10 @@ from rest_framework.throttling import BaseThrottle
 KEY_PREFIX = "admin-login-failures"
 
 REFUSAL = "Too many sign-in attempts. Try again later.\n"
+
+EDGE_HEADER = "X-Masterji-Edge"
+
+EDGE_REFUSAL = "No.\n"
 
 
 class AdminLoginThrottleMiddleware:
@@ -115,6 +126,98 @@ class ForwardedHeaderLogMiddleware:
                 BaseThrottle().get_ident(request),
             )
         return self.get_response(request)
+
+
+class EdgeSecretMiddleware:
+    """Refuse anything that did not arrive through our own edge.
+
+    WHAT THIS IS FOR, and it is not the obvious thing. The Cloud Run URL
+    answers the public internet directly — deployed `--allow-unauthenticated`
+    on purpose (DEPLOY-cloudrun.md §5) — so until now this process had *two*
+    front doors with different numbers of proxies in front of them:
+
+        browser  -> Vercel -> Google front end -> Django    (2 append)
+        attacker ->           Google front end -> Django    (1 append)
+
+    `NUM_PROXIES` is one integer, and an attacker is the only caller who gets
+    to pick a door. Set it to 2 and the direct door stays forgeable; set it to
+    1 and every real visitor shares one throttle bucket, where one refused
+    attacker refuses everybody. That is why `config/settings.py` declines to
+    guess a number, and why every anonymous ceiling in this deployment —
+    including the two in front of the operator's password — does not currently
+    bind (#255, #317).
+
+    So this middleware's job is not really "add authentication". It is to
+    **delete the second door**, leaving one chain whose length can be measured
+    once and written down.
+
+    WHAT IT COSTS TO BE WRONG, stated plainly: this sits in front of the whole
+    API. A secret that is set on Cloud Run and missing on Vercel takes the
+    product down completely rather than degrading it. That is the trade for a
+    boundary that is checkable in this suite instead of only in production —
+    see DEPLOY-cloudrun.md §8 for the rotation order that avoids it.
+
+    THE RULES
+
+    - **Inert unless configured.** No `EDGE_SHARED_SECRET`, no gate. Local
+      development, the test suite and any deployment that has not adopted this
+      are all unaffected, and none of them has the second door either.
+    - **Off under DEBUG**, so a developer who does set the variable — to
+      exercise this, say — does not have to unset it to use the app.
+    - **Fail closed once it is on.** Configured means required: absent header,
+      empty header and wrong header are the same 403. "Not configured" must
+      never collapse into "no auth required", which is the property
+      `NudgeRunView` already states in the same words.
+    - **Constant-time compare**, so the refusal cannot be turned into an
+      oracle that reads the secret out one character at a time.
+    - **One answer for every refusal.** Absent and wrong are indistinguishable
+      from outside; a 403 that said which would be a hint.
+
+    THE TWO EXEMPTIONS, both of them callers that reach this service directly
+    by design and would otherwise break:
+
+    - `/api/health/` — the deploy-time check, the keep-warm ping
+      (DEPLOY-cloudrun.md "Keep-warm") and `proxy.ts`'s wake probe. It costs a
+      static JSON payload, carries no throttle scope and reads nothing, so
+      exempting it hands an anonymous caller nothing and leaves no ceiling
+      keyed on the door it comes through.
+    - `/api/coach/nudges/run/` — the hourly tick, a GitHub Actions job POSTing
+      from a runner rather than through Vercel (`.github/workflows/checks.yml`).
+      It already carries its own shared secret and already refuses when that is
+      unset, so a second secret in front of it would add nothing but a second
+      thing to rotate — and a rotation that forgot it would silently stop every
+      evening nudge in the product.
+
+    Both are asked for by URL name rather than written down, for the reason
+    `_login_path` gives.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        expected = settings.EDGE_SHARED_SECRET
+        if not expected or settings.DEBUG or request.path in _edge_exempt_paths():
+            return self.get_response(request)
+
+        sent = request.headers.get(EDGE_HEADER, "")
+        if not hmac.compare_digest(sent, expected):
+            return HttpResponse(EDGE_REFUSAL, status=403, content_type="text/plain")
+        return self.get_response(request)
+
+
+def _edge_exempt_paths() -> frozenset[str]:
+    """The paths `EdgeSecretMiddleware` lets past, by URL name so that moving a
+    route cannot quietly turn an exemption into a 403 — or, worse, leave one
+    pointing at whatever moved into the old path."""
+    names = ("health", "coach_nudges_run")
+    paths = set()
+    for name in names:
+        try:
+            paths.add(reverse(name))
+        except NoReverseMatch:  # pragma: no cover — both are always mounted
+            pass
+    return frozenset(paths)
 
 
 def _login_path() -> str:
