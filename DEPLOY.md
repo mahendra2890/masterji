@@ -88,6 +88,38 @@ the gthread workers set in [backend/start.sh](backend/start.sh).
 3. Deploy, then fix up the Render CORS/CSRF vars with the real
    `<app>.vercel.app` host if you used placeholders.
 
+The function region is pinned to **Mumbai (`bom1`)** in
+[vercel.json](vercel.json), which overrides whatever the dashboard says. It
+is in the repo rather than only in Settings → Functions because a region that
+lives in a dashboard is invisible to anyone reading this code, and it changed
+once already for a reason worth not re-deriving.
+
+Why `bom1`, and not `iad1` or `sin1`:
+
+- `iad1` (Washington DC) is Vercel's default **for new projects**, not a floor,
+  and it is where this project sat until 15 August 2026. Every measured visitor
+  is in India, so it was the wrong side of the planet.
+- `sin1` (Singapore) looks right because the API runs on Cloud Run in
+  `asia-southeast1` — but **no Vercel function talks to the API**.
+  `lib/auth-client.ts` sets `API_URL = ""`, so every call is a relative path
+  made by the browser and proxied by the rewrites in `next.config.ts`. The one
+  server-side fetch to Django is `proxy.ts`'s health probe, and Routing
+  Middleware is deployed to every region regardless of this setting. So there
+  is nothing to co-locate with Singapore.
+- What the setting actually governs is the distance from an Indian browser to
+  whichever functions do run. `npm run build` names them: `/` (reads a cookie),
+  `/record/[slug]` (a dynamic segment with no `generateStaticParams`) and
+  `/waking` (awaits `searchParams`). `/cohort` and `/demo` are static. None of
+  the three fetches the API on the server — `/record/[slug]`'s own comment says
+  so explicitly — which is why none of them argues for Singapore.
+
+Hobby is limited to one region, but it may be any region; the plan caps the
+count, not the choice.
+
+**This did not fix the TTFB on `/`** — measured at −68ms from one machine,
+inside the run-to-run noise. The remaining cost is the function invocation
+itself. See #321.
+
 ## 4. Domain (Namecheap → Vercel)
 
 1. Vercel project → Settings → Domains → add `masterji.mscsoftwares.in`.
