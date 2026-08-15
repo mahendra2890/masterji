@@ -3,10 +3,12 @@ from django.http import Http404
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.serializers import TokenRefreshSerializer
 from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.views import TokenObtainPairView
 
 from . import erasure
 from .cookies import clear_auth_cookies, set_auth_cookies
@@ -58,6 +60,26 @@ class MeView(APIView):
         response = Response(status=status.HTTP_204_NO_CONTENT)
         clear_auth_cookies(response)
         return response
+
+
+class ThrottledTokenObtainPairView(TokenObtainPairView):
+    """simplejwt's username+password endpoint, with a ceiling on it.
+
+    Nothing a builder uses reaches this view: sign-in is Google, and every
+    account it creates carries `set_unusable_password()`, so the only
+    credential this endpoint can possibly verify is the operator's superuser
+    from render.yaml — the one that opens the admin. It stays mounted for the
+    clients its docstring in urls.py names (curl, other API clients), and it
+    stops being an unmetered oracle for that one password.
+
+    The scope is separate from the ones in coach.throttles for the reason those
+    exist at all: those ration a budget an honest builder spends, and the
+    refusals are written in the coach's voice because a builder reads them.
+    Nobody reads this one but a script, so it keeps DRF's own wording.
+    """
+
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "login"
 
 
 class CookieTokenRefreshView(APIView):

@@ -68,6 +68,10 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    # Inside the session/CSRF layers, so it only counts POSTs that actually
+    # reached the admin's login view — a request rejected for a missing CSRF
+    # token never checked a password and is not a guess.
+    "accounts.middleware.AdminLoginThrottleMiddleware",
     # Innermost, so the budget starts as close to the view as possible: the
     # seconds this bounds are the ones spent talking to a provider, not the
     # ones Django spends on sessions and CSRF.
@@ -200,7 +204,27 @@ REST_FRAMEWORK = {
     # lookup surface with no ceiling is one whose size somebody else decides.
     # Sized for a builder mistyping a code off a slide a few times, which is
     # the only honest way to reach it twice.
+    #
+    # `login` is the fourth kind, and the only one here guarding a CREDENTIAL
+    # rather than a budget or a public surface. POST /api/auth/token/ can
+    # verify exactly one password in this deployment — the operator's superuser
+    # from render.yaml — because every builder account is Google-only and
+    # carries set_unusable_password(). Unmetered, it is an offline-speed
+    # guessing oracle for the one credential that opens the admin.
+    #
+    # The number is not sized for honest use, because there is no honest use to
+    # size it for: nothing in the app calls this endpoint, and the API clients
+    # its docstring names ask for a token once and then hold it for fifteen
+    # minutes. Ten an hour is generous for that and useless for guessing. Keyed
+    # by address, the same as `changelog` and for the same reason — the caller
+    # is unauthenticated by definition here.
+    #
+    # /admin/login/ needs the same ceiling and cannot have this one: it is
+    # Django's own view, DRF's throttling never runs for it, and a scope on it
+    # would be silently ignored. That half lives in
+    # accounts.middleware.AdminLoginThrottleMiddleware.
     "DEFAULT_THROTTLE_RATES": {
+        "login": "10/hour",
         "chat": "30/hour",
         "prove": "20/day",
         "judge": "40/day",
@@ -238,6 +262,25 @@ CACHES = {
         else {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}
     )
 }
+
+# The other half of the login ceiling: Django's admin login form, which DRF's
+# throttling cannot see. Counted in the same cache as everything above, so the
+# CACHE_URL caveat applies here word for word.
+#
+# Failures only, and a correct sign-in clears the counter — so this is a wall in
+# front of guessing rather than a quota on signing in, and fumbling a password
+# twice before typing it correctly costs nothing. Ten wrong guesses an hour from
+# one address, matched to the `login` rate above so both password surfaces
+# refuse at the same place.
+#
+# Once the ten are spent the wall is in front of the view, so the right password
+# from that same address waits out the window too. That is the trade, and it is
+# the right way round: a staff member locked out for an hour is recoverable, an
+# unmetered guessing oracle for the admin credential is not.
+ADMIN_LOGIN_MAX_FAILURES = int(os.environ.get("ADMIN_LOGIN_MAX_FAILURES", "10"))
+ADMIN_LOGIN_FAILURE_WINDOW_S = int(
+    os.environ.get("ADMIN_LOGIN_FAILURE_WINDOW_S", "3600")
+)
 
 SIMPLE_JWT = {
     # Short-lived access token: if one leaks, the damage window is minutes.
