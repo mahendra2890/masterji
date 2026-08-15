@@ -921,17 +921,26 @@ class AnonymousThrottlesKeyOnAForgeableHeaderTests(APITestCase):
 
     def test_the_count_is_the_one_that_was_measured(self):
         """This test used to assert the setting was ABSENT, so a number could
-        not arrive by tidying. A number has now arrived, by measurement, so it
-        asserts the measurement instead — the same guard, pointed at the value
-        rather than at its absence.
+        not arrive by tidying. A number has now arrived, so it asserts that
+        instead — the same guard, pointed at the value rather than its absence.
 
-        2, from one page load through masterji.mscsoftwares.in on 15 August
-        2026: `xff='152.59.127.247,13.233.186.70'` — the browser, then Vercel's
-        egress. config/settings.py carries the log line and the two other
-        things that reading showed, including why 1 is ruled out.
+        2, from one page load on 15 August 2026:
+        `xff='152.59.127.247,13.233.186.70'` — the browser, then Vercel's
+        egress.
 
-        Changing this number means taking the measurement again, not editing
-        the constant.
+        **2 is not a secure key, and this test is not a claim that it is.**
+        Sending a forged header the same day returned
+        `xff='203.0.113.20,13.233.186.70'` — still two entries, with the
+        client's own value in the `[-2]` slot, because Vercel does not append
+        when the caller already supplied one. Against the live ceiling, 20
+        requests each: 6/20 through with a fixed header, 14/20 rotating.
+
+        2 is set because unset is worse — it keys on the whole header including
+        an egress address that rotates per request, so it binds on nobody. What
+        is pinned here is the value config/settings.py argues for, on the
+        reasoning it gives; the real fix is an edge-stamped client address and
+        is filed separately. Changing this number means measuring again, WITH a
+        forged header, not editing the constant.
         """
         self.assertEqual(self._num_proxies_with_secret("a-live-edge-secret"), 2)
 
@@ -974,6 +983,32 @@ class AnonymousThrottlesKeyOnAForgeableHeaderTests(APITestCase):
         ):
             codes = [self._guess(self.FORGED.format(i)).status_code for i in range(5)]
         self.assertEqual(codes, [401, 401, 401, 429, 429])
+
+    def test_two_entries_means_the_client_owns_the_trusted_slot(self):
+        """The production shape, and the finding that 2 does not survive.
+
+        Everything above uses a three-entry header, where `[-2]` is an address
+        a proxy observed. Production sends TWO — measured 15 August 2026 — and
+        when the caller supplies the header themselves, Vercel forwards their
+        value rather than appending to it, so the two entries are *theirs* and
+        Google's front end's. `[-2]` is then the one they wrote.
+
+        Five guesses against a ceiling of three, one attacker, no refusal —
+        the same signature as the unset case above, at the count this
+        deployment runs. Pinned so that nobody reads `NUM_PROXIES = 2` and
+        concludes the anonymous ceilings bind on a determined caller. They do
+        not, and the fix is an edge-stamped client address rather than a
+        different integer.
+        """
+        with (
+            _num_proxies(2),
+            mock.patch.dict(ScopedRateThrottle.THROTTLE_RATES, {"login": "3/hour"}),
+        ):
+            codes = [
+                self._guess(f"203.0.113.{i}, 13.233.186.70").status_code
+                for i in range(5)
+            ]
+        self.assertEqual(codes, [401] * 5)
 
     def test_a_different_client_still_gets_its_own_bucket(self):
         """The other direction, and the one that would be invisible: a count

@@ -261,51 +261,70 @@ EDGE_SHARED_SECRET = os.environ.get("EDGE_SHARED_SECRET", "").strip()
 # through our own edge, so every request that now reaches a throttled endpoint
 # has crossed the same chain (#317). The count is a measurement again.
 #
-# THE NUMBER, MEASURED — 15 August 2026, and this is the whole basis for the 2
-# below. LOG_FORWARDED_HEADERS=1, one page load through
-# masterji.mscsoftwares.in, read back out of the Cloud Run log:
+# THE NUMBER IS 2, AND 2 DOES NOT BUY WHAT IT LOOKS LIKE IT BUYS. Read this
+# before trusting any anonymous ceiling in this file. Measured 15 August 2026.
 #
-#   path=/api/auth/me/  xff='152.59.127.247,13.233.186.70'
-#                       remote_addr='169.254.169.126'
+# The reading that produced it — LOG_FORWARDED_HEADERS=1, one page load through
+# masterji.mscsoftwares.in:
 #
-# Two entries and exactly two. The first is the browser's own address; the
-# second is in an AWS Mumbai range, which is where Vercel's bom1 egress sits.
-# So two hops append, `[-2]` is the browser, and 2 is the count. It is written
-# here rather than left in a dashboard for the reason #327 pinned the Vercel
-# region in the repository: a number nobody can see is a number nobody can
-# check.
+#   path=/api/auth/me/  xff='152.59.127.247,13.233.186.70'  ident='152.59...'
 #
-# TWO THINGS THE SAME LOG SHOWED, both worth keeping:
+# Two entries: the browser, then an AWS Mumbai address where Vercel's bom1
+# egress sits. `[-2]` is the browser, so 2 looked correct and was pinned.
 #
-#   1. Vercel's egress address VARIES PER REQUEST — 13.233.186.70 and then
-#      3.110.215.22 one second apart, same browser. That is the mechanism
-#      behind measurement 4 above, which recorded 32 wrong passwords through
-#      the primary domain producing no 429 and could not say why: with this
-#      unset the key is the whole joined header, so a rotating second entry
-#      handed every attempt a fresh bucket without the attacker sending
-#      anything. It also rules out 1 conclusively — `[-1]` would be that
-#      rotating address, which is both useless as a key and shared by every
-#      visitor.
-#   2. Requests with only ONE entry appear in the same log, from callers
-#      reaching the run.app host directly. That is the second door, measured
-#      rather than argued, and EDGE_SHARED_SECRET below is what closes it.
+# THAT READING WAS INCOMPLETE, and the correction matters more than the number.
+# A browser never sends `X-Forwarded-For`, so the page load above could only
+# ever exercise the benign case. Sending one deliberately, same day, same path:
 #
-# THE ORDER MATTERS. This number is only safe once that door is shut. Set it
-# while run.app still answers anonymously and an attacker sends
-# `X-Forwarded-For: a, b` straight to it: Django sees `a, b, attacker` and
-# `[-2]` is `b`, which they chose. That is a differently forgeable ceiling
-# rather than a fixed one. EDGE_SHARED_SECRET first, then this.
+#   xff='203.0.113.20,13.233.186.70'  ident='203.0.113.20'   <-- OUR value
 #
-# ANY OTHER DEPLOYMENT MUST SET THE VARIABLE. 2 is a fact about the
+# STILL TWO ENTRIES. Vercel does not append the client's address when the
+# client already supplied the header — it forwards theirs and only Google's
+# front end appends. So the `[-2]` slot holds the real browser only for callers
+# who did not think to write it, and belongs to anyone who did.
+#
+# Confirmed end to end rather than inferred, 20 requests each against the live
+# login ceiling, one client, back to back:
+#
+#   fixed header     6/20 got through
+#   rotating header  14/20 got through
+#
+# WHY 2 IS STILL SET, WHICH IS NOT THE SAME AS IT BEING RIGHT. Unset keys on
+# the whole joined header, and the second entry — Vercel's egress — VARIES PER
+# REQUEST (13.233.186.70 then 3.110.215.22, one second apart, same browser).
+# That is the mechanism behind measurement 4 above, which recorded 32 wrong
+# passwords producing no 429 and could not say why. So unset binds on nobody at
+# all, while 2 binds correctly on every caller who does not forge. 1 is worse
+# than both: `[-1]` is that rotating egress address, useless as a key and
+# shared by every visitor at once.
+#
+# 2 is the best of three bad options and none of them is a working credential
+# ceiling. NUM_PROXIES cannot express one on this topology, because there is no
+# position in this header that Vercel guarantees. That is a property of the
+# forwarding behaviour, not a number nobody has found yet.
+#
+# THE FIX IS NOT A NUMBER. proxy.ts is already a trusted edge — the gate below
+# means nothing reaches this process any other way, and it already overwrites a
+# client-supplied header rather than appending to it. The same `set` can stamp
+# the true client address, which Vercel exposes to it in headers the client
+# cannot write, and the throttles can key on that instead. Filed as its own
+# issue out of this finding; until it lands, treat every anonymous ceiling here
+# as bounding accidents rather than attackers.
+#
+# ANY OTHER DEPLOYMENT MUST SET THE VARIABLE. 2 describes the
 # Vercel → Google front end → Cloud Run chain and nothing else. Render's chain
 # is shorter and has never been measured, so if that service is ever
-# unsuspended it needs its own reading rather than this default — the same
-# rule that kept this unset for as long as there were two answers.
+# unsuspended it needs its own reading rather than this default.
+#
+# AND IF YOU RE-MEASURE: send a forged `X-Forwarded-For` as well as loading a
+# page. The benign reading and the adversarial one disagree here, and only one
+# of them is about security.
 # THE INTERLOCK, and it is the reason the default is conditional rather than a
-# plain 2. Everything above says the same thing from three directions: 2 is
-# correct ONLY once the second door is shut. Before that it is not a safer
-# guess than None, it is a different forgery — `X-Forwarded-For: a, b` sent
-# straight to run.app makes `[-2]` the attacker's own `b`.
+# plain 2. With the run.app door open, 2 is forgeable by a second route as well
+# as the one above: `X-Forwarded-For: a, b` sent straight to that host makes
+# `[-2]` the attacker's own `b`, with no Vercel involved at all. Closing the
+# door does not make 2 sound — the correction above stands — but it does remove
+# the cheaper of the two ways past it.
 #
 # Written as a condition rather than a comment because the dangerous window is
 # real and narrow: this constant ships in a commit, and the secret is set by
