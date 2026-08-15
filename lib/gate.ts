@@ -13,9 +13,46 @@
 // while the phase is not met. The server is the authority either way: this
 // reads numbers gates.py sent and never recomputes them.
 
-import type { Gate } from "./coach-api";
+import type { Gate, Phase } from "./coach-api";
 
 export function isEarned(gate: Gate | null | undefined): boolean {
   if (!gate || gate.need <= 0) return false;
   return gate.have >= gate.need && gate.owed.length === 0;
+}
+
+/** The gate situation a note was an answer to.
+ *
+ * "Not yet, 0/1" stops being true the moment a proof lands, and the card used
+ * to keep saying it — under a bar that had since filled, which is the worst
+ * sentence to be reading at the best moment in the product. Pinning each
+ * answer to the state that produced it lets the card tell that it has been
+ * overtaken instead of asserting a refusal the database no longer agrees with.
+ *
+ * The goal id is in it because the component survives a goal ending: retiring
+ * takes the render down the no-goal branch without unmounting, so a refusal
+ * left over from the last idea would match a brand-new goal standing in IDEA
+ * at 0 proofs and greet it with a refusal it never earned.
+ *
+ * The row count is in it for the same reason on a phase that counts people: a
+ * second conversation with the same person moves `banked` and not `have`, and
+ * the refusal quotes both numbers. Keyed on `have` alone it would sit there
+ * saying "3 accepted proofs" over a record that now holds four.
+ *
+ * Each of the four fields is therefore a bug that has already happened once.
+ * Nothing about a string comparison can tell you a fifth is needed, but
+ * `gate.test.ts` pins all four against the state changes they were added for,
+ * so dropping one is a failing test rather than a refusal outliving its cause.
+ */
+/** The four things the key is made of, and nothing else — `CoachState`
+ * satisfies it. Structural so a test can state the situation under test rather
+ * than a whole payload, the same bargain `isEarned` makes by taking `Gate`. */
+export type GateSituation = {
+  goal: { id: number; phase: Phase } | null;
+  gate: Pick<Gate, "have" | "banked"> | null;
+};
+
+export function gateKey(s: GateSituation | null | undefined): string {
+  return s?.goal
+    ? `${s.goal.id}:${s.goal.phase}:${s.gate?.have ?? 0}:${s.gate?.banked ?? 0}`
+    : "";
 }

@@ -17,9 +17,25 @@ import DayDetail from "./DayDetail";
 import { updatePrefs, type SessionUser } from "@/lib/auth-client";
 import { useDialogFocus } from "@/lib/dialog-focus";
 import { readDraft, writeDraft } from "@/lib/drafts";
-import { isEarned } from "@/lib/gate";
+import {
+  dayOpen as isDayOpen,
+  draftWaiting as isDraftWaiting,
+  eveningOpen as isEveningOpen,
+  isUnsettled,
+  missingPieces,
+  notesRunning as isNotesRunning,
+} from "@/lib/day";
+import { gateKey, isEarned } from "@/lib/gate";
 import { pinLog } from "@/lib/log-pin";
-import { cycleOrdinals, newestFirst, ordinalLabel, rowsExtent } from "@/lib/record";
+import { saidBefore } from "@/lib/messages";
+import {
+  anyRepeat as anyRepeatIn,
+  cycleOrdinals,
+  newestFirst,
+  ordinalLabel,
+  recordSlice,
+  rowsExtent,
+} from "@/lib/record";
 import {
   advanceGoal,
   ApiError,
@@ -109,26 +125,6 @@ const METRIC_NAME_MAX = 60;
 const formatDate = (iso: string) =>
   new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short" });
 
-/** The hour the evening half of the Today card stops being folded away.
- *
- * Declaring at nine in the morning used to hand the builder the whole evening
- * back in the same breath — the ask, the box, the link field, the attach
- * control and "Submit proof", four-fifths of the card, for work that cannot
- * happen for another ten hours. The product sells two minutes a day and the
- * screen after those two minutes looked like homework.
- *
- * Local, and deliberately the same local day the check-in itself is stamped
- * with (see CheckIn.date) — this is the builder's evening, not the server's.
- * Read at render rather than pinned at mount, so a card left open on a desk
- * since morning has caught up by the time anyone looks at it again.
- *
- * Five is early for an evening on purpose. Being an hour too eager costs a
- * builder one fold they can ignore; being an hour too late costs them the
- * proof, because the card would be hiding the only box that counts at the
- * moment they came to use it.
- */
-const EVENING_FROM = 17;
-
 /** Whether the return key should send the reply, or make a line.
  *
  * "Enter sends, Shift+Enter breaks the line" is a hardware-keyboard bargain,
@@ -170,29 +166,6 @@ const enterSends = () =>
  * diverge by copying four fifths of the condition again. */
 const isSendKey = (e: { key: string; shiftKey: boolean }) =>
   e.key === "Enter" && !e.shiftKey && enterSends();
-
-/** The gate situation a note was an answer to.
- *
- * "Not yet, 0/1" stops being true the moment a proof lands, and the card used
- * to keep saying it — under a bar that had since filled, which is the worst
- * sentence to be reading at the best moment in the product. Pinning each
- * answer to the state that produced it lets the card tell that it has been
- * overtaken instead of asserting a refusal the database no longer agrees with.
- *
- * The goal id is in it because this component survives a goal ending: retiring
- * takes the render down the no-goal branch without unmounting, so a refusal
- * left over from the last idea would match a brand-new goal standing in IDEA
- * at 0 proofs and greet it with a refusal it never earned.
- *
- * The row count is in it for the same reason on a phase that counts people: a
- * second conversation with the same person moves `banked` and not `have`, and
- * the refusal quotes both numbers. Keyed on `have` alone it would sit there
- * saying "3 accepted proofs" over a record that now holds four.
- */
-const gateKey = (s: CoachState | null) =>
-  s?.goal
-    ? `${s.goal.id}:${s.goal.phase}:${s.gate?.have ?? 0}:${s.gate?.banked ?? 0}`
-    : "";
 
 /** The way out, with a press between the thumb and the door.
  *
@@ -315,23 +288,6 @@ function ToneSwitch({
   );
 }
 
-/** The words a SYSTEM notice is about: the last thing the builder said before
- * it, which is the turn that never landed.
- *
- * Searched backwards rather than read off `i - 1`. What this feeds is a button
- * that SENDS, so the one thing it must never do is put somebody else's sentence
- * in the builder's mouth — and "the row above" is an assumption about how the
- * server writes rows, while "the last thing they said" is the actual question.
- * Empty means no retry button, which is right for a notice with nothing behind
- * it rather than a button that would send "".
- */
-const saidBefore = (messages: ChatMessage[], i: number) => {
-  for (let n = i - 1; n >= 0; n--) {
-    if (messages[n].role === "USER") return messages[n].content;
-  }
-  return "";
-};
-
 /** A day's verdict in one glyph, for the compact rows. Same shape as
  * CLOSED_CHIP above — a property access, not a string lookup, so a renamed
  * class is a type error rather than an undefined className at runtime. */
@@ -346,16 +302,6 @@ const CHIP: Record<
   // record; the reading is what's outstanding.
   UNJUDGED: { glyph: "•", className: (s) => s.chipNone },
 };
-
-/** A proof is filed and the cycle is not finished with it. Two ways in, and
- * they are opposites: Masterji read it and wants more (PUSHED_BACK), or he
- * never read it at all (UNJUDGED). Both leave tonight open and both keep the
- * proof box on screen, so every test that used to name PUSHED_BACK alone asks
- * this instead. Mirrors views.UNSETTLED, which decides the same thing for the
- * server — if these two ever disagree, the card and the endpoint disagree
- * about whether the evening is over. */
-const isUnsettled = (s: CheckIn["proofStatus"]) =>
-  s === "PUSHED_BACK" || s === "UNJUDGED";
 
 /** An hour of the builder's own day, 00:00–23:00. */
 const hourLabel = (h: number) => `${String(h).padStart(2, "0")}:00`;
@@ -452,16 +398,6 @@ function HistoryRow({
     </li>
   );
 }
-
-/** The pieces tonight's draft still owes, as the server listed them — one
- * phrase per piece, semicolons between. Split in one place because two screens
- * read it: the Today card lists them, and the line over the composer counts
- * them for a builder who is on the other pane. */
-const missingPieces = (missing: string) =>
-  missing
-    .split(";")
-    .map((piece) => piece.trim())
-    .filter(Boolean);
 
 /** What tonight's proof has to contain: the tailored ask when the model wrote
  * one, the phase's standing ask when it couldn't, and a worked example behind
@@ -1902,44 +1838,17 @@ export default function Masterji({ user }: { user: SessionUser }) {
   // first phase" rule, said once here rather than branched on below.
   const phaseIntent =
     transitions.filter((t) => t.toPhase === goal.phase).slice(-1)[0] ?? null;
-  // Today's loop is still open — worth a dot on the pane you can't see.
-  const dayOpen =
-    !today?.amDeclaration ||
-    !today.pmProofText ||
-    isUnsettled(today.proofStatus);
-  // A FINISHED proof Masterji drafted out of the conversation and nobody has
-  // filed. Distinct from dayOpen on purpose: dayOpen is lit from the moment the
-  // day starts, so it cannot announce anything that arrives mid-day.
-  //
-  // Running notes deliberately don't light it. The dot means "there is
-  // something on the other pane for you to do", and notes are the evening's
-  // working-out — they'd relight it on nearly every turn and teach the builder
-  // that the dot means nothing.
-  const draftWaiting = dayOpen && Boolean(today?.proofOffer) && !today?.proofMissing;
-  // Notes still being gathered: he has part of tonight's proof written down and
-  // has said which pieces are outstanding. Not draftWaiting — there is nothing
-  // to file yet — but emphatically not nothing, which is what the chat pane
-  // told the builder for as long as this state existed. The whole point of
-  // running notes is that they can SEE they were heard, and the one surface
-  // they were looking at while being heard denied it.
+  // What today's loop is doing. Five rules, all in lib/day.ts and pinned there
+  // — they used to be these expressions, in the one file no test can reach.
+  const dayOpen = isDayOpen(today);
+  const draftWaiting = isDraftWaiting(today);
+  const notesRunning = isNotesRunning(today);
   const owed = today?.proofMissing ? missingPieces(today.proofMissing) : [];
-  const notesRunning = dayOpen && Boolean(today?.proofOffer) && owed.length > 0;
-  // Whether the Today card is showing tonight's half yet.
-  //
-  // Every clause but the clock is an evening that has already started, so the
-  // only builder who meets the folded card is one who declared this morning and
-  // has done nothing since — which is exactly who it is for. A push-back is
-  // owed work; an earlier try means they were here tonight already; and any
-  // proofOffer at all, finished or still gathering, means Masterji has been
-  // writing this evening down and hiding that would undo what the running
-  // notes are for.
-  const eveningOpen =
-    filingNow ||
-    !today?.amDeclaration ||
-    isUnsettled(today.proofStatus) ||
-    today.attempts.length > 0 ||
-    Boolean(today.proofOffer) ||
-    new Date().getHours() >= EVENING_FROM;
+  // The clock is read HERE, at render, rather than inside the rule: a card left
+  // open on a desk since morning has caught up by the time anyone looks at it
+  // again, and a rule that fetched its own hour would be untestable on both
+  // sides of EVENING_FROM.
+  const eveningOpen = isEveningOpen(today, new Date().getHours(), filingNow);
 
   const showPane = (next: "today" | "chat") => {
     setPane(next);
@@ -3161,15 +3070,20 @@ export default function Masterji({ user }: { user: SessionUser }) {
               )}
               <ul className={styles.history}>
                 {(() => {
-                  const ordered = newestFirst(days);
-                  const shown = showAllDays ? ordered : ordered.slice(0, RECORD_PREVIEW);
-                  const anyRepeat = shown.some((c) => cycleOf(c) > 1);
+                  // Which rows, in which order, and whether the cycle column
+                  // comes with them — one answer, pinned in lib/record.
+                  const { shown, showCycle } = recordSlice(
+                    days,
+                    cycles,
+                    showAllDays,
+                    RECORD_PREVIEW,
+                  );
                   return shown.map((c) => (
                     <HistoryRow
                       key={c.id}
                       checkin={c}
                       cycle={cycleOf(c)}
-                      showCycle={anyRepeat}
+                      showCycle={showCycle}
                       onOpen={() => setViewDay(c)}
                     />
                   ));
@@ -3550,7 +3464,9 @@ export default function Masterji({ user }: { user: SessionUser }) {
           // ends at "now", and the rows cannot know that — the last of them is
           // a date, not an end.
           const extent = rowsExtent(windowCheckins);
-          const anyRepeat = windowCheckins.some((c) => cycleOf(c) > 1);
+          // Same rule the record card uses, over this drill-in's own rows —
+          // see lib/record. A repeat outside them is not visible from here.
+          const anyRepeat = anyRepeatIn(windowCheckins, cycles);
           return (
             <div className={styles.modalOverlay} onClick={() => setViewPhase(null)}>
               <div

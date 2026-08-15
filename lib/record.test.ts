@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { cycleOrdinals, newestFirst, ordinalLabel, rowsExtent } from "./record";
+import {
+  anyRepeat,
+  cycleOrdinals,
+  newestFirst,
+  ordinalLabel,
+  recordSlice,
+  rowsExtent,
+} from "./record";
 
 /** What these protect: two rows of one day used to be indistinguishable in the
  * record, and the phase drill-in's heading could state a range its own list
@@ -155,5 +162,106 @@ describe("rowsExtent", () => {
     // The caller's empty branch says "No check-ins recorded in this phase",
     // and a heading over nothing must not print a date.
     expect(rowsExtent([])).toBeNull();
+  });
+});
+
+/** What these protect: which rows the record card shows, and whether the cycle
+ * column is drawn beside them. Both were expressions inside the card's JSX,
+ * and the second one is drawn twice — the record and the phase drill-in ask it
+ * of different row sets and must get the same answer about the same row. */
+describe("anyRepeat", () => {
+  const week = [
+    { id: 11, date: "2026-08-14" },
+    { id: 10, date: "2026-08-13" },
+    { id: 9, date: "2026-08-13" },
+    { id: 8, date: "2026-08-12" },
+  ];
+  const ordinals = cycleOrdinals(week);
+
+  it("is false on a record where every day ran once", () => {
+    // The ordinary case, and the reason this is asked at all: a column reading
+    // "1st" down every row says nothing and costs width on a 360px phone.
+    expect(anyRepeat([week[0], week[3]], ordinals)).toBe(false);
+  });
+
+  it("is true when a day in view was run twice", () => {
+    expect(anyRepeat(week, ordinals)).toBe(true);
+  });
+
+  it("is asked of the rows shown, not of the whole record", () => {
+    // The drill-in's rows. A repeat three months ago is not something the
+    // reader of this week can see, and a column drawn for it would read as if
+    // these rows were the repeats.
+    expect(anyRepeat([week[0]], ordinals)).toBe(false);
+    // But the ordinal itself still comes from the whole set: row 10 is the 2nd
+    // cycle of its day wherever it is shown, which is why the map is passed in
+    // rather than recomputed over the slice.
+    expect(anyRepeat([week[0], week[1]], ordinals)).toBe(true);
+  });
+
+  it("is false over no rows", () => {
+    expect(anyRepeat([], ordinals)).toBe(false);
+  });
+});
+
+describe("recordSlice", () => {
+  // Nine rows over eight days — the oldest day was run twice — so the preview
+  // of seven cuts the record above the repeat.
+  const rows = [
+    { id: 1, date: "2026-08-06" },
+    { id: 2, date: "2026-08-06" },
+    { id: 3, date: "2026-08-07" },
+    { id: 4, date: "2026-08-08" },
+    { id: 5, date: "2026-08-09" },
+    { id: 6, date: "2026-08-10" },
+    { id: 7, date: "2026-08-11" },
+    { id: 8, date: "2026-08-12" },
+    { id: 9, date: "2026-08-13" },
+  ];
+  const ordinals = cycleOrdinals(rows);
+
+  it("shows the newest rows first, capped at the preview", () => {
+    const { shown } = recordSlice(rows, ordinals, false, 7);
+    expect(shown.map((r) => r.id)).toEqual([9, 8, 7, 6, 5, 4, 3]);
+  });
+
+  it("counts rows, not days", () => {
+    // A builder who declares a second task after proving the first gets two
+    // rows for one date. This record is nine rows over eight days, and a cap
+    // that meant DAYS would have to decide which of the 6th's two cycles to
+    // drop. Rows is what the card can actually deliver.
+    const { shown } = recordSlice(rows, ordinals, true, 7);
+    expect(shown).toHaveLength(9);
+    expect(new Set(shown.map((r) => r.date)).size).toBe(8);
+  });
+
+  it("shows everything once the reader asks", () => {
+    const { shown } = recordSlice(rows, ordinals, true, 7);
+    expect(shown).toHaveLength(9);
+    expect(shown[0].id).toBe(9);
+    // Newest first inside a date as well as across dates: the 6th's second
+    // cycle sits above its first.
+    expect(shown[7].id).toBe(2);
+    expect(shown[8].id).toBe(1);
+  });
+
+  it("draws the cycle column only when a shown row is a repeat", () => {
+    // The 6th of August ran twice. It is outside the preview and inside the
+    // full record, so the same rows give two different answers — which is the
+    // behaviour, not a bug: the column is about what is on screen.
+    expect(recordSlice(rows, ordinals, false, 7).showCycle).toBe(false);
+    expect(recordSlice(rows, ordinals, true, 7).showCycle).toBe(true);
+  });
+
+  it("leaves the caller's array alone", () => {
+    // `rows` is React state. Sorting it in place would mutate a payload the
+    // rest of the render is still reading.
+    const before = rows.map((r) => r.id);
+    recordSlice(rows, ordinals, true, 7);
+    expect(rows.map((r) => r.id)).toEqual(before);
+  });
+
+  it("is empty on a goal with no days yet", () => {
+    expect(recordSlice([], new Map(), false, 7)).toEqual({ shown: [], showCycle: false });
   });
 });
