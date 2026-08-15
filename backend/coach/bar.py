@@ -17,7 +17,7 @@ code the model does not get a vote in.
 
 What this does NOT do is decide whether the day counted. A short list keeps the
 one-tap filing shut and shows the builder what is still owed; filing is still
-theirs, the evening's judgement is still the model's (views._react_to_proof
+theirs, the evening's judgement is still the model's (judging._react_to_proof
 tells it to judge on the merits), and a real conversation that yielded two good
 quotes is still accepted when it is filed. gates.py counts accepted check-ins
 and has never read a word of this.

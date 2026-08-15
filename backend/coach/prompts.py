@@ -1015,7 +1015,7 @@ The builder's phase: {phase}. Their declared task this morning: "{declared}".
 #
 # Two things are load-bearing in the wording. The keys are LISTED, because a
 # gate that counts kinds has to count names bar.py chose and an invented key is
-# dropped on arrival (views._labels_from_verdict). And the labels are explicitly
+# dropped on arrival (judging._labels_from_verdict). And the labels are explicitly
 # not part of the verdict: a model that thinks a missing label might cost the
 # builder their evening has a reason to shade the accept, and this is the one
 # call in the product whose output is a decision about a person.
@@ -1111,7 +1111,7 @@ brought tonight. If one does, you are in the second case."""
 
 # Present when the builder filed a proof Masterji drafted for them and then
 # edited. The unedited case never reaches a model at all — the server accepts
-# it outright (views._react_to_proof), because a second opinion on his own
+# it outright (judging._react_to_proof), because a second opinion on his own
 # draft can only be a disagreement with himself.
 PROOF_FROM_OFFER = """
 
