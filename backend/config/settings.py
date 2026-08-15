@@ -437,7 +437,68 @@ OTEL_EXPORTER_OTLP_ENDPOINT = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", "")
 OTEL_EXPORTER_OTLP_API_KEY = os.environ.get("OTEL_EXPORTER_OTLP_API_KEY", "")
 
 # --- Behind a reverse proxy in production -----------------------------------
+#
+# Everything in this block is gated on DEBUG, and the gate is the point: local
+# development is plain HTTP on localhost, and a cookie marked Secure is a cookie
+# the browser never sends back there — so an ungated SESSION_COOKIE_SECURE would
+# lock the local admin out of its own login form, silently, with no error to
+# read. `manage.py check --deploy` only ever runs against DJANGO_DEBUG=0, which
+# is why it could report all of this missing while the app worked.
+#
+# What is hardened here is the DJANGO ADMIN's cookies — `sessionid` and
+# `csrftoken`, which come from framework defaults. The app's own auth cookies
+# were never in question: accounts/cookies.py sets `secure = not settings.DEBUG`
+# by hand, so `access_token` and `refresh_token` have been Secure + HttpOnly +
+# SameSite=Lax in production all along. Nothing below touches them.
+#
+# The admin login form is proxied onto the primary domain by next.config.ts, so
+# a staff member signs in at masterji.mscsoftwares.in — and a staff session is
+# read/write over every builder's record. That is what a session cookie readable
+# on a downgraded plain-HTTP request would hand over.
 
 if not DEBUG:
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
     USE_X_FORWARDED_HOST = True
+
+    # security.W012 / security.W016 — the admin's two cookies, marked so the
+    # browser only ever sends them over TLS.
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+
+    # security.W008. Safe behind Render's proxy only because
+    # SECURE_PROXY_SSL_HEADER above tells Django to read X-Forwarded-Proto:
+    # without it, every request would look like plain HTTP to the app, the
+    # redirect would point at a URL the proxy answers the same way, and the
+    # browser would follow it round in a loop.
+    SECURE_SSL_REDIRECT = True
+    # The health probe is the one caller that is not a browser and cannot
+    # follow a redirect on the app's behalf. Render hits /api/health/ inside
+    # its own network, where there is no X-Forwarded-Proto to read, so without
+    # this exemption every probe would be answered with a 301 to https — and a
+    # health check that stops seeing 200 is a service that stops taking
+    # traffic. Django matches this against the path with the leading slash
+    # already stripped.
+    SECURE_REDIRECT_EXEMPT = [r"^api/health/$"]
+
+    # security.W004. An hour, deliberately, and not the year the documentation
+    # reaches for. HSTS is the one setting here that cannot be taken back by a
+    # deploy: once a browser has seen the header it refuses plain HTTP to this
+    # host for the whole max-age, whatever the server later says. An hour is
+    # long enough to be a real defence against a downgrade and short enough
+    # that a mistake costs an afternoon rather than a year. Raise it — the env
+    # var is here so that is a dashboard change, not a deploy — once every host
+    # that answers on this domain is HTTPS-only and has been for a while.
+    SECURE_HSTS_SECONDS = int(os.environ.get("SECURE_HSTS_SECONDS", "3600"))
+
+    # SECURE_HSTS_INCLUDE_SUBDOMAINS and SECURE_HSTS_PRELOAD are deliberately
+    # NOT set, which is why security.W005 and security.W021 are silenced below
+    # rather than fixed. Both widen the same irreversible commitment past what
+    # can be verified from inside this repository: includeSubDomains binds every
+    # subdomain of the host serving the header, and preload asks browser vendors
+    # to ship the rule baked in, where removal takes months. Turning either on
+    # needs somebody who knows what else answers under this domain — which is a
+    # DNS question, not a code one.
+    SILENCED_SYSTEM_CHECKS = [
+        "security.W005",  # HSTS includeSubDomains — declined, see above
+        "security.W021",  # HSTS preload — declined, see above
+    ]

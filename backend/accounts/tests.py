@@ -5,10 +5,16 @@ user this database doesn't have — is a dead session, never a 500 and never a
 lockout. It must still be possible to refresh, log out and log back in.
 """
 
+import importlib.util
+import os
 from datetime import UTC, date, datetime, timedelta
+from unittest import mock
 
 import jwt
 from django.conf import settings
+from django.http import HttpResponse
+from django.middleware.security import SecurityMiddleware
+from django.test import RequestFactory, SimpleTestCase
 from django.urls import reverse
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -360,3 +366,145 @@ class AccountErasureTests(APITestCase):
         # Soft, not gone: the operator's record of what was spent survives in
         # all_objects, attached to an account whose identity has been erased.
         self.assertIsNotNone(ModelCall.all_objects.get(id=mine.id).deleted_at)
+
+
+class ProductionTransportSecurityTests(SimpleTestCase):
+    """What `if not DEBUG:` in config/settings.py promises, on both sides of
+    the gate.
+
+    These settings are read once at import, under an env var, so nothing in the
+    running suite exercises them — which is exactly how the deployment ran for
+    months with the admin's `sessionid` and `csrftoken` unmarked. The settings
+    module is reloaded here under a patched environment instead, so both
+    branches are checked rather than assumed.
+
+    The gate matters as much as the settings do. A Secure cookie is one the
+    browser will not send back over plain HTTP, so an ungated flag would lock
+    local development out of its own admin with nothing to read but a login
+    form that keeps reappearing.
+    """
+
+    PROD_ENV = {
+        "DJANGO_DEBUG": "0",
+        "DJANGO_SECRET_KEY": "a-long-enough-key-for-the-deploy-checks-0123456789",
+        "DJANGO_ALLOWED_HOSTS": "masterji.mscsoftwares.in",
+    }
+
+    def _settings_module(self, env):
+        """config/settings.py executed fresh under `env`, into a namespace of
+        its own.
+
+        A new module object rather than `importlib.reload`, and the difference
+        is the whole reliability of this class: reload re-executes into the
+        existing namespace, so the `if not DEBUG:` block's attributes survive
+        into the next load and a DEBUG run would inherit production's flags
+        from whichever test ran before it. Nothing here touches the real
+        `config.settings`, or django.conf's live copy of it.
+        """
+        import config.settings
+
+        spec = importlib.util.spec_from_file_location(
+            "config._settings_under_test", config.settings.__file__
+        )
+        module = importlib.util.module_from_spec(spec)
+        with mock.patch.dict(os.environ, env, clear=False):
+            spec.loader.exec_module(module)
+        return module
+
+    def test_the_admin_cookies_are_secure_in_production(self):
+        """`sessionid` and `csrftoken` come from framework defaults, and the
+        defaults are insecure. This is the whole of the finding."""
+        prod = self._settings_module(self.PROD_ENV)
+        self.assertTrue(prod.SESSION_COOKIE_SECURE)
+        self.assertTrue(prod.CSRF_COOKIE_SECURE)
+        self.assertTrue(prod.SECURE_SSL_REDIRECT)
+        self.assertGreater(prod.SECURE_HSTS_SECONDS, 0)
+
+    def test_local_development_over_plain_http_is_untouched(self):
+        """The other half, and the half that breaks loudly if it is wrong."""
+        dev = self._settings_module({"DJANGO_DEBUG": "1"})
+        self.assertFalse(getattr(dev, "SESSION_COOKIE_SECURE", False))
+        self.assertFalse(getattr(dev, "CSRF_COOKIE_SECURE", False))
+        self.assertFalse(getattr(dev, "SECURE_SSL_REDIRECT", False))
+        self.assertEqual(getattr(dev, "SECURE_HSTS_SECONDS", 0), 0)
+
+    def test_the_redirect_reads_the_proxy_header(self):
+        """SECURE_SSL_REDIRECT without SECURE_PROXY_SSL_HEADER is a redirect
+        loop: TLS ends at Render's proxy, so every request looks like plain
+        HTTP to the app, and the https URL it sends the browser to arrives
+        looking exactly the same."""
+        prod = self._settings_module(self.PROD_ENV)
+        self.assertEqual(
+            prod.SECURE_PROXY_SSL_HEADER, ("HTTP_X_FORWARDED_PROTO", "https")
+        )
+
+    def test_hsts_is_not_promised_for_subdomains_or_preload(self):
+        """Declined deliberately — both widen a commitment no browser lets you
+        take back, past what can be checked from inside this repository. Pinned
+        so turning either on is a decision somebody makes, not a default that
+        arrives with an upgrade."""
+        prod = self._settings_module(self.PROD_ENV)
+        self.assertFalse(getattr(prod, "SECURE_HSTS_INCLUDE_SUBDOMAINS", False))
+        self.assertFalse(getattr(prod, "SECURE_HSTS_PRELOAD", False))
+
+    def _through_security_middleware(self, path, **extra):
+        request = RequestFactory().get(path, **extra)
+        # Built inside the caller's override: SecurityMiddleware reads every
+        # one of these settings in __init__, so an instance made before the
+        # override would answer with the suite's own (unhardened) values.
+        middleware = SecurityMiddleware(lambda r: HttpResponse("ok"))
+        return middleware(request)
+
+    def test_the_health_probe_is_not_redirected(self):
+        """Render's health check reaches /api/health/ inside its own network,
+        where there is no X-Forwarded-Proto to read — so without the exemption
+        every probe is answered with a 301, and a health check that stops
+        seeing 200 is a service that stops taking traffic."""
+        prod = self._settings_module(self.PROD_ENV)
+        with self.settings(
+            SECURE_SSL_REDIRECT=prod.SECURE_SSL_REDIRECT,
+            SECURE_REDIRECT_EXEMPT=prod.SECURE_REDIRECT_EXEMPT,
+            SECURE_PROXY_SSL_HEADER=prod.SECURE_PROXY_SSL_HEADER,
+            SECURE_HSTS_SECONDS=prod.SECURE_HSTS_SECONDS,
+        ):
+            self.assertEqual(self._through_security_middleware("/api/health/").status_code, 200)
+            # Everything else over plain HTTP is sent to https once.
+            moved = self._through_security_middleware("/admin/login/")
+            self.assertEqual(moved.status_code, 301)
+            self.assertTrue(moved["Location"].startswith("https://"))
+            # And a request the proxy has already terminated TLS for is served,
+            # with the HSTS header on it and nothing promised beyond this host.
+            served = self._through_security_middleware(
+                "/admin/login/", HTTP_X_FORWARDED_PROTO="https"
+            )
+            self.assertEqual(served.status_code, 200)
+            self.assertEqual(
+                served["Strict-Transport-Security"],
+                f"max-age={prod.SECURE_HSTS_SECONDS}",
+            )
+
+
+class AppAuthCookiesAreUnchangedTests(APITestCase):
+    """The app's own JWT cookies were already hardened by hand in
+    accounts/cookies.py and are not what the admin finding was about. Pinned
+    because the tempting way to "fix" that finding is a global
+    SESSION_COOKIE_SECURE-style sweep, and these two are set with explicit
+    flags that such a sweep would not reach — so they would keep looking fixed
+    while quietly depending on a setting that does not apply to them."""
+
+    def test_the_jwt_cookies_carry_their_own_flags(self):
+        user = User.objects.create_user(username="alice", email="alice@example.com")
+        with self.settings(DEBUG=True):
+            response = self.client.post(
+                reverse("dev_login"), {"username": user.username}, format="json"
+            )
+        self.assertEqual(response.status_code, 200)
+        for name in (settings.AUTH_ACCESS_COOKIE, settings.AUTH_REFRESH_COOKIE):
+            with self.subTest(cookie=name):
+                morsel = response.cookies[name]
+                self.assertTrue(morsel["httponly"])
+                self.assertEqual(morsel["samesite"], "Lax")
+                # The suite runs on the DEBUG settings path, where Secure would
+                # keep the cookie off localhost — `secure = not DEBUG` is the
+                # rule, and it is the rule this test is protecting.
+                self.assertFalse(morsel["secure"])
