@@ -1113,7 +1113,9 @@ export default function Masterji({ user }: { user: SessionUser }) {
       // would be an answer to a question nobody asked.
       if (banked > 0 && after?.goal && after.goal.phase !== leaving) {
         setCarried({
-          text: `${banked} proof${banked === 1 ? "" : "s"} from ${leaving} stay on the record.`,
+          text: `${banked} proof${banked === 1 ? "" : "s"} from ${leaving} ${
+            banked === 1 ? "stays" : "stay"
+          } on the record.`,
           key,
         });
       }
