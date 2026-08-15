@@ -393,20 +393,48 @@ order is what keeps it safe:
    the variable yet either, so its gate is still inert and the stamped header
    is ignored — no effect either way.
 2. Confirm the app still works. It must, because nothing is checking yet.
-3. Then set it on **Cloud Run**:
+3. **The first time only**, grant the runtime service account read on the new
+   secret. §1's loop does this for the eight secrets that existed when it was
+   written, and it is a one-time setup step — a secret created afterwards has
+   an empty IAM policy and nothing in §1 goes back to fix that:
 
    ```bash
+   gcloud secrets add-iam-policy-binding masterji-edge-shared-secret \
+     --member="serviceAccount:697438837887-compute@developer.gserviceaccount.com" \
+     --role="roles/secretmanager.secretAccessor" --project portfolio-502209
+   ```
+
+   Skipping it fails the way §1 warns the Job and service fail without it, and
+   the message names the secret and the role, so it is self-explaining when it
+   happens. **It is also the safe failure**: Cloud Run resolves the secret
+   reference while creating the revision, so a missing binding kills the new
+   revision before it takes any traffic and the old one keeps serving. This
+   happened on the first rollout, 15 August 2026.
+
+   Later rotations add a *version* to an existing secret and inherit the
+   binding, so this step is genuinely only for a newly created one.
+
+4. Then set it on **Cloud Run**:
+
+   ```bash
+   # Rotation only — a first rollout already has its value from §1.
    printf '%s' '<new value>' | gcloud secrets versions add masterji-edge-shared-secret \
      --data-file=- --project portfolio-502209
+
    gcloud run services update masterji-api --region asia-southeast1 \
      --project portfolio-502209 --update-secrets EDGE_SHARED_SECRET=masterji-edge-shared-secret:latest
    ```
 
-4. Verify both directions with §6's two curls: `/api/health/` answers without
+5. Verify both directions with §6's two curls: `/api/health/` answers without
    the header, anything else answers `403` without it and normally with it.
 
-Rolling back is step 3 in reverse — clear the variable on Cloud Run and the
-gate goes inert again, which is the property that makes this safe to try.
+Rolling back is step 4 in reverse — clear the variable on Cloud Run and the
+gate goes inert again, which is the property that makes this safe to try:
+
+```bash
+gcloud run services update masterji-api --region asia-southeast1 \
+  --project portfolio-502209 --remove-env-vars EDGE_SHARED_SECRET
+```
 
 **Do not put this value in `render.yaml` or the Render dashboard.** Render's
 service has no second door and the gate is inert there; adding it would only
