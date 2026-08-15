@@ -600,6 +600,28 @@ gcloud run services logs read masterji-api --region asia-southeast1 \
 Run it from an ordinary client, not from inside the edge, since the whole point
 is what an outsider can influence.
 
+**The answer, measured 16 August 2026.** Six requests, three `GET` and three
+`POST`, every candidate forged on every one:
+
+| header | forged value survived |
+| --- | --- |
+| `x-forwarded-for` | 4 / 6 |
+| `x-real-ip` | 3 / 6 |
+| `x-vercel-forwarded-for` | 2 / 6 |
+| **`x-vercel-proxied-for`** | **0 / 6** |
+
+`x-vercel-proxied-for` is the one the ceilings now key on
+(`accounts/throttling.py`). **Three of the other four are forgeable
+*inconsistently*** — the same header, same client, seconds apart, sometimes
+replaced and sometimes passed through, and not by method or path. That is why
+every earlier reading looked clean and then failed: one sample of a
+non-deterministic header is worth nothing. If you ever re-run this, run it
+several times and count, rather than reading one line.
+
+The log now prints `drf_ident` and `trusted_ident` side by side. They differ
+exactly when the caller wrote part of DRF's answer, so a forgery is visible on
+one line instead of by comparing two runs.
+
 ## Keep-warm
 
 Not needed for verification, and worth leaving off until step 1. Afterwards, a

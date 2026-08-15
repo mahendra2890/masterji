@@ -3,7 +3,6 @@ from django.http import Http404
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
-from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.serializers import TokenRefreshSerializer
@@ -14,6 +13,7 @@ from . import erasure
 from .cookies import clear_auth_cookies, set_auth_cookies
 from .models import User
 from .serializers import UserSerializer
+from .throttling import TrustedIdentThrottle
 
 
 class MeView(APIView):
@@ -78,7 +78,7 @@ class ThrottledTokenObtainPairView(TokenObtainPairView):
     Nobody reads this one but a script, so it keeps DRF's own wording.
     """
 
-    throttle_classes = [ScopedRateThrottle]
+    throttle_classes = [TrustedIdentThrottle]
     throttle_scope = "login"
 
 

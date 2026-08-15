@@ -41,10 +41,10 @@ from pywebpush import WebPushException, webpush
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
-from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from accounts.models import PushSubscription
+from accounts.throttling import TrustedIdentThrottle
 
 from . import prompts
 from .models import CheckIn
@@ -290,7 +290,7 @@ class PushSubscriptionView(APIView):
     """
 
     permission_classes = [IsAuthenticated]
-    throttle_classes = [ScopedRateThrottle]
+    throttle_classes = [TrustedIdentThrottle]
     throttle_scope = "push"
 
     def get(self, request):
