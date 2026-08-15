@@ -269,10 +269,34 @@ class ModelCallAdmin(SoftDeleteAdmin):
     a ledger somebody can hand-correct is not evidence of anything.
     """
 
-    list_display = ["created_at", "user", "kind", "model", "total_tokens", "cost_usd"]
-    list_filter = ["kind", "model"]
+    list_display = [
+        "created_at",
+        "user",
+        "kind",
+        "model",
+        "total_tokens",
+        "cost_usd",
+        "cause",
+    ]
+    # `source` filters to the blank option too, which is the one worth having:
+    # it isolates the calls with nothing behind them — the cron, a command, a
+    # shell — and the rows written before the column existed.
+    list_filter = ["kind", "model", "source"]
     search_fields = ["user__username", "user__email"]
     date_hierarchy = "created_at"
+
+    @admin.display(description="caused by")
+    def cause(self, obj):
+        """The two halves read as one thing, and never half of one.
+
+        Not a link: this is a pointer rather than a foreign key, so the row it
+        names may be gone, and an admin column that 500s on a pruned
+        transcript would make the ledger unreadable exactly when it is being
+        read about a builder who left.
+        """
+        if not obj.source or not obj.source_id:
+            return "—"
+        return f"{obj.get_source_display()} #{obj.source_id}"
     # Named here rather than as Meta.ordering — see the comment on the model
     # for why this table deliberately has no default ordering.
     ordering = ["-created_at"]

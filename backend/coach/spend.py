@@ -27,6 +27,19 @@ KIND_CHAT = "CHAT"
 KIND_COMPLETION = "COMPLETION"
 KIND_VISION = "VISION"
 
+# The tables a call can be caused by, named here for the same reason the kinds
+# are: llm.py labels a call without the ORM, and the views set the label from
+# the same constants. `ModelCallSourcesTests` pins these against
+# ModelCall.Source, which is what stops the two drifting.
+SOURCE_MESSAGE = "MESSAGE"
+SOURCE_WORKSHOP_MESSAGE = "WORKSHOP_MESSAGE"
+SOURCE_CHECKIN = "CHECKIN"
+SOURCE_GOAL = "GOAL"
+
+SOURCES = frozenset(
+    {SOURCE_MESSAGE, SOURCE_WORKSHOP_MESSAGE, SOURCE_CHECKIN, SOURCE_GOAL}
+)
+
 
 def cost_usd(model: str, prompt_tokens: int, completion_tokens: int) -> Decimal | None:
     """What those tokens cost on that model, or None if nobody can say.
@@ -93,8 +106,42 @@ def _live_actor(user_id: int | None) -> int | None:
     return None
 
 
+def _live_source(source: object, source_id: object) -> tuple[str | None, int | None]:
+    """The causing row's (table, id) if both halves are sane, else (None, None).
+
+    Unlike `_live_actor` this asks nothing of the database, and the difference
+    is the point of choosing a pointer over a foreign key: nothing checks this
+    at COMMIT, so a stale id cannot become an IntegrityError on the way out of
+    a builder's request. What is checked is that the name is one this ledger
+    knows — `choices` are not enforced on write, and a typo would ship a column
+    nobody can filter on — and that the id is a positive integer, because the
+    column is `PositiveIntegerField` and a negative one *would* raise here.
+
+    Half a pointer is worse than none: an id with no table is unreadable, and a
+    table with no id names nothing. So either both survive or neither does.
+    """
+    if source is None or source_id is None:
+        return None, None
+    # `str()` rather than accepting the value as-is: the views pass TextChoices
+    # members, which are str subclasses, and this column should hold the plain
+    # string a query is written against.
+    if source not in SOURCES:
+        logger.warning("llm spend: unknown call source {}", source)
+        return None, None
+    if not isinstance(source_id, int) or isinstance(source_id, bool) or source_id < 1:
+        logger.warning("llm spend: unusable source id {}", source_id)
+        return None, None
+    return str(source), source_id
+
+
 def record(
-    *, kind: str, model: str, usage: dict[str, int], user_id: int | None
+    *,
+    kind: str,
+    model: str,
+    usage: dict[str, int],
+    user_id: int | None,
+    source: str | None = None,
+    source_id: int | None = None,
 ) -> None:
     """Persist one model call. Never raises.
 
@@ -103,6 +150,12 @@ def record(
     (a stream that died mid-flight, a provider that does not report) has no
     token count to record, and a row of zeros would be indistinguishable from
     a call that genuinely cost nothing.
+
+    `source`/`source_id` name the row whose turn caused the call — see
+    `llm.attributing`, which is what sets them. Both default to None and both
+    are dropped if either is unreadable: a null source is a real state (the
+    nudge cron, a management command, a shell) and must never be an exception
+    on a builder's turn.
     """
     if not usage:
         return
@@ -111,6 +164,9 @@ def record(
     from .models import ModelCall
 
     user_id = _live_actor(user_id)
+    # Outside the try below, but itself unable to raise — a source that cannot
+    # be read must cost the pointer, never the row and never the turn.
+    source, source_id = _live_source(source, source_id)
     prompt_tokens = usage.get("prompt_tokens", 0)
     completion_tokens = usage.get("completion_tokens", 0)
     try:
@@ -125,6 +181,8 @@ def record(
             # number worth keeping. Falls back to the sum only when absent.
             total_tokens=usage.get("total_tokens", prompt_tokens + completion_tokens),
             cost_usd=cost_usd(model, prompt_tokens, completion_tokens),
+            source=source,
+            source_id=source_id,
         )
     except Exception:
         logger.exception("llm spend: could not record a {} call on {}", kind, model)

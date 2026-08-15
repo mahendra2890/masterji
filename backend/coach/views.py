@@ -54,6 +54,7 @@ from .models import (
     GoalRetirement,
     LaunchCommitment,
     Message,
+    ModelCall,
     Phase,
     PhaseTransition,
     ProofAttempt,
@@ -1898,7 +1899,12 @@ def _react_to_retirement(retirement, verdict: str, tone: str) -> str:
         # the verdict here was already computed by gates.reads_as before this
         # call, out of proofs the builder had to earn. All the model contributes
         # is the sentence, so it belongs with the conversation, not the verdicts.
-        return llm.complete(system, retirement.reason)
+        #
+        # Booked to the goal rather than to the retirement: the retirement is a
+        # snapshot of the goal, and "what did this goal cost" is the question
+        # anyone reading the ledger for a closed goal is actually asking.
+        with llm.attributing(ModelCall.Source.GOAL, retirement.goal_id):
+            return llm.complete(system, retirement.reason)
     except Exception as e:
         logger.error(f"Retirement reaction failed: {e}")
         stock = (
@@ -2093,13 +2099,17 @@ class JudgeDeclarationView(throttles.VoicedThrottleMixin, APIView):
                 {"detail": "Nothing on the hook to read."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        (
-            checkin.declaration_fit,
-            checkin.declaration_reaction,
-            checkin.proof_ask,
-        ) = _react_to_declaration(
-            checkin.goal, checkin.am_declaration, request.user.tone
-        )
+        # Attributed out here rather than inside the helper, which is handed a
+        # goal and has never needed the check-in: the call it makes is about
+        # this morning's row, and this is the innermost place that knows it.
+        with llm.attributing(ModelCall.Source.CHECKIN, checkin.id):
+            (
+                checkin.declaration_fit,
+                checkin.declaration_reaction,
+                checkin.proof_ask,
+            ) = _react_to_declaration(
+                checkin.goal, checkin.am_declaration, request.user.tone
+            )
         checkin.save(
             update_fields=[
                 "declaration_fit",
@@ -2534,14 +2544,18 @@ def _react_to_proof(
         user_text = prompts.fence_submission(
             checkin.pm_proof_text, checkin.proof_url
         )
-        raw = (
-            # complete_with_image already reads LLM_VISION_MODEL, which chains
-            # off the judge model — so both halves of this verdict move together
-            # when the judge is upgraded.
-            llm.complete_with_image(system, user_text, image, content_type)
-            if image
-            else llm.complete(system, user_text, model=settings.LLM_JUDGE_MODEL)
-        )
+        # Both branches book to the same row, which is the point: a screenshot
+        # does not make the evening a different evening, and the two prompts
+        # here are the expensive ones in the product.
+        with llm.attributing(ModelCall.Source.CHECKIN, checkin.id):
+            raw = (
+                # complete_with_image already reads LLM_VISION_MODEL, which
+                # chains off the judge model — so both halves of this verdict
+                # move together when the judge is upgraded.
+                llm.complete_with_image(system, user_text, image, content_type)
+                if image
+                else llm.complete(system, user_text, model=settings.LLM_JUDGE_MODEL)
+            )
         payload = json.loads(raw[raw.index("{") : raw.rindex("}") + 1])
         verdict = payload.get("verdict", "")
         reaction = str(payload.get("reaction") or "").strip()
@@ -2679,7 +2693,9 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
         content, refusal = _turn_content(request)
         if refusal is not None:
             return refusal
-        Message.objects.create(
+        # Kept, where it used to be discarded: it is the row this turn's spend
+        # is caused by, and the ledger has no other way back to it.
+        turn = Message.objects.create(
             goal=goal, role=Message.Role.USER, phase=goal.phase, content=content
         )
 
@@ -2760,6 +2776,7 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
                 history,
                 target,
                 day_closed=target is None and _day_closed(goal, today),
+                turn_id=turn.id,
             )
         )
 
@@ -2770,6 +2787,7 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
         history: list[dict],
         offer_target: CheckIn | None = None,
         day_closed: bool = False,
+        turn_id: int | None = None,
     ):
         parts: list[str] = []
         advance_proposed = False
@@ -2777,7 +2795,16 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
         offered = missing = ""
         labels = bar.Labels(subject="", parts=[])
         broke = False
-        with tracer.start_as_current_span("coach.turn") as span:
+        # Inside the generator rather than around the call that returns it: the
+        # stream is consumed after every middleware has returned, so a scope
+        # opened in `post` would already have closed by the time the seam books
+        # anything. Outermost here so it still holds when the ledger row is
+        # written, which happens in llm._attempt's `finally` — after the last
+        # chunk, and after a stream that died part-way.
+        with (
+            llm.attributing(ModelCall.Source.MESSAGE, turn_id),
+            tracer.start_as_current_span("coach.turn") as span,
+        ):
             span.set_attribute("goal.phase", goal.phase)
             span.set_attribute("llm.model", settings.LLM_MODEL)
             try:
@@ -3024,7 +3051,9 @@ class WorkshopChatView(throttles.VoicedThrottleMixin, APIView):
                 {"detail": refusal.format(turns=total)},
                 status=status.HTTP_429_TOO_MANY_REQUESTS,
             )
-        WorkshopMessage.objects.create(
+        # Kept for the same reason ChatView keeps its Message: it is the row
+        # this turn's spend is caused by.
+        turn = WorkshopMessage.objects.create(
             workshop=workshop, role=WorkshopMessage.Role.USER, content=content
         )
         if reopened:
@@ -3060,7 +3089,11 @@ class WorkshopChatView(throttles.VoicedThrottleMixin, APIView):
             user_role=WorkshopMessage.Role.USER,
             system_role=WorkshopMessage.Role.SYSTEM,
         )
-        return _ndjson(self._events(workshop, system, history, reopened=reopened))
+        return _ndjson(
+            self._events(
+                workshop, system, history, reopened=reopened, turn_id=turn.id
+            )
+        )
 
     def _events(
         self,
@@ -3068,6 +3101,7 @@ class WorkshopChatView(throttles.VoicedThrottleMixin, APIView):
         system: str,
         history: list[dict],
         reopened: bool = False,
+        turn_id: int | None = None,
     ):
         parts: list[str] = []
         candidates = list(workshop.candidates or [])
@@ -3077,7 +3111,11 @@ class WorkshopChatView(throttles.VoicedThrottleMixin, APIView):
         refused_park = False
         sketched: list[str] | None = None
         broke = False
-        with tracer.start_as_current_span("coach.workshop") as span:
+        # Inside the generator, outermost — see ChatView._events.
+        with (
+            llm.attributing(ModelCall.Source.WORKSHOP_MESSAGE, turn_id),
+            tracer.start_as_current_span("coach.workshop") as span,
+        ):
             span.set_attribute("llm.model", settings.LLM_MODEL)
             try:
                 for kind, payload in llm.stream_chat(

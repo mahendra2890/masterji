@@ -56,6 +56,75 @@ _deadline: ContextVar[float | None] = ContextVar("llm_deadline", default=None)
 # back onto the underlying HttpRequest.
 _actor_request: ContextVar[object | None] = ContextVar("llm_actor", default=None)
 
+# The row whose turn is causing the calls on this thread, as (table, id), or
+# None when nothing is. A ContextVar for the same reason the actor is one: a
+# chat turn's generator is consumed after every middleware has returned, so
+# anything handed in as an argument would have to survive a scope that has
+# already closed.
+#
+# A CONTEXTVAR RATHER THAN A PARAMETER, and this is the whole of why it is
+# worth having. `complete`, `stream_chat` and `complete_with_image` would each
+# have to grow an argument that every caller remembers to pass, and the caller
+# that forgot would write a null — indistinguishable from the nudge cron, which
+# is the one row shape that is supposed to mean "nothing caused this". A
+# pointer whose absence has two meanings answers neither question the ledger
+# was built for.
+#
+# Unlike the actor, this is set by the VIEW rather than by middleware, because
+# middleware cannot know which of four tables a request is about — DeclareView
+# and ChatView run through the same stack and mean different rows.
+_source: ContextVar[tuple[str, int] | None] = ContextVar("llm_source", default=None)
+
+
+@contextmanager
+def attributing(source: str | None, source_id: int | None):
+    """Book the model calls made inside this block to one row.
+
+    Scoped rather than set-and-forget, which is the other half of why the
+    actor's shape could not just be copied. `_actor_request` is deliberately
+    never cleared on the way out — a streamed turn would lose its attribution
+    mid-flight — and one request pays for every call it makes, so a stale actor
+    is at worst the wrong user. A stale *source* is a lie about causation: the
+    next call on this thread would be charged to a row it has nothing to do
+    with, and it would look exactly like a correct answer.
+
+    Never raises, on either edge. A source that cannot be set costs the
+    pointer, not the builder's turn.
+    """
+    try:
+        token = _source.set((source, source_id) if source and source_id else None)
+    except Exception:  # pragma: no cover - ContextVar.set does not raise
+        yield
+        return
+    try:
+        yield
+    finally:
+        try:
+            _source.reset(token)
+        except ValueError:
+            # The block was entered in one context and left in another — what a
+            # generator resumed by a different worker would do. The token is
+            # meaningless there, so clear rather than restore: attributing the
+            # next call to nothing is honest, attributing it to this row is not.
+            _source.set(None)
+
+
+def clear_source() -> None:
+    """Forget which row this thread's calls are being caused by.
+
+    The twin of clear_actor, for a long-lived thread (a shell, a test) that
+    must not inherit a pointer from work that finished hours ago.
+    """
+    _source.set(None)
+
+
+def _current_source() -> tuple[str | None, int | None]:
+    """The causing row, or (None, None). Never raises and never guesses."""
+    pair = _source.get()
+    if pair is None:
+        return None, None
+    return pair
+
 
 class LlmUnavailable(RuntimeError):
     """Refused here, without asking the provider — either this request's budget
@@ -256,7 +325,15 @@ def _attempt(model: str, *, stream: bool, kind: str) -> Iterator[_Call]:
         # chunk really did cost that money, and dropping it would understate
         # the bill in exactly the case worth watching. spend.record never
         # raises, so this cannot turn a model outage into a failed request.
-        spend.record(kind=kind, model=model, usage=call.usage, user_id=_current_actor())
+        source, source_id = _current_source()
+        spend.record(
+            kind=kind,
+            model=model,
+            usage=call.usage,
+            user_id=_current_actor(),
+            source=source,
+            source_id=source_id,
+        )
         span.end()
 
 

@@ -1014,6 +1014,25 @@ class ModelCall(SoftDeleteModel):
         COMPLETION = "COMPLETION", "Completion"
         VISION = "VISION", "Completion with an image"
 
+    class Source(models.TextChoices):
+        """Which table the causing row is in. `Kind` says what the seam did;
+        this says what the product was doing when it did it.
+
+        A name and an id rather than a foreign key, and deliberately: the five
+        call sites point at four different models, so an FK would need either
+        four nullable columns or a generic content-type pair — and the generic
+        one cannot be plainly aggregated or joined, which is the only thing
+        this table exists to support. The cost, named rather than discovered:
+        no referential integrity, so a deleted row leaves a dangling id here.
+        That is affordable because nothing reads this pointer on a builder's
+        path — it is the operator's own record, read by hand and in aggregate.
+        """
+
+        MESSAGE = "MESSAGE", "Chat message"
+        WORKSHOP_MESSAGE = "WORKSHOP_MESSAGE", "Workshop message"
+        CHECKIN = "CHECKIN", "Check-in"
+        GOAL = "GOAL", "Goal"
+
     # Nullable, and that is a real state rather than a gap. The nudge cron,
     # management commands and the shell all reach the seam with no request and
     # therefore no builder; their spend is the operator's own and still counts.
@@ -1039,6 +1058,15 @@ class ModelCall(SoftDeleteModel):
     cost_usd = models.DecimalField(
         max_digits=14, decimal_places=8, null=True, blank=True
     )
+    # Which turn caused it. Nullable on both halves, and never backfilled: the
+    # nudge cron, management commands and the shell reach the seam with no
+    # request behind them and genuinely have no causing row, and every row
+    # written before this column existed has no honest value to give it. A null
+    # here means "not recorded", which is the truth in both cases.
+    source = models.CharField(
+        max_length=20, choices=Source.choices, null=True, blank=True
+    )
+    source_id = models.PositiveIntegerField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta(SoftDeleteModel.Meta):
