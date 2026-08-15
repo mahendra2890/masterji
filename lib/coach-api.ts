@@ -128,6 +128,12 @@ export type CheckIn = {
    * unedited skip the evening's judgement. Non-empty makes it notes: proof of
    * being heard, and the whole of what Masterji may still ask for tonight. */
   proofMissing: string;
+  /** Today's reading as Masterji heard the builder say it, waiting to fill the
+   * number box on the evening form — the number half of `proofOffer`, and an
+   * offer on the same terms. null whenever no figure was said, which is most
+   * evenings; zero is a number somebody counted and is not that. Nothing is
+   * recorded until they file: `metricValue` is the reading, this is not. */
+  metricOffer: number | null;
   pmProofText: string;
   proofUrl: string;
   /** This app's address for the screenshot backing this proof — put it in an
@@ -457,6 +463,7 @@ type ServerCheckIn = {
   proof_ask?: string;
   proof_offer?: string;
   proof_missing?: string;
+  metric_offer?: number | null;
   pm_proof_text: string;
   proof_url: string;
   proof_image_url?: string;
@@ -568,6 +575,10 @@ const fromServerCheckIn = (c: ServerCheckIn): CheckIn => ({
   proofAsk: c.proof_ask ?? "",
   proofOffer: c.proof_offer ?? "",
   proofMissing: c.proof_missing ?? "",
+  // ?? rather than ||, for the reason metricValue below uses it: a drafted 0 is
+  // a reading of zero, and the falsy check would turn it into "he heard
+  // nothing" on exactly the evening worth showing.
+  metricOffer: c.metric_offer ?? null,
   pmProofText: c.pm_proof_text,
   proofUrl: c.proof_url,
   proofImageUrl: c.proof_image_url ?? "",

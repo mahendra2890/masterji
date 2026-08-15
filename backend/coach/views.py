@@ -47,6 +47,7 @@ from . import (
     weekly,
 )
 from .models import (
+    METRIC_PHASE,
     ChangelogEntry,
     CheckIn,
     Cohort,
@@ -539,17 +540,6 @@ def _client_day(request) -> date:
 # because a date that has arrived can still move, and refusing to let it move
 # would turn the honest second row into a reason to say nothing.
 LAUNCH_PHASES = (Phase.BUILD, Phase.LAUNCH)
-
-# Where the one number lives. TRACTION and only TRACTION, keyed off the PHASE
-# rather than off the transition into it, and that is the whole answer to the
-# awkward part of putting this at the end of the ladder: TRACTION is terminal, so
-# "entering the phase" is the last transition there is and a builder who arrived
-# before this shipped will never make another one. An invitation that fired on
-# the advance would be invisible to exactly the builders who got furthest. So the
-# question the server asks is "are they in TRACTION, and have they named it yet",
-# which a dashboard load can answer on any morning — including the first one
-# after a deploy.
-METRIC_PHASE = Phase.TRACTION
 
 
 def _launch_payload(goal: Goal, today: date) -> dict | None:
@@ -1369,6 +1359,28 @@ class MetricView(APIView):
         return Response(_metric_payload(goal), status=status.HTTP_200_OK)
 
 
+def _reading(raw) -> int | None:
+    """One number as this product will accept it, or None.
+
+    Split out of `_record_metric` so the chat's drafted number is filtered by
+    exactly the same arithmetic the filed one is, rather than by a second copy
+    of it: a draft the server would later drop is a box prefilled with something
+    that cannot be banked, which is worse than a box left empty.
+
+    Negative is refused and deliberately not clamped: every metric this phase
+    can hold is a count of returns or of rupees, and a reading below zero is a
+    typo, never a measurement. Zero is a reading like any other — "nobody came
+    back today" is a fact about the day — so the empty answer here is None.
+    """
+    if raw is None or raw == "":
+        return None
+    try:
+        value = int(str(raw).strip())
+    except (TypeError, ValueError):
+        return None
+    return None if value < 0 else value
+
+
 def _record_metric(goal: Goal, checkin: CheckIn, raw) -> bool:
     """Today's reading of the one number, if there is one to record.
 
@@ -1389,15 +1401,10 @@ def _record_metric(goal: Goal, checkin: CheckIn, raw) -> bool:
     every metric this phase can hold is a count of returns or of rupees, and a
     reading below zero is a typo, never a measurement.
     """
-    if raw is None or raw == "":
-        return False
     if Phase(goal.phase) is not METRIC_PHASE or not goal.metric_name:
         return False
-    try:
-        value = int(str(raw).strip())
-    except (TypeError, ValueError):
-        return False
-    if value < 0:
+    value = _reading(raw)
+    if value is None:
         return False
     checkin.metric_value = value
     # Stamped from the goal at the moment the number is written, and never
@@ -1650,6 +1657,14 @@ class DeclareView(APIView):
         checkin.proof_ask = ""
         checkin.proof_offer = ""
         checkin.proof_missing = ""
+        # And the number that was drafted with it. Cleared here and NOT with
+        # metric_value below, which is the distinction this field exists to
+        # hold: the recorded reading is a fact about the day that re-wording a
+        # task does not un-happen, while the offer is part of a draft that has
+        # just been thrown away, and a number left prefilled under a proof box
+        # the builder is about to refill is a figure with nothing left on the
+        # card explaining where it came from.
+        checkin.metric_offer = None
         # The draft's labels go with the draft. They describe evidence for the
         # old task, and a stale subject on a row that later banks a proof would
         # credit tonight's person to work they had nothing to do with.
@@ -1664,6 +1679,7 @@ class DeclareView(APIView):
             "proof_ask",
             "proof_offer",
             "proof_missing",
+            "metric_offer",
             "subject",
             "proof_parts",
             "updated_at",
@@ -2143,6 +2159,11 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
         close_proposed = False
         offered = missing = ""
         declared = ""
+        # Today's reading as the model heard it said, kept beside the draft it
+        # arrived with. None means no number, which is the ordinary case and the
+        # one the guard is built around — see _reading, and note that 0 is a
+        # reading and does not land here.
+        reading: int | None = None
         labels = bar.Labels(subject="", parts=[])
         broke = False
         # Inside the generator rather than around the call that returns it: the
@@ -2177,7 +2198,15 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
                         prompts.PROPOSE_GOAL_CLOSE_TOOL,
                         # Shaped by the phase, because the arguments ARE the
                         # phase's bar — a list per part that has a count on it.
-                        prompts.suggest_proof_tool(Phase(goal.phase)),
+                        # The metric name rides along so the same construction
+                        # can decide whether tonight's reading is an argument at
+                        # all: at any phase but METRIC_PHASE, or before the
+                        # builder has named their number, it simply is not in the
+                        # schema. Wrong-phase silence as a schema fact rather
+                        # than a sentence in a prompt.
+                        prompts.suggest_proof_tool(
+                            Phase(goal.phase), goal.metric_name
+                        ),
                     ],
                 ):
                     if kind == "delta":
@@ -2217,6 +2246,27 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
                             # describe text that is no longer there.
                             arguments = payload.get("arguments", {})
                             offered, missing = bar.read(goal.phase, arguments)
+                            # The number half of the same draft, reassigned on
+                            # every call for the reason the pair above is: a
+                            # builder who corrected the figure mid-conversation
+                            # should find the correction in the box, and a later
+                            # call that mentions no number should not leave the
+                            # earlier one sitting there attached to text that no
+                            # longer says it.
+                            #
+                            # Re-checked against the phase and the metric here
+                            # even though the argument is absent from the schema
+                            # forty lines up. That absence is what makes a call
+                            # impossible; this is the line that writes to the
+                            # row, and a guard that is only true because of
+                            # something forty lines away is a guard the next
+                            # edit can move.
+                            reading = (
+                                _reading(arguments.get("metric_value"))
+                                if Phase(goal.phase) is METRIC_PHASE
+                                and goal.metric_name
+                                else None
+                            )
                             # Who it was about and which parts it satisfied,
                             # from the same arguments and by the same
                             # arithmetic. Kept with the draft because the
@@ -2270,16 +2320,29 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
                     # them until a proof on this row is ACCEPTED.
                     offer_target.subject = labels.subject
                     offer_target.proof_parts = labels.parts
+                    # Tonight's number, on the same terms and in the same save:
+                    # an OFFER, never a record. It prefills the box on the
+                    # evening form and nothing else reads it — metric_value, the
+                    # field the series is drawn from, is still written by
+                    # _record_metric alone and still only when the builder files.
+                    #
+                    # Assigned unconditionally, so a redraft that heard no number
+                    # clears one heard earlier. The alternative — only writing it
+                    # when there is something to write — leaves a stale reading
+                    # prefilled under a draft whose words no longer mention it.
+                    offer_target.metric_offer = reading
                     offer_target.save(
                         update_fields=[
                             "proof_offer",
                             "proof_missing",
+                            "metric_offer",
                             "subject",
                             "proof_parts",
                             "updated_at",
                         ]
                     )
                     span.set_attribute("proof.offered", True)
+                    span.set_attribute("metric.offered", reading is not None)
                     logger.info(f"Proof drafted for checkin {offer_target.id}")
                 elif not missing:
                     # No OPEN check-in to hang a FINISHED draft on. That is a

@@ -51,6 +51,7 @@ from . import (
 from .management.commands import check_migration_leaf, load_changelog, loop_report
 from .models import (
     JOIN_CODE_ALPHABET,
+    METRIC_PHASE,
     ChangelogEntry,
     CheckIn,
     Cohort,
@@ -11037,3 +11038,233 @@ class WorkshopRefinesTheIdeaTests(CoachTestCase):
         self.assertLess(views.REOPENED_TURNS, views.WORKSHOP_TURNS)
         payload = self.client.get("/api/coach/state/").json()
         self.assertEqual(payload["workshop_turns"], views.WORKSHOP_TURNS)
+
+
+class MetricOfferTests(CoachTestCase):
+    """Masterji hearing today's number said out loud and writing it down.
+
+    The last of the evening's boxes to be typed twice. A builder at TRACTION
+    tells him "two people paid today", and then goes and types 2 into the number
+    box under Today — a figure the conversation already contains.
+
+    Everything here turns on one distinction: metric_offer is what he heard,
+    metric_value is what they filed, and only the second is a reading. The
+    load-bearing tests are test_the_draft_records_nothing, which is the rule the
+    field exists to keep, and test_a_wrong_drafted_number_cannot_cost_the_proof,
+    which is what makes a drafted number safe to prefill at all.
+    """
+
+    DRAFT = "Priya came back on her own on Thursday and paid ₹200 for the month."
+    PARTS = {
+        "returned": "Priya, back on Thursday without being asked",
+        "paid": "Priya, ₹200, for the month",
+    }
+
+    def setUp(self):
+        super().setUp()
+        self.goal = self.make_goal(phase=Phase.TRACTION)
+        self.client.post(
+            f"/api/coach/goals/{self.goal.id}/metric/", {"name": "paying users"}
+        )
+        self.client.post("/api/coach/checkins/declare/", {"text": "chase Priya"})
+
+    def chat(self, arguments=None, events=None):
+        """One turn in which he drafts tonight's proof, with or without a number."""
+        events = events or [
+            ("delta", "Then that's tonight's proof."),
+            (
+                "tool_call",
+                {
+                    "name": "suggest_proof",
+                    "arguments": {
+                        "text": self.DRAFT,
+                        **self.PARTS,
+                        **(arguments or {}),
+                    },
+                },
+            ),
+        ]
+        with mock.patch("coach.views.llm.stream_chat", return_value=iter(events)) as m:
+            response = self.client.post("/api/coach/chat/", {"content": "priya paid"})
+            b"".join(response.streaming_content)
+        return m
+
+    def schema(self, called):
+        """The suggest_proof schema this turn was actually offered."""
+        tools = called.call_args.kwargs["tools"]
+        tool = next(t for t in tools if t["function"]["name"] == "suggest_proof")
+        return tool["function"]["parameters"]["properties"]
+
+    def file_it(self, **extra):
+        with mock.patch(
+            "coach.judging.llm.complete",
+            return_value='{"verdict": "accept", "reaction": "good"}',
+        ):
+            return self.client.post(
+                "/api/coach/checkins/prove/", {"text": "priya paid", **extra}
+            )
+
+    # --- the window the argument exists in --------------------------------
+
+    def test_the_argument_is_in_the_schema_at_traction(self):
+        self.assertIn("metric_value", self.schema(self.chat()))
+
+    def test_it_is_not_in_the_schema_at_any_other_phase(self):
+        """Wrong-phase silence as a schema fact rather than a prompt rule: there
+        is nothing for the model to disobey and no sentence for a later edit to
+        soften. A named metric is passed in at every phase, so what is measured
+        here is the phase test and not a missing name."""
+        for phase in Phase:
+            if phase is METRIC_PHASE:
+                continue
+            with self.subTest(phase=phase):
+                tool = prompts.suggest_proof_tool(phase, "paying users")
+                self.assertNotIn(
+                    "metric_value", tool["function"]["parameters"]["properties"]
+                )
+
+    def test_it_is_absent_until_the_builder_has_named_the_number(self):
+        """An unnamed metric has no box on the card to prefill and nothing the
+        argument could be called — "the number" with no noun beside it is the app
+        inventing the metric, which is the rule the card already follows."""
+        goal = self.make_goal(user=self.bob, phase=Phase.TRACTION)
+        self.assertEqual(goal.metric_name, "")
+        tool = prompts.suggest_proof_tool(Phase.TRACTION, goal.metric_name)
+        self.assertNotIn("metric_value", tool["function"]["parameters"]["properties"])
+
+    def test_the_argument_asks_for_it_by_the_builders_own_name(self):
+        ask = self.schema(self.chat())["metric_value"]["description"]
+        self.assertIn("Today's paying users", ask)
+
+    def test_the_argument_forbids_inventing_one(self):
+        """The guard the issue is really about. A model guessing a reading is
+        worse than the box staying blank: a wrong sentence is visible to the
+        builder as a sentence, and a wrong integer is not visibly a guess."""
+        ask = self.schema(self.chat())["metric_value"]["description"]
+        self.assertIn("ONLY if they have said it in this conversation", ask)
+        self.assertIn("Do not estimate it", ask)
+        self.assertIn("leave this out entirely", ask)
+
+    # --- an offer, never a record -----------------------------------------
+
+    def test_the_number_lands_beside_the_draft_it_came_with(self):
+        self.chat({"metric_value": 2})
+        self.assertEqual(CheckIn.objects.get().metric_offer, 2)
+
+    def test_the_draft_records_nothing(self):
+        """No reading exists until the builder files. _record_metric stays the
+        only writer of metric_value, and the series is drawn from that field — so
+        a number Masterji heard is not a point on anybody's chart."""
+        self.chat({"metric_value": 2})
+        row = CheckIn.objects.get()
+        self.assertIsNone(row.metric_value)
+        self.assertEqual(row.metric_label, "")
+        payload = self.client.get("/api/coach/state/").json()
+        self.assertEqual(payload["metric"]["series"], [])
+
+    def test_the_card_is_handed_the_offer(self):
+        self.chat({"metric_value": 2})
+        payload = self.client.get("/api/coach/state/").json()
+        self.assertEqual(payload["today"]["metric_offer"], 2)
+        self.assertIsNone(payload["today"]["metric_value"])
+
+    def test_zero_is_a_number_somebody_counted(self):
+        """"Nobody paid today" is a fact about the day and one of the more useful
+        points in the series, so it cannot double as "he heard no number"."""
+        self.chat({"metric_value": 0})
+        self.assertEqual(CheckIn.objects.get().metric_offer, 0)
+
+    def test_no_number_said_leaves_the_box_empty(self):
+        """The ordinary evening, and the whole of what the model was told to do
+        absent a figure."""
+        self.chat()
+        self.assertIsNone(CheckIn.objects.get().metric_offer)
+
+    def test_a_redraft_that_heard_no_number_drops_the_earlier_one(self):
+        """Each call replaces the last, the number along with the words. A
+        reading left prefilled under a draft that no longer mentions it is a
+        figure the card can no longer account for."""
+        self.chat({"metric_value": 2})
+        self.chat()
+        self.assertIsNone(CheckIn.objects.get().metric_offer)
+
+    def test_a_correction_in_the_same_conversation_replaces_it(self):
+        self.chat({"metric_value": 2})
+        self.chat({"metric_value": 3})
+        self.assertEqual(CheckIn.objects.get().metric_offer, 3)
+
+    def test_a_number_that_could_not_be_filed_is_never_prefilled(self):
+        """The draft is filtered by the same arithmetic the filing is
+        (views._reading), so the box never opens holding something the server
+        would drop on the way back in."""
+        for bad in ("two", -4, "", None):
+            with self.subTest(bad=bad):
+                CheckIn.objects.update(metric_offer=None)
+                self.chat({"metric_value": bad})
+                self.assertIsNone(CheckIn.objects.get().metric_offer)
+
+    def test_a_call_from_the_wrong_phase_writes_nothing(self):
+        """The argument is not in the schema at BUILD, so this call cannot
+        arrive — but the branch that writes to the row is forty lines from the
+        one that builds the schema, and a guard held up by distance is a guard
+        the next edit can move."""
+        Goal.objects.filter(pk=self.goal.pk).update(phase=Phase.BUILD)
+        self.chat({"metric_value": 2})
+        self.assertIsNone(CheckIn.objects.get().metric_offer)
+
+    # --- filing, which is unchanged ---------------------------------------
+
+    def test_filing_records_it_through_the_path_it_always_used(self):
+        """The chat is a route to the box, not a second way into the record. The
+        number rides the prove request exactly as a typed one does, and
+        _record_metric stamps the label the same way."""
+        self.chat({"metric_value": 2})
+        self.file_it(metric_value=2)
+        row = CheckIn.objects.get()
+        self.assertEqual(row.metric_value, 2)
+        self.assertEqual(row.metric_label, "paying users")
+
+    def test_a_wrong_drafted_number_cannot_cost_the_proof(self):
+        """_record_metric's IGNORED-not-refused rule, untouched and now load-
+        bearing for a second reason: the number in the box may be one nobody
+        typed. A drafted figure the builder failed to correct costs them the
+        reading and never the evening."""
+        self.chat({"metric_value": 2})
+        response = self.file_it(metric_value="-4")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["checkin"]["proof_status"], "ACCEPTED")
+        self.assertIsNone(CheckIn.objects.get().metric_value)
+
+    def test_editing_the_number_down_files_the_edited_one(self):
+        """The box is a box. What he heard is where it opens; what they send is
+        the reading."""
+        self.chat({"metric_value": 2})
+        self.file_it(metric_value=1)
+        self.assertEqual(CheckIn.objects.get().metric_value, 1)
+
+    def test_rewording_the_task_drops_the_offer_and_keeps_the_reading(self):
+        """The two fields part company here, which is the clearest statement of
+        what each one is. The draft is evidence for work the builder has just
+        changed their mind about; the reading is a count of paying people that a
+        re-worded task does not un-happen."""
+        self.client.post(
+            "/api/coach/checkins/declare/", {"text": "chase Priya", "metric_value": 5}
+        )
+        self.chat({"metric_value": 2})
+        self.client.post("/api/coach/checkins/declare/", {"text": "chase Sunita"})
+        row = CheckIn.objects.get()
+        self.assertIsNone(row.metric_offer)
+        self.assertEqual(row.metric_value, 5)
+
+    def test_the_typed_box_still_works_with_no_chat_at_all(self):
+        """#277's Availability rule: a conversational path is an ADDITIONAL route
+        to a write, never the only one. An outage, a throttle or a bad payload
+        must never be why a builder cannot file today's number — and the suite
+        stubs every model call to raise, so this is that day."""
+        response = self.client.post(
+            "/api/coach/checkins/prove/", {"text": "priya paid", "metric_value": 7}
+        )
+        self.assertEqual(response.status_code, 200)
+        row = CheckIn.objects.get()
+        self.assertEqual(row.metric_value, 7)
+        self.assertIsNone(row.metric_offer)

@@ -2064,10 +2064,37 @@ export default function Dashboard({
                             </ul>
                           </div>
                         )}
+                        {/* The number he heard said, shown inside the draft it
+                            came with rather than dropped silently into the box
+                            below. A figure that appears in a field the builder
+                            did not type into is a figure with no account of
+                            where it came from; here it sits under his own
+                            wording, in the block whose label already says he
+                            wrote this from the conversation.
+
+                            Gated on a named metric because the box it prefills
+                            is — "Today's <name>" is the only thing that says
+                            what the number is a count of, and the server
+                            likewise offers no reading until one is named. */}
+                        {state.metric && today.metricOffer !== null && (
+                          <p className={styles.proofOfferMetric}>
+                            Today&apos;s {state.metric.name}:{" "}
+                            <strong>{today.metricOffer}</strong>
+                          </p>
+                        )}
                         <button
                           className={styles.proofOfferBtn}
                           onClick={() => {
                             setPmText(today.proofOffer);
+                            // The number rides the same press as the words, the
+                            // way the sharpened task carries its hour: one
+                            // draft, one button. Still nothing recorded — this
+                            // fills the box, and Submit proof is what files it,
+                            // through the same request field a typed number has
+                            // always used.
+                            if (today.metricOffer !== null) {
+                              setPmMetric(String(today.metricOffer));
+                            }
                             // And put them in the box it filled. The draft sits
                             // above the ask now, so the textarea is further down
                             // the card than the button that fills it — a press

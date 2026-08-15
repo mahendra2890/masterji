@@ -14,7 +14,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from . import bar, gates, guidance, weekly
-from .models import Goal, Phase
+from .models import METRIC_PHASE, Goal, Phase
 
 PLAYBOOKS_DIR = Path(__file__).resolve().parent / "playbooks"
 
@@ -1355,7 +1355,28 @@ SUGGEST_PROOF_TEXT_ASK = (
 )
 
 
-def suggest_proof_tool(phase: Phase) -> dict:
+# Today's reading of the one number, as an argument on the evening's draft.
+# {metric} is the builder's own name for it (Goal.metric_name), because a box
+# that asks for "the number" with no noun beside it is the app inventing the
+# metric — the same rule the card follows when it refuses to render the number
+# box until a metric has been named.
+#
+# Every sentence after the first is about not making one up. The rest of this
+# schema writes down words the builder said, where a wrong guess is visible as a
+# sentence they can read and edit; a guessed integer is not visibly a guess, and
+# a series whose whole value is that somebody went and looked at each point is
+# worth less with one invented number in it than with a gap.
+SUGGEST_PROOF_METRIC_ASK = (
+    "Today's {metric} — the number itself — but ONLY if they have said it in "
+    "this conversation. Write down the figure they gave, exactly as they gave "
+    "it. Do not estimate it, do not add it up from things they said "
+    "separately, and do not carry yesterday's forward. If they have not told "
+    "you today's number, leave this out entirely: an empty box they fill in is "
+    "better than a number nobody counted."
+)
+
+
+def suggest_proof_tool(phase: Phase, metric_name: str = "") -> dict:
     """The suggest_proof schema for THIS phase: the bar, as arguments.
 
     Built per phase rather than kept as one constant, because the arguments are
@@ -1367,6 +1388,14 @@ def suggest_proof_tool(phase: Phase) -> dict:
     The schema is prompt, so it is assembled here — but the parts and their
     wording live in bar.py with the arithmetic that reads them back, because
     two lists of what VALIDATION needs would drift apart within a week.
+
+    `metric_value` rides the same construction, and that is the whole of its
+    wrong-phase guard: at every phase but METRIC_PHASE the argument is not in
+    the schema, so there is no rule for the model to break and no prompt
+    sentence for a later edit to soften. It needs the builder's own name for the
+    number too, which is why the name is a parameter rather than read from the
+    phase — an unnamed metric has no box on the card to prefill and nothing the
+    argument could be called.
     """
     properties: dict[str, dict] = {
         "text": {"type": "string", "description": SUGGEST_PROOF_TEXT_ASK}
@@ -1381,6 +1410,11 @@ def suggest_proof_tool(phase: Phase) -> dict:
             if part.need > 1
             else {"type": "string", "description": part.ask}
         )
+    if Phase(phase) is METRIC_PHASE and metric_name:
+        properties["metric_value"] = {
+            "type": "integer",
+            "description": SUGGEST_PROOF_METRIC_ASK.format(metric=metric_name),
+        }
     return {
         "type": "function",
         "function": {

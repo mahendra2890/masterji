@@ -968,6 +968,22 @@
   white-space: pre-wrap;
 }
 
+/* Today's number inside the draft that carried it. One line and no rail: it is
+   part of the draft above it, not a second offer with its own decision in it —
+   the button below takes the words and the number together, and a block of its
+   own would imply they could be taken apart. The figure carries the weight
+   because it is the only part of this line the builder has to check. */
+.proofOfferMetric {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.proofOfferMetric strong {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
 /* The one press in this card that can end the evening in a tap, so it looks
    like a press. It was a 12.5px underlined link sitting under the answer while
    "Submit proof" — the step AFTER this one — got the filled button, which put
