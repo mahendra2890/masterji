@@ -56,3 +56,59 @@ export function gateKey(s: GateSituation | null | undefined): string {
     ? `${s.goal.id}:${s.goal.phase}:${s.gate?.have ?? 0}:${s.gate?.banked ?? 0}`
     : "";
 }
+
+/** The workshop's soft gate: whether Commit is the loud control right now.
+ *
+ * The room drives at all four of IDEA's parts, and the screen is what carries
+ * that opinion — never the server and never the coach. Nothing is disabled,
+ * nothing is refused, and a commit at 0 of 4 works exactly as it does at 4 of
+ * 4. What changes is where the eye goes: while the conversation is unfinished
+ * the scaffold is the loudest thing on the column, and Commit renders
+ * secondary.
+ *
+ * It lives here rather than in the JSX for the reason `isEarned` does. This is
+ * the same failure shape one screen later — a quiet Commit under closing copy
+ * that says "put it in the box above" is a dead-end screen, the way a green bar
+ * over "Request phase advance" is a lit door that does not open — and it has
+ * one more state in it than a boolean expression in a className wants to hold.
+ *
+ * The whole table, which `gate.test.ts` pins row by row:
+ *
+ *   | room         | sketch    | Commit |
+ *   | never opened | —         | LOUD   |
+ *   | open         | under 4/4 | quiet  |
+ *   | open         | 4/4       | LOUD   |
+ *   | turns spent  | any       | LOUD   |
+ *
+ * Row 1 is why this takes `roomOpen` at all. Unconditional, the gate leaves the
+ * screen a builder sees the moment they finish signing up with no filled
+ * control on it — and it taxes the wrong person, since somebody who arrived
+ * knowing what to build never wanted the room and would find their one action
+ * dimmed over a conversation they had no reason to have. The gate says "this
+ * conversation is unfinished", not "you haven't talked to him yet".
+ *
+ * Row 4 is the dead end, and it is the row with a real failure in it. At zero
+ * turns left the composer is gone and the closing copy points straight at the
+ * box; a secondary Commit under "Put it in the box above" is a screen with no
+ * lit exit.
+ */
+export type CommitSituation = {
+  /** Whether the builder has actually said something in the room. A room that
+   * exists because a page loaded is not an opened one. */
+  roomOpen: boolean;
+  /** Turns left in the room. 0 means spent — the composer is gone by then. */
+  turnsLeft: number;
+  /** IDEA's parts turned up so far, and how many there are. */
+  have: number;
+  need: number;
+};
+
+export function commitIsLoud(s: CommitSituation | null | undefined): boolean {
+  if (!s || !s.roomOpen) return true;
+  if (s.turnsLeft <= 0) return true;
+  // `need <= 0` is a payload that never arrived rather than a bar with nothing
+  // in it, and the safe reading of "I don't know how many parts there are" is
+  // the loud one: this must never dim the only door on a guess.
+  if (s.need <= 0) return true;
+  return s.have >= s.need;
+}

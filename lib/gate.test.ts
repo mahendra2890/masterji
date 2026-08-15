@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { gateKey, isEarned, type GateSituation } from "./gate";
+import {
+  commitIsLoud,
+  gateKey,
+  isEarned,
+  type CommitSituation,
+  type GateSituation,
+} from "./gate";
 import type { Gate } from "./coach-api";
 
 const gate = (over: Partial<Gate>): Gate => ({
@@ -130,5 +136,66 @@ describe("gateKey", () => {
     expect(gateKey({ goal: { id: 7, phase: "LAUNCH" }, gate: null })).not.toBe(
       gateKey({ goal: { id: 8, phase: "LAUNCH" }, gate: null }),
     );
+  });
+});
+
+describe("commitIsLoud", () => {
+  // A room mid-conversation with two of IDEA's four parts turned up: the one
+  // state the soft gate is quiet in. Every test below is this, one field moved.
+  const room = (over: Partial<CommitSituation> = {}): CommitSituation => ({
+    roomOpen: true,
+    turnsLeft: 9,
+    have: 2,
+    need: 4,
+    ...over,
+  });
+
+  it("is loud on a room nobody has opened", () => {
+    // The screen a builder sees the moment they finish signing up. Dimming
+    // Commit here leaves it with no filled control at all, and taxes somebody
+    // who arrived knowing what to build for a conversation they never wanted.
+    expect(commitIsLoud(room({ roomOpen: false, have: 0 }))).toBe(true);
+  });
+
+  it("is quiet mid-conversation under four of four", () => {
+    // The one row the whole change exists for: the scaffold is the loudest
+    // thing on the column while the conversation is unfinished.
+    expect(commitIsLoud(room())).toBe(false);
+    expect(commitIsLoud(room({ have: 0 }))).toBe(false);
+    expect(commitIsLoud(room({ have: 3 }))).toBe(false);
+  });
+
+  it("is loud again at four of four", () => {
+    expect(commitIsLoud(room({ have: 4 }))).toBe(true);
+  });
+
+  it("is loud when the turns are spent, however few parts landed", () => {
+    // The dead end. At zero turns left the composer is gone and the closing
+    // copy points straight at the box — a quiet Commit under "put it in the
+    // box above" is a screen with no lit exit.
+    expect(commitIsLoud(room({ turnsLeft: 0, have: 0 }))).toBe(true);
+    expect(commitIsLoud(room({ turnsLeft: 0, have: 2 }))).toBe(true);
+  });
+
+  it("never dims the door on a payload it did not get", () => {
+    // need <= 0 is a bundle older than the field, not a bar with nothing in
+    // it. "I don't know how many parts there are" resolves loud.
+    expect(commitIsLoud(room({ need: 0, have: 0 }))).toBe(true);
+    expect(commitIsLoud(null)).toBe(true);
+    expect(commitIsLoud(undefined)).toBe(true);
+  });
+
+  it("only ever changes the volume — there is no state it refuses in", () => {
+    // Guards the rule the whole soft gate rests on: this returns a style, and
+    // a commit at 0 of 4 works exactly as it does at 4 of 4. If a future edit
+    // makes this answer "may they commit", that is a different function and
+    // this test should be the thing that stops it.
+    const everyState = [
+      room({ roomOpen: false }),
+      room(),
+      room({ have: 4 }),
+      room({ turnsLeft: 0 }),
+    ];
+    for (const s of everyState) expect(typeof commitIsLoud(s)).toBe("boolean");
   });
 });

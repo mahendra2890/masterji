@@ -232,12 +232,13 @@ export default function Landing({
                 <div className={app.coachMsg}>
                   <span className={app.avatar}>म</span>
                   <p className={app.msgBody}>
-                    Then we start before the ladder. Fifteen turns, and the
+                    Then we start before the ladder. Twenty turns, and the
                     first one is yours: what did you stand in a queue for this
                     week, or watch somebody work around? Park up to three, pick
-                    one. Nothing in here is graded and nothing banks — when one
-                    of them wins I&apos;ll fill the commit box, and pressing it
-                    is still yours.
+                    one — then we make the winner specific enough to act on.
+                    Nothing in here is graded and nothing banks; when it&apos;s
+                    sharp I&apos;ll fill the commit box, and pressing it is
+                    still yours.
                   </p>
                 </div>
               </div>
@@ -276,9 +277,14 @@ export default function Landing({
             room before it, and this page said nothing about it for a day. The
             first screen is not commit-or-leave, which is the thing a visitor
             with no idea yet has to know before the ladder above reads as a
-            door rather than a wall. Fifteen turns is WORKSHOP_TURNS; the room
+            door rather than a wall. Twenty turns is WORKSHOP_TURNS; the room
             is not on this list because it is not a phase — nothing in it
             banks, and gates.py never reads it.
+
+            "Sharpen" rather than "find" since #314: the room drives at all
+            four of IDEA's parts rather than stopping at one candidate, and
+            what it turns up is carried onto the goal. Still not a gate — it
+            refuses nothing and the commit box works from turn one.
 
             Named, and placed, in the words the product itself uses: Tour.tsx
             says "the workshop is under the box" and Masterji.tsx says
@@ -287,9 +293,12 @@ export default function Landing({
             where it sits does not. */}
           <p className={styles.sectionBody}>
             Before IDEA there&apos;s a room that isn&apos;t on this ladder — the
-            workshop, under the commit box: fifteen turns to find the idea, if
-            you don&apos;t have one yet. Nothing in it counts toward anything —
-            that&apos;s the point of it.
+            workshop, under the commit box: twenty turns to find the idea and
+            sharpen it, if you don&apos;t have one yet. It works through the
+            four things IDEA will ask you for, and what you tell him carries
+            over so your first morning doesn&apos;t start from nothing. Nothing
+            in it counts toward anything, and it refuses nothing — that&apos;s
+            the point of it.
           </p>
           <p className={styles.sectionBody}>
             Each phase opens on evidence you banked in the phase before it. The

@@ -2968,26 +2968,87 @@
    pick up, and there is nothing here to press. It reads as a line of the
    room's own quiet type, one step louder on the count than on what is left,
    because the count is the sentence a builder came for. */
+/* The room's agenda: IDEA's four questions, standing from the room's turn zero
+   rather than appearing once a part lands.
+
+   It is the loudest thing in this column while the conversation is unfinished,
+   which is the soft gate's whole mechanism — Commit goes secondary over the
+   same span (commitIsLoud in lib/gate.ts). So this gets the marigold rail and
+   a filled panel, and it is deliberately heavier than the block it replaced:
+   that one was a two-line footnote under the pile, and a footnote is what the
+   builder in the observed session never noticed the room had. */
 .sketch {
   margin-bottom: 12px;
-  padding: 9px 11px;
+  padding: 10px 12px;
   border-left: 2px solid var(--accent);
   background: var(--surface-2);
   border-radius: 0 8px 8px 0;
 }
 
-.sketchCount {
+/* Full, and the panel says so rather than the builder counting ticks. The
+   accent border on all sides is the one moment this block is finished — it is
+   also the moment Commit becomes filled again, so the two read as one state. */
+.sketch[data-full="yes"] {
+  border: 1px solid var(--accent);
+  border-left-width: 2px;
+}
+
+.sketchLabel {
+  margin: 0 0 7px;
+  color: var(--accent);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  line-height: 1.35;
+}
+
+.sketch[data-full="yes"] .sketchLabel {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 13px;
+}
+
+.sketchList {
   margin: 0;
-  color: var(--text);
-  font-size: 13.5px;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sketchList li {
+  display: grid;
+  /* A fixed first column so the four labels align down one edge whatever the
+     mark is. Wrapping text lines up under itself rather than under the tick. */
+  grid-template-columns: 14px 1fr;
+  gap: 6px;
+  font-size: 12.5px;
   line-height: 1.4;
 }
 
-.sketchOwed {
-  margin: 4px 0 0;
+.sketchMark {
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+/* What the row is is in its words ("Told him: " / "Still open: "), so this is
+   emphasis rather than the only signal — see the comment at the markup. */
+.sketchState {
+  font-weight: 700;
+}
+
+.sketchHave {
+  color: var(--text);
+}
+
+.sketchHave .sketchMark {
+  color: var(--good);
+}
+
+.sketchOpen {
   color: var(--muted);
-  font-size: 12.5px;
-  line-height: 1.4;
 }
 
 /* The openers keep all three of their overrides, and the middle one is worth

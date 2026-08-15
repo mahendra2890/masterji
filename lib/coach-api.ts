@@ -272,6 +272,14 @@ export type WorkshopSketch = {
   need: number;
   /** The parts still open, in the builder's words rather than as keys. */
   owed: string[];
+  /** The whole bar in order, each part with whether it has landed — what the
+   * room's scaffold stands up from turn zero, before anything has surfaced.
+   *
+   * The same four facts `have`/`owed` carry, in the shape a list renders from.
+   * The labels are the server's because bar.py owns them: a second wording of
+   * IDEA's questions here would drift from the one the evening is judged
+   * against, and this screen is where a builder reads them first. */
+  asks: { key: string; label: string; have: boolean }[];
 };
 
 export type WorkshopMessage = {
@@ -515,6 +523,7 @@ type ServerWorkshop = {
     have?: number;
     need?: number;
     owed?: string[];
+    asks?: { key: string; label: string; have: boolean }[];
   };
   messages?: ServerWorkshopMessage[];
 };
@@ -533,6 +542,11 @@ const fromServerWorkshop = (w: ServerWorkshop): Workshop => ({
     have: w.sketch?.have ?? 0,
     need: w.sketch?.need ?? 0,
     owed: w.sketch?.owed ?? [],
+    // Defaulted like the rest. Empty means the scaffold draws nothing, which
+    // is exactly the pre-#314 screen — a browser holding this payload from
+    // before the field existed loses the standing questions and keeps every
+    // control that matters.
+    asks: w.sketch?.asks ?? [],
   },
   messages: (w.messages ?? []).map((m) => ({
     id: m.id,

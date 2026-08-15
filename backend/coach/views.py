@@ -346,12 +346,35 @@ def _active_goal(user) -> Goal | None:
 
 # Turns a workshop gets before the only door left is Commit.
 #
-# Fifteen because it is enough to walk a week for problems, park three and run a
-# tiebreak, and not enough to live in. The number is the mechanism: a room before
-# the goal with no meter on it is the planning-hiding-place this whole product
-# refuses, just with better manners. Counted off USER rows, so it cannot drift
-# from the transcript the builder can see.
-WORKSHOP_TURNS = 15
+# It was fifteen, sized for a room whose whole job was choosing: enough to walk
+# a week for problems, park three and run a tiebreak, and not enough to live in.
+# The room now also has to drive IDEA's four parts to full, which is a longer
+# conversation, so the number was re-derived rather than carried over.
+#
+# The arithmetic, from the session this change came from — 9 of 15 turns spent,
+# one candidate parked, `sketch_parts` still empty:
+#
+#   9   what selection actually cost that builder (arrive, walk the week,
+#       park, tiebreak) — observed, not estimated
+# + 4   the four parts, at the one-at-a-time the prompt asks for, floor
+# + 2   reserved: the prompt tells the coach to name the exit at two or fewer
+#   --
+#   15  which is the OLD budget exactly, with zero slack in it
+#
+# So fifteen does not hold: it covers the observed case and nothing slower, and
+# a part that needs a follow-up question — most of them, most of the time —
+# comes straight out of the reserve that exists so the room can end honestly.
+# Twenty is that floor plus one follow-up per part, and it is still a meter:
+# the room is bounded, the cap is on screen from turn zero, and Commit is
+# reachable on turn one.
+#
+# This is the one number in the change that is derived rather than measured,
+# and it is cheap to move: this constant plus four builder-visible mirrors
+# (Landing.tsx ×2, Tour.tsx ×2). What makes it answerable properly is now
+# shipped — `Workshop.sketch_parts` next to `_turns_used` says, per room, how
+# many turns four parts actually took. Re-derive it from real rooms rather than
+# from this comment.
+WORKSHOP_TURNS = 20
 
 # And the reopened room's, which is a different room and gets a different one.
 # Five because "should I keep going" is a shorter conversation than "what should
@@ -422,10 +445,11 @@ def _reopened_workshop(goal: Goal, create: bool = False) -> Workshop | None:
 def _turn_budget(workshop: Workshop) -> int:
     """How many turns this room gets, which is a fact about which room it is.
 
-    The reopened room is smaller on purpose. Fifteen turns is what it takes to
-    get from nothing to a candidate worth committing to; deciding whether to
-    keep going on a goal that already exists is a shorter conversation, and a
-    long one is the drift the meter exists to refuse.
+    The reopened room is smaller on purpose. The room before the goal has to get
+    from nothing to a candidate AND describe it well enough to act on (see
+    WORKSHOP_TURNS for that arithmetic); deciding whether to keep going on a
+    goal that already exists is a shorter conversation, and a long one is the
+    drift the meter exists to refuse.
     """
     return (
         REOPENED_TURNS
@@ -455,12 +479,28 @@ def _sketch_payload(parts: list[str]) -> dict:
     A forecast, not a gate: gates.py has never read a workshop and does not
     start here, and PROOFS_REQUIRED[IDEA] is still one proof filed after the
     commit, against these same four parts.
+
+    `asks` is the whole bar in bar order, each part with whether it has landed —
+    what the screen needs to stand the four questions up from turn zero rather
+    than only after something has surfaced. It carries the labels because
+    bar.py owns them: `owed` has always been labels rather than keys, and a
+    client holding its own copy of IDEA's four questions would be a second
+    wording of the bar, drifting from the one the evening is judged against.
+
+    `have`/`need`/`owed` stay exactly as they were. `asks` is the same facts in
+    the shape a list renders from, and every one of them is still counted here
+    — the screen must never be the place the subtraction happens.
     """
+    landed = set(parts)
     return {
         "parts": parts,
         "have": len(parts),
         "need": len(bar.BAR[Phase.IDEA].parts),
         "owed": bar.owed(Phase.IDEA, parts),
+        "asks": [
+            {"key": part.key, "label": part.label, "have": part.key in landed}
+            for part in bar.BAR[Phase.IDEA].parts
+        ],
     }
 
 
