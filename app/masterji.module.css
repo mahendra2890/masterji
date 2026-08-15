@@ -1384,15 +1384,6 @@
   min-width: 5ch;
 }
 
-.historyPhase {
-  font-family: var(--font-mono), monospace;
-  font-size: 10px;
-  letter-spacing: 0.04em;
-  color: var(--muted);
-  flex-shrink: 0;
-  width: 74px;
-}
-
 /* A day's declaration is never clipped — not in the sidebar record, not in
    the phase modal. Clipping only ever moved the reading somewhere else, and
    the sidebar had nowhere else to send it. pre-wrap keeps the line breaks
@@ -2246,14 +2237,6 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
-}
-
-.archiveRow {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 10px;
-  font-size: 13px;
 }
 
 .archiveTitle {
