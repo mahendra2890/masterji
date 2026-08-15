@@ -28,10 +28,15 @@ export function isEarned(gate: Gate | null | undefined): boolean {
  * answer to the state that produced it lets the card tell that it has been
  * overtaken instead of asserting a refusal the database no longer agrees with.
  *
- * The goal id is in it because the component survives a goal ending: retiring
- * takes the render down the no-goal branch without unmounting, so a refusal
- * left over from the last idea would match a brand-new goal standing in IDEA
- * at 0 proofs and greet it with a refusal it never earned.
+ * The goal id is in it because a refusal left over from the last idea would
+ * otherwise match a brand-new goal standing in IDEA at 0 proofs and greet it
+ * with a refusal it never earned. That used to be reachable in one step: the
+ * whole app was one component, and retiring took the render down the no-goal
+ * branch WITHOUT unmounting, so `gateNote` outlived the goal it was about.
+ * <Dashboard /> is its own component now and the note dies with it, so the id
+ * is a second line of defence rather than the only one — kept because the key
+ * is the thing that decides whether a note is still an answer, and a key that
+ * cannot tell two goals apart is one refactor away from being wrong again.
  *
  * The row count is in it for the same reason on a phase that counts people: a
  * second conversation with the same person moves `banked` and not `have`, and
