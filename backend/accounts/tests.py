@@ -1096,7 +1096,44 @@ class ForwardedHeaderLoggingTests(SimpleTestCase):
             mock.patch.object(middleware.logger, "info") as logged,
         ):
             self._call(HTTP_X_FORWARDED_FOR="203.0.113.7, 10.0.0.9")
-        self.assertIn("203.0.113.7, 10.0.0.9", logged.call_args.args)
+        seen = next(a for a in logged.call_args.args if isinstance(a, dict))
+        self.assertEqual(seen["x-forwarded-for"], "203.0.113.7, 10.0.0.9")
+
+    def test_it_prints_every_candidate_a_client_address_could_hide_in(self):
+        """#334: the count was not the answer, so the question became which
+        header — if any — our own edge controls. A candidate missing from this
+        line is a candidate nobody will think to test, which is exactly how the
+        first reading came back confidently wrong."""
+        with (
+            override_settings(LOG_FORWARDED_HEADERS=True),
+            mock.patch.object(middleware.logger, "info") as logged,
+        ):
+            self._call(
+                HTTP_X_FORWARDED_FOR="203.0.113.7",
+                HTTP_X_VERCEL_FORWARDED_FOR="198.51.100.4",
+                HTTP_X_REAL_IP="192.0.2.9",
+            )
+        seen = next(a for a in logged.call_args.args if isinstance(a, dict))
+        self.assertEqual(
+            seen,
+            {
+                "x-forwarded-for": "203.0.113.7",
+                "x-vercel-forwarded-for": "198.51.100.4",
+                "x-real-ip": "192.0.2.9",
+            },
+        )
+
+    def test_absent_candidates_are_left_out_rather_than_printed_as_none(self):
+        """So the line reads as what actually arrived. A `None` beside a header
+        name is indistinguishable, at a glance, from a header that arrived
+        empty — and telling those apart is the whole measurement."""
+        with (
+            override_settings(LOG_FORWARDED_HEADERS=True),
+            mock.patch.object(middleware.logger, "info") as logged,
+        ):
+            self._call(HTTP_X_REAL_IP="192.0.2.9")
+        seen = next(a for a in logged.call_args.args if isinstance(a, dict))
+        self.assertEqual(seen, {"x-real-ip": "192.0.2.9"})
 
     def test_the_default_is_off(self):
         self.assertFalse(settings.LOG_FORWARDED_HEADERS)

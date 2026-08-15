@@ -111,17 +111,49 @@ class ForwardedHeaderLogMiddleware:
     thing in question. That means client addresses in a log line, which is why
     this is off by default and why the instruction above ends with turning it
     off again — it is a measurement, not telemetry.
+
+    WHAT IT LOGS NOW, and why it grew. The count turned out not to be the
+    answer: on 15 August 2026 the reading above settled `NUM_PROXIES=2`, and a
+    second reading with a header sent DELIBERATELY showed that same position
+    holds whatever the caller wrote, because Vercel forwards a client-supplied
+    `X-Forwarded-For` rather than appending to it (#334). No position in that
+    header is guaranteed, so the question changed from "how many hops" to
+    "which header, if any, does our edge control".
+
+    So this now prints every candidate the answer could be hiding in. The test
+    each one has to pass is the one the first reading was too gentle to apply:
+    send it yourself and see whether your value arrives. A header that comes
+    back carrying what you wrote is forgeable and cannot key a ceiling; one
+    that comes back carrying your real address was replaced by something
+    upstream of the client, which is the property being looked for.
     """
+
+    # Everything Vercel or Google might be putting a client address in. Logged
+    # by name rather than by dumping all headers: the point is a short line a
+    # human compares against what they just sent, and a full dump would bury it
+    # while spilling cookies into the log.
+    CANDIDATES = (
+        "HTTP_X_FORWARDED_FOR",
+        "HTTP_X_VERCEL_FORWARDED_FOR",
+        "HTTP_X_REAL_IP",
+        "HTTP_X_VERCEL_PROXIED_FOR",
+        "HTTP_X_CLIENT_IP",
+    )
 
     def __init__(self, get_response):
         self.get_response = get_response
 
     def __call__(self, request):
         if settings.LOG_FORWARDED_HEADERS:
+            seen = {
+                name.removeprefix("HTTP_").replace("_", "-").lower(): request.META[name]
+                for name in self.CANDIDATES
+                if name in request.META
+            }
             logger.info(
-                "forwarded-headers path={} xff={!r} remote_addr={!r} ident={!r}",
+                "forwarded-headers path={} candidates={!r} remote_addr={!r} ident={!r}",
                 request.path,
-                request.META.get("HTTP_X_FORWARDED_FOR"),
+                seen,
                 request.META.get("REMOTE_ADDR"),
                 BaseThrottle().get_ident(request),
             )
