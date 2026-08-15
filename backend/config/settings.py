@@ -170,6 +170,31 @@ CSRF_TRUSTED_ORIGINS = env_list(
 if RENDER_HOST:
     CSRF_TRUSTED_ORIGINS.append(f"https://{RENDER_HOST}")
 
+# The secret that tells our own edge apart from the open internet, and so the
+# thing that makes DRF_NUM_PROXIES above a measurement rather than a guess.
+# Vercel's proxy.ts attaches it to everything it forwards; this process refuses
+# anything else. accounts.middleware.EdgeSecretMiddleware is the whole of it,
+# and its docstring is the argument.
+#
+# Empty is inert, deliberately: local development, this test suite, and any
+# deployment that has not adopted it are all unaffected — and none of them has
+# a second door to close either. Once it IS set, it is required; there is no
+# middle state where a missing header is waved through.
+#
+# Set it on Cloud Run and in Vercel's environment TOGETHER — see
+# DEPLOY-cloudrun.md §8, which gives the order that has no window in which one
+# side has rotated and the other has not.
+#
+# `.strip()` for the reason DATABASE_URL above removes whitespace: this value
+# is pasted into a dashboard by hand at least once, and a trailing newline is
+# invisible in every UI that will show it back to you. Both sides of a string
+# compare must match byte for byte, so a stray "\n" on either one is a 403 for
+# the entire API with nothing anywhere saying why. A secret whose leading or
+# trailing whitespace is load-bearing is not a thing anybody wants, so there is
+# no cost to this and one very expensive failure avoided. proxy.ts trims its
+# side for the same reason.
+EDGE_SHARED_SECRET = os.environ.get("EDGE_SHARED_SECRET", "").strip()
+
 # How many proxies sit between a client and this process — and therefore what
 # every anonymous throttle in this file is actually keyed on. Unset by default,
 # and that is a decision rather than an omission. Read this before setting it.
@@ -236,31 +261,65 @@ if RENDER_HOST:
 # through our own edge, so every request that now reaches a throttled endpoint
 # has crossed the same chain (#317). The count is a measurement again.
 #
-# WHAT IS STILL LEFT, and it is one page load. Set LOG_FORWARDED_HEADERS=1
-# below, load any page through masterji.mscsoftwares.in, read the one line
-# accounts.middleware.ForwardedHeaderLogMiddleware writes, count the addresses
-# the proxies appended, set DRF_NUM_PROXIES to that, and turn the logging back
-# off. Then re-run measurement 3 above and confirm the rotating header no
-# longer buys a fresh bucket. DEPLOY-cloudrun.md §8 is the same procedure with
-# the commands filled in.
+# THE NUMBER, MEASURED — 15 August 2026, and this is the whole basis for the 2
+# below. LOG_FORWARDED_HEADERS=1, one page load through
+# masterji.mscsoftwares.in, read back out of the Cloud Run log:
+#
+#   path=/api/auth/me/  xff='152.59.127.247,13.233.186.70'
+#                       remote_addr='169.254.169.126'
+#
+# Two entries and exactly two. The first is the browser's own address; the
+# second is in an AWS Mumbai range, which is where Vercel's bom1 egress sits.
+# So two hops append, `[-2]` is the browser, and 2 is the count. It is written
+# here rather than left in a dashboard for the reason #327 pinned the Vercel
+# region in the repository: a number nobody can see is a number nobody can
+# check.
+#
+# TWO THINGS THE SAME LOG SHOWED, both worth keeping:
+#
+#   1. Vercel's egress address VARIES PER REQUEST — 13.233.186.70 and then
+#      3.110.215.22 one second apart, same browser. That is the mechanism
+#      behind measurement 4 above, which recorded 32 wrong passwords through
+#      the primary domain producing no 429 and could not say why: with this
+#      unset the key is the whole joined header, so a rotating second entry
+#      handed every attempt a fresh bucket without the attacker sending
+#      anything. It also rules out 1 conclusively — `[-1]` would be that
+#      rotating address, which is both useless as a key and shared by every
+#      visitor.
+#   2. Requests with only ONE entry appear in the same log, from callers
+#      reaching the run.app host directly. That is the second door, measured
+#      rather than argued, and EDGE_SHARED_SECRET below is what closes it.
+#
+# THE ORDER MATTERS. This number is only safe once that door is shut. Set it
+# while run.app still answers anonymously and an attacker sends
+# `X-Forwarded-For: a, b` straight to it: Django sees `a, b, attacker` and
+# `[-2]` is `b`, which they chose. That is a differently forgeable ceiling
+# rather than a fixed one. EDGE_SHARED_SECRET first, then this.
+#
+# ANY OTHER DEPLOYMENT MUST SET THE VARIABLE. 2 is a fact about the
+# Vercel → Google front end → Cloud Run chain and nothing else. Render's chain
+# is shorter and has never been measured, so if that service is ever
+# unsuspended it needs its own reading rather than this default — the same
+# rule that kept this unset for as long as there were two answers.
+# THE INTERLOCK, and it is the reason the default is conditional rather than a
+# plain 2. Everything above says the same thing from three directions: 2 is
+# correct ONLY once the second door is shut. Before that it is not a safer
+# guess than None, it is a different forgery — `X-Forwarded-For: a, b` sent
+# straight to run.app makes `[-2]` the attacker's own `b`.
+#
+# Written as a condition rather than a comment because the dangerous window is
+# real and narrow: this constant ships in a commit, and the secret is set by
+# hand in two dashboards afterwards. Anything that made the repository's
+# correctness depend on somebody doing those in the right order would be
+# trusting a runbook to hold an invariant that costs one line to hold here.
+#
+# So: no edge secret, no trusted proxy count. A deployment that has not closed
+# its second door goes on keying the way it always has, and the moment it does
+# close it, the measured count applies with no second deploy. DRF_NUM_PROXIES
+# in the environment overrides both, which is how any other chain sets its own.
 _num_proxies = os.environ.get("DRF_NUM_PROXIES", "").strip()
-DRF_NUM_PROXIES = int(_num_proxies) if _num_proxies else None
+DRF_NUM_PROXIES = int(_num_proxies) if _num_proxies else (2 if EDGE_SHARED_SECRET else None)
 
-# The secret that tells our own edge apart from the open internet, and so the
-# thing that makes DRF_NUM_PROXIES above a measurement rather than a guess.
-# Vercel's proxy.ts attaches it to everything it forwards; this process refuses
-# anything else. accounts.middleware.EdgeSecretMiddleware is the whole of it,
-# and its docstring is the argument.
-#
-# Empty is inert, deliberately: local development, this test suite, and any
-# deployment that has not adopted it are all unaffected — and none of them has
-# a second door to close either. Once it IS set, it is required; there is no
-# middle state where a missing header is waved through.
-#
-# Set it on Cloud Run and in Vercel's environment TOGETHER — see
-# DEPLOY-cloudrun.md §8, which gives the order that has no window in which one
-# side has rotated and the other has not.
-EDGE_SHARED_SECRET = os.environ.get("EDGE_SHARED_SECRET", "")
 
 REST_FRAMEWORK = {
     "DEFAULT_RENDERER_CLASSES": ["rest_framework.renderers.JSONRenderer"],

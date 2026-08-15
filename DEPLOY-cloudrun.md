@@ -434,9 +434,13 @@ rollout rather than left as a follow-up. It is one page load.
 
 4. **Count the addresses the proxies appended** — that is the number, and it is
    the count of hops that add to the header, not the total number of addresses
-   in it. Set it:
+   in it. For this deployment it came out at 2 and is now the default in
+   `config/settings.py`, so there is nothing to set unless the reading differs
+   from 2 — in which case change the default rather than layering an
+   environment variable over a constant that has become wrong:
 
    ```bash
+   # Only if the chain has changed and you are not ready to ship the constant.
    gcloud run services update masterji-api --region asia-southeast1 \
      --project portfolio-502209 --update-env-vars DRF_NUM_PROXIES=<n>
    ```
@@ -477,11 +481,39 @@ rollout rather than left as a follow-up. It is one page load.
    real users being refused rather than in this probe, so prefer re-measuring
    step 3 to trying numbers.
 
-`DRF_NUM_PROXIES` is deliberately left **unset in this repository**: it is a
-fact about the deployment's proxy chain, and writing a guess into
-`config/settings.py` is the thing that block spends thirty lines refusing to
-do. Once measured, set it as an environment variable above and record the value
-and the date in this section.
+### The reading, taken 15 August 2026
+
+**The number is 2, and it is now the default in `config/settings.py`** rather
+than an environment variable somebody has to know about — the same reason #327
+pinned the Vercel region in the repository instead of a dashboard. The env var
+still overrides it, which is how any other deployment sets its own.
+
+The line the procedure above produced, from one page load through
+`masterji.mscsoftwares.in`:
+
+```
+path=/api/auth/me/  xff='152.59.127.247,13.233.186.70'  remote_addr='169.254.169.126'
+```
+
+Two entries: the browser, then an AWS Mumbai address, which is where Vercel's
+`bom1` egress sits. Two hops append, so `[-2]` is the browser and the count
+is 2.
+
+Two other things that reading showed, both worth keeping:
+
+- **Vercel's egress address varies per request** — `13.233.186.70`, then
+  `3.110.215.22` one second later from the same browser. That is the mechanism
+  behind the "32 wrong passwords, no 429" measurement in `settings.py`, which
+  recorded the symptom without being able to name the cause. It also rules
+  out 1: `[-1]` would be that rotating address.
+- **Requests with a single entry appear in the same log**, from callers
+  reaching the `run.app` host directly — the second door, measured rather than
+  argued.
+
+**Do not re-derive this by editing the constant.** If the chain ever changes —
+a different edge, a load balancer, a region move — take the reading again.
+A number in this file that nobody measured is exactly what `settings.py`
+spends thirty lines refusing to have.
 
 ## Keep-warm
 

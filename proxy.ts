@@ -59,7 +59,12 @@ import { NextResponse, type NextRequest, type ProxyConfig } from "next/server";
 // ordering, and NDJSON streaming exactly as they were.
 //
 // Unset is inert, on both sides. Local development runs without it.
-const EDGE_SECRET = process.env.EDGE_SHARED_SECRET ?? "";
+//
+// .trim() because this value is pasted into a dashboard by hand and a trailing
+// newline is invisible in every UI that shows it back to you. Django strips its
+// side too; both must match byte for byte, and a stray "\n" on either one is a
+// 403 for the whole API with nothing anywhere saying why.
+const EDGE_SECRET = (process.env.EDGE_SHARED_SECRET ?? "").trim();
 const EDGE_HEADER = "x-masterji-edge";
 
 const API_URL = process.env.API_URL ?? "http://127.0.0.1:8000";

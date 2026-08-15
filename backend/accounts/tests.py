@@ -37,6 +37,7 @@ from coach.models import (
     Workshop,
     WorkshopMessage,
 )
+from config import settings as config_settings
 
 from . import erasure, middleware, oauth
 from .middleware import EDGE_HEADER, KEY_PREFIX, ForwardedHeaderLogMiddleware
@@ -872,10 +873,11 @@ def _num_proxies(n):
 class AnonymousThrottlesKeyOnAForgeableHeaderTests(APITestCase):
     """What the ceilings on anonymous callers are actually keyed on.
 
-    With `NUM_PROXIES` unset — which is the deployment as it stands — DRF's
-    `get_ident` returns the WHOLE `X-Forwarded-For` header, the client's own
-    prefix included. So a caller who varies that header gets a fresh bucket
-    every request and meets no ceiling at all (#255).
+    With `NUM_PROXIES` unset — which is what this deployment ran until
+    15 August 2026 — DRF's `get_ident` returns the WHOLE `X-Forwarded-For`
+    header, the client's own prefix included. So a caller who varies that
+    header gets a fresh bucket every request and meets no ceiling at all
+    (#255). That state is still exercised below, because it is the finding.
 
     The scope exercised here is `login`, not `changelog`, and deliberately:
     the issue was filed about two cheap public reads, but the same function
@@ -883,10 +885,9 @@ class AnonymousThrottlesKeyOnAForgeableHeaderTests(APITestCase):
     opens the admin. Both halves of that ceiling are below — DRF's, and the
     admin middleware's, which calls `get_ident` by hand.
 
-    Neither of these tests asserts a proxy count. Which number is right is a
-    property of the deployment, measured from a real request; what is pinned
-    here is that the mechanism does what it is supposed to once somebody has
-    measured it, and that it does nothing while nobody has.
+    These tests pin the MECHANISM at each count and do not depend on the
+    deployment's own number; the one test that asserts that number says where
+    it came from.
     """
 
     # What Django sees when a client forges a prefix and two proxies then
@@ -908,16 +909,43 @@ class AnonymousThrottlesKeyOnAForgeableHeaderTests(APITestCase):
             HTTP_X_FORWARDED_FOR=forwarded_for,
         )
 
-    def test_the_setting_is_absent_until_somebody_has_measured_it(self):
-        """Pinned so a number cannot arrive by tidying.
+    def _num_proxies_with_secret(self, secret: str):
+        """What config/settings.py computes for a given EDGE_SHARED_SECRET.
 
-        Getting it wrong is expensive in both directions — too high and the
-        client forges the trusted position back, too low and every visitor
-        behind the proxy shares one bucket, which is one attacker refusing
-        everybody. config/settings.py carries the measurements taken so far
-        and what is still missing.
+        Re-imported rather than re-derived here: the point is the interlock in
+        that file, and a copy of the expression would keep passing after
+        somebody flattened it to a plain 2.
         """
-        self.assertIsNone(settings.REST_FRAMEWORK["NUM_PROXIES"])
+        with mock.patch.dict(os.environ, {"EDGE_SHARED_SECRET": secret}):
+            return importlib.reload(config_settings).DRF_NUM_PROXIES
+
+    def test_the_count_is_the_one_that_was_measured(self):
+        """This test used to assert the setting was ABSENT, so a number could
+        not arrive by tidying. A number has now arrived, by measurement, so it
+        asserts the measurement instead — the same guard, pointed at the value
+        rather than at its absence.
+
+        2, from one page load through masterji.mscsoftwares.in on 15 August
+        2026: `xff='152.59.127.247,13.233.186.70'` — the browser, then Vercel's
+        egress. config/settings.py carries the log line and the two other
+        things that reading showed, including why 1 is ruled out.
+
+        Changing this number means taking the measurement again, not editing
+        the constant.
+        """
+        self.assertEqual(self._num_proxies_with_secret("a-live-edge-secret"), 2)
+
+    def test_no_edge_secret_means_no_trusted_count(self):
+        """The interlock, and the reason it is code rather than a note.
+
+        2 is only correct once the run.app door is shut. Before that it is not
+        a safer guess than None — it is a different forgery, because an
+        attacker reaching the host directly writes the `[-2]` position
+        themselves. The constant ships in a commit and the secret is set by
+        hand afterwards, so the dangerous window is real; this closes it
+        without anybody having to sequence two dashboards correctly.
+        """
+        self.assertIsNone(self._num_proxies_with_secret(""))
 
     def test_unset_means_the_client_writes_its_own_throttle_key(self):
         """The finding, pinned rather than described. Five guesses against a
@@ -932,10 +960,14 @@ class AnonymousThrottlesKeyOnAForgeableHeaderTests(APITestCase):
         self.assertEqual(codes, [401] * 5)
 
     def test_a_measured_count_takes_the_key_away_from_the_client(self):
-        """The same five requests, with the count the deployment has yet to
-        measure standing in as 2: the forged prefix stops being read and the
-        address a proxy actually observed is what counts, so the ceiling
-        arrives on the fourth."""
+        """The same five requests at the count this deployment measured: the
+        forged prefix stops being read and the address a proxy actually
+        observed is what counts, so the ceiling arrives on the fourth.
+
+        Written with an explicit `_num_proxies(2)` rather than leaning on the
+        default, so that this keeps testing the mechanism at a count of two
+        even if the deployment's own number is ever re-measured to something
+        else."""
         with (
             _num_proxies(2),
             mock.patch.dict(ScopedRateThrottle.THROTTLE_RATES, {"login": "3/hour"}),
@@ -1125,3 +1157,39 @@ class EdgeSecretDefaultTests(SimpleTestCase):
         """Outside the class above, which sets one. The gate ships off and is
         switched on by the deployment that has a door to close."""
         self.assertEqual(settings.EDGE_SHARED_SECRET, "")
+
+
+class EdgeSecretWhitespaceTests(SimpleTestCase):
+    """The failure this cannot be allowed to have.
+
+    The value is pasted into a dashboard by hand at least once, and a trailing
+    newline is invisible in every UI that will show it back to you. The compare
+    is byte for byte, so one stray "\\n" on either side is a 403 for the entire
+    API — total outage, no degraded mode, and nothing in any log naming the
+    cause. Both sides strip; these pin the Django half.
+    """
+
+    def _from_env(self, raw: str) -> str:
+        """Re-import config.settings with that value in the environment and
+        read what the module actually produced.
+
+        Re-running the expression here instead would test a copy of the line
+        and pass happily after somebody deleted the real one. Reloading the
+        module is safe: `django.conf.settings` holds a Settings object built at
+        setup, so nothing live is disturbed by rebinding the module's own
+        attributes.
+        """
+        with mock.patch.dict(os.environ, {"EDGE_SHARED_SECRET": raw}):
+            return importlib.reload(config_settings).EDGE_SHARED_SECRET
+
+    def test_a_trailing_newline_does_not_change_the_secret(self):
+        self.assertEqual(self._from_env("s3cret\n"), "s3cret")
+
+    def test_surrounding_whitespace_does_not_change_the_secret(self):
+        self.assertEqual(self._from_env("  s3cret \r\n"), "s3cret")
+
+    def test_whitespace_only_is_still_unset(self):
+        """And so still INERT rather than a gate whose secret is the empty
+        string — which would refuse every request forever, since no caller
+        sends an empty header that compares equal."""
+        self.assertEqual(self._from_env("   \n"), "")
