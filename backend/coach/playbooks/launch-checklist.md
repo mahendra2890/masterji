@@ -1,5 +1,7 @@
 # Playbook: Launching Without Permission
-*(Masterji's distillation — a launch is a habit, not an event)*
+*(inspired by Paul Graham's "Do Things That Don't Scale", Croll & Yoskovitz's
+"Lean Analytics" and its One Metric That Matters, and Pieter Levels' "MAKE" —
+Masterji's own distillation)*
 
 ## What a launch actually is
 Putting the thing in front of strangers and asking for commitment. Not a

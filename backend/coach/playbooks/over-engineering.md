@@ -1,10 +1,11 @@
 # Playbook: Over-Engineering Smells
-*(Masterji's field guide to the most respectable form of procrastination)*
+*(inspired by Dan McKinley's "Choose Boring Technology" and Joel Spolsky's
+"Things You Should Never Do, Part I" — Masterji's own distillation)*
 
 Over-engineering feels like work — that's what makes it dangerous. It produces
 commits, diagrams and a warm sense of professionalism, and not one new user.
 
-## The smells, ranked by how often they kill first products
+## The smells
 1. **Infrastructure before users.** Kubernetes, microservices, queues, or
    "multi-region" anything for a product with zero users. One small server
    and one database survive your first thousand users. Your problem is

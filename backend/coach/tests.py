@@ -4223,40 +4223,45 @@ class CorpusCurationTests(CoachTestCase):
     thing nothing verified.
     """
 
+    # Names only, and the phase each belongs to. The source each one credits
+    # used to live here too, and the credit test read it from here — which is
+    # exactly why that test could never see the two files breaking the rule.
+    # It reads the folder now, so the sources live in the headers alone.
+    #
     # The three that filled the thin shelves: VALIDATION carried the heaviest
     # gate on one playbook, and LAUNCH asserted a ₹99 payment tells the truth
     # while teaching no way to get one.
     NEW_PLAYBOOKS = {
-        "choosing-an-idea": (Phase.IDEA, "Paul Graham"),
-        "getting-the-conversation": (Phase.VALIDATION, "Giff Constable"),
-        "the-first-rupee": (Phase.LAUNCH, "Rob Walling"),
+        "choosing-an-idea": Phase.IDEA,
+        "getting-the-conversation": Phase.VALIDATION,
+        "the-first-rupee": Phase.LAUNCH,
         # TRACTION arrived with the corpus's tenth file — the phase that opened
         # the shelf and the playbook that fills it landed together, which is
         # the one arrival order the curation policy has no answer for.
-        "first-users": (Phase.TRACTION, "Paul Graham"),
+        "first-users": Phase.TRACTION,
         # The two gates that were standing on nothing. BUILD cannot be left
         # without evidence a real user touched the thing, and all three of its
         # playbooks taught building; VALIDATION started counting distinct
         # people, which made WHO the first three are load-bearing, and nothing
         # taught the case where the person across the table wants you to win.
-        "first-touch": (Phase.BUILD, "Steve Blank"),
-        "people-you-know": (Phase.VALIDATION, "Rob Fitzpatrick"),
-        "reading-the-nos": (Phase.VALIDATION, "Ash Maurya"),
+        "first-touch": Phase.BUILD,
+        "people-you-know": Phase.VALIDATION,
+        "reading-the-nos": Phase.VALIDATION,
         # LAUNCH said WHERE to post and never how to write it, which is the
         # step the week goes quiet on.
-        "writing-the-post": (Phase.LAUNCH, "Harry Dry"),
+        "writing-the-post": Phase.LAUNCH,
         # The terminal phase carried one playbook and it taught acquisition,
         # while the phase's own bar asks for a RETURN.
-        "coming-back": (Phase.TRACTION, "Andrew Chen"),
+        "coming-back": Phase.TRACTION,
         # IDEA's bar asks for a PLACE and for why the builder believes anyone
         # is there, and both are downstream of a segment nothing in the corpus
         # taught them to cut. The two already here teach the anatomy of the
         # statement and the choice between candidates.
-        "narrowing-the-first-user": (Phase.IDEA, "Geoffrey Moore"),
+        "narrowing-the-first-user": Phase.IDEA,
     }
 
     def test_each_new_playbook_is_wired_to_exactly_one_phase(self):
-        for name, (phase, _) in self.NEW_PLAYBOOKS.items():
+        for name, phase in self.NEW_PLAYBOOKS.items():
             with self.subTest(playbook=name):
                 wired = [
                     p
@@ -4265,13 +4270,52 @@ class CorpusCurationTests(CoachTestCase):
                 ]
                 self.assertEqual(wired, [phase])
 
-    def test_each_new_playbook_credits_its_source_by_name(self):
+    # The two honest shapes a header line may take, per playbooks/README.md
+    # rules 3 and 4. The third state — a borrowed method with nobody's name on
+    # it — is the one the rule exists to keep out.
+    CREDIT_OPENER = "*(inspired by "
+    OWN_WORK_MARKER = "Masterji's own — no external source"
+
+    @staticmethod
+    def _header(name):
+        """The italic line(s) under the title, up to the first blank line.
+        Four playbooks wrap theirs, so this is not `splitlines()[1]`."""
+        lines = prompts._playbook(name).splitlines()[1:]
+        header = []
+        for line in lines:
+            if not line.strip():
+                break
+            header.append(line.strip())
+        return " ".join(header)
+
+    def test_every_playbook_credits_its_source_or_says_it_is_ours(self):
         """Borrowed authority is fine, hidden authority is not — the rule that
         separates this corpus from a model answering out of its pretraining,
-        which is the one authority the product refuses to run on."""
-        for name, (_, source) in self.NEW_PLAYBOOKS.items():
-            with self.subTest(playbook=name):
-                self.assertIn(source, prompts._playbook(name).splitlines()[1])
+        which is the one authority the product refuses to run on.
+
+        This reads the folder rather than NEW_PLAYBOOKS, the way
+        test_the_corpus_holds_nothing_the_coach_never_reads already does. Keyed
+        to that dict it could only ever check files somebody had just added,
+        and the two that broke the rule — over-engineering.md and
+        launch-checklist.md — were original-era files, so they were
+        structurally the two it could not contain. It never had the chance to
+        fail on them. "New" is not the property the rule is about.
+        """
+        files = [p for p in prompts.PLAYBOOKS_DIR.glob("*.md") if p.stem != "README"]
+        self.assertTrue(files)
+        for path in sorted(files):
+            with self.subTest(playbook=path.stem):
+                header = self._header(path.stem)
+                credited = header.startswith(self.CREDIT_OPENER)
+                self.assertTrue(
+                    credited or self.OWN_WORK_MARKER in header,
+                    f"{path.name}'s header line neither credits a source "
+                    f'("{self.CREDIT_OPENER}…") nor marks the method as ours '
+                    f'("{self.OWN_WORK_MARKER}", which must also name the gate, '
+                    "rule or refusal it encodes). See playbooks/README.md.",
+                )
+                if credited:
+                    self.assertIn("—", header, f"{path.name} names no distiller.")
 
     def test_the_corpus_holds_nothing_the_coach_never_reads(self):
         """Every file wired, every wired name a file. An unwired playbook is
