@@ -30,6 +30,24 @@ class Phase(models.TextChoices):
     TRACTION = "TRACTION", "Traction"
 
 
+# Where the one number lives. TRACTION and only TRACTION, keyed off the PHASE
+# rather than off the transition into it, and that is the whole answer to the
+# awkward part of putting this at the end of the ladder: TRACTION is terminal, so
+# "entering the phase" is the last transition there is and a builder who arrived
+# before this shipped will never make another one. An invitation that fired on
+# the advance would be invisible to exactly the builders who got furthest. So the
+# question the server asks is "are they in TRACTION, and have they named it yet",
+# which a dashboard load can answer on any morning — including the first one
+# after a deploy.
+#
+# HERE rather than in views, where it was first written, because it is no longer
+# only a view's business: prompts.suggest_proof_tool asks the same question when
+# it decides whether the schema has a metric_value argument in it, and two copies
+# of "the metric lives at TRACTION" would be two things to move on the day a
+# second phase gets a number.
+METRIC_PHASE = Phase.TRACTION
+
+
 class Goal(SoftDeleteModel):
     class Status(models.TextChoices):
         ACTIVE = "ACTIVE", "Active"
@@ -318,6 +336,21 @@ class CheckIn(SoftDeleteModel):
     # what the builder said, never a verdict — a partial draft that gets filed
     # is judged like any other proof.
     proof_missing = models.TextField(blank=True)
+    # Today's reading of the one number as Masterji heard it said — the number
+    # half of the same draft, written by the same suggest_proof call and
+    # provisional exactly as far as the rest of it is. It PREFILLS the box on
+    # the evening form and does nothing else.
+    #
+    # An OFFER, never a record, and the distance between this field and
+    # metric_value below is the whole of that rule: no reading exists until the
+    # builder files, views._record_metric stays the only writer of metric_value,
+    # and every reader of the series — the card's sparkline, the prompt's recent
+    # readings, the export — reads metric_value. Nothing reads this but the form.
+    #
+    # NULL, not 0, when there is nothing drafted. Zero is a reading somebody
+    # took: "nobody came back today" is a fact about the day and one of the more
+    # useful points in the series, so it cannot double as "he heard no number".
+    metric_offer = models.IntegerField(null=True, blank=True)
     # WHO this evening's proof is about, as a counting key — normalised (folded
     # and whitespace-collapsed) so "Priya " and "priya" are one person, and read
     # by nothing that displays anything. gates.accepted_proofs counts distinct

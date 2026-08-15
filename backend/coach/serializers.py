@@ -165,6 +165,11 @@ class CheckInSerializer(serializers.ModelSerializer):
             "proof_ask",
             "proof_offer",
             "proof_missing",
+            # The number that came with that draft, for the box on the evening
+            # form to open with. Sits beside `proof_offer` and away from
+            # `metric_value` below on purpose: this is what Masterji heard, that
+            # is what the builder filed, and only one of the two is a reading.
+            "metric_offer",
             "pm_proof_text",
             "proof_url",
             "proof_image_url",
