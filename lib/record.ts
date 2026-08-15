@@ -59,6 +59,48 @@ export function newestFirst<T extends Cycle>(rows: readonly T[]): T[] {
   return [...rows].sort((a, b) => (a.date === b.date ? b.id - a.id : a.date < b.date ? 1 : -1));
 }
 
+/** Whether the cycle column is worth drawing over a set of rows.
+ *
+ * The marker is a narrow column beside the date, and on the ordinary record —
+ * one cycle a day, every row reading "1st" — it is a column of the same word
+ * repeated, which says nothing and costs width on a 360px phone. Drawn only
+ * when a day in view was actually run twice.
+ *
+ * Asked per rendered set, not per goal: the record card and the phase drill-in
+ * show overlapping subsets, and a repeat outside the rows on screen is not
+ * something the reader can see. Takes the ordinals computed over the WHOLE row
+ * set (see `cycleOrdinals`) so the two answers cannot disagree about which
+ * cycle a row is.
+ */
+export function anyRepeat(
+  rows: readonly Cycle[],
+  ordinals: Map<number, number>,
+): boolean {
+  return rows.some((row) => (ordinals.get(row.id) ?? 1) > 1);
+}
+
+/** What the record card shows: newest first, the last `preview` rows until the
+ * reader asks for the rest, and whether the cycle column comes with them.
+ *
+ * `preview` counts ROWS, not days. A builder who declares a second task after
+ * proving the first gets two rows for one date, and the card would rather show
+ * seven rows than promise seven days and count them wrong.
+ *
+ * `showCycle` is decided over the rows actually shown, never over all of them:
+ * a day run twice three months ago should not put an empty-looking column
+ * beside this week.
+ */
+export function recordSlice<T extends Cycle>(
+  rows: readonly T[],
+  ordinals: Map<number, number>,
+  expanded: boolean,
+  preview: number,
+): { shown: T[]; showCycle: boolean } {
+  const ordered = newestFirst(rows);
+  const shown = expanded ? ordered : ordered.slice(0, preview);
+  return { shown, showCycle: anyRepeat(shown, ordinals) };
+}
+
 const SUFFIXES = ["th", "st", "nd", "rd"];
 
 /** "1st", "2nd", "3rd", "4th" — for a marker that sits in a narrow column
