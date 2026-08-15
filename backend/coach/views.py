@@ -268,6 +268,58 @@ NOTES_LANDED = (
 # carrying this is gone by tomorrow morning. The hole in the day isn't.
 STREAM_BROKE = "Masterji lost the thread — try again."
 
+# The workshop's three receipts, and the same argument as OFFER_LANDED above:
+# a tool call is not a reason to say nothing to someone who just spoke. It is
+# the room that can least afford the silence. The workshop is reachable before
+# a goal exists, so this is often a builder's first exchange with the product;
+# the meter counts their own rows, so the turn that bought the silence is the
+# turn that spent the budget; and the thing that *did* happen landed on a panel
+# beside the conversation, which they may not be looking at. Nothing about that
+# turn reads as broken. It reads as being ignored.
+#
+# Each is streamed as a delta AND saved as the turn's content, exactly the way
+# OFFER_LANDED is, so the refetch that ends the turn cannot replace the bubble
+# the builder just watched arrive with a record of them talking to themselves.
+#
+# Count-neutral wording, because one turn may park more than one: what these
+# say is the state of the pile after the turn, which is true however many calls
+# built it.
+PARKED_LANDED = (
+    "Written down — {have} of {maximum} ideas parked, room for {left} more."
+)
+# The full pile gets its own sentence, because what changed at the cap is not
+# the count: the room stops collecting and the only move left is choosing
+# between what is on the board. prompts.PARKING_FULL says the same thing to the
+# model; this is the builder's half of it.
+PARKED_LANDED_FULL = (
+    "Written down — that's {maximum} of {maximum} and the pile is full. "
+    "Nothing more gets parked; from here it's choosing between them."
+)
+
+# The forecast's receipt. It carries what is still open for NOTES_LANDED's
+# reason one room over: a count with nothing owed beside it reads as a finished
+# thing, and a builder who thinks the bar is met walks into a gate nobody told
+# them about. The arithmetic is bar.owed's — the same subtraction
+# prompts.sketch_state does for the prompt, said to the builder instead.
+SKETCH_LANDED = (
+    "Filled in what a first evening's proof needs, from what you just told me "
+    "— {have} of {need} parts. Still open: {owed}."
+)
+SKETCH_LANDED_FULL = (
+    "That's all {need} parts a first evening's proof needs, already sitting in "
+    "this conversation. Nothing left to sharpen in here."
+)
+
+# The title's receipt. It names the box rather than repeating the title, for
+# OFFER_LANDED's reason: the title is on screen in a field the builder can
+# edit, and a second copy in the chat is the one they cannot. The second
+# sentence is the GOAL_EXAMPLES bargain said out loud — this room suggests, and
+# committing stays a thing the builder does.
+GOAL_SUGGESTED_LANDED = (
+    "Put a title in the goal box — yours to edit. Committing to it is yours "
+    "too; nothing here has done that for you."
+)
+
 
 def _active_goal(user) -> Goal | None:
     return Goal.objects.filter(user=user, status=Goal.Status.ACTIVE).first()
@@ -391,6 +443,58 @@ def _sketch_payload(parts: list[str]) -> dict:
         "need": len(bar.BAR[Phase.IDEA].parts),
         "owed": bar.owed(Phase.IDEA, parts),
     }
+
+
+def _workshop_receipt(
+    parked: list[str],
+    suggested: str,
+    sketched: list[str] | None,
+    candidates: list[str],
+) -> str:
+    """What a workshop turn that produced only tool calls says for itself.
+
+    One sentence per tool that fired, in the order the room does them: the pile
+    first, then the rehearsal, then the title, which is the order of increasing
+    commitment. Joined rather than picked between, because one turn can call
+    more than one tool and a receipt that mentions two of the three things that
+    changed is a worse answer than no receipt at all.
+
+    Every number in it is the server's own arithmetic over what it stored —
+    len() over the pile and bar.owed over the part keys — for the reason the
+    forecast is computed in _sketch_payload rather than on the screen: a second
+    place the subtraction happens is a second answer waiting to disagree.
+
+    Empty is a real answer: a turn whose only tool call was dropped (a repeat,
+    a blank one-liner, a fourth candidate) changed nothing, and the caller must
+    not write a row claiming it did. The refusal at the ceiling has its own
+    voice already, on the `candidates` event.
+    """
+    said: list[str] = []
+    if parked:
+        held = len(candidates)
+        template = (
+            PARKED_LANDED_FULL if held >= Workshop.MAX_CANDIDATES else PARKED_LANDED
+        )
+        said.append(
+            template.format(
+                have=held,
+                maximum=Workshop.MAX_CANDIDATES,
+                left=max(Workshop.MAX_CANDIDATES - held, 0),
+            )
+        )
+    if sketched:
+        owed = bar.owed(Phase.IDEA, sketched)
+        need = len(bar.BAR[Phase.IDEA].parts)
+        said.append(
+            SKETCH_LANDED.format(
+                have=len(sketched), need=need, owed="; ".join(owed)
+            )
+            if owed
+            else SKETCH_LANDED_FULL.format(need=need)
+        )
+    if suggested:
+        said.append(GOAL_SUGGESTED_LANDED)
+    return "\n\n".join(said)
 
 
 def _workshop_payload(workshop: Workshop | None) -> dict | None:
@@ -3151,6 +3255,27 @@ class WorkshopChatView(throttles.VoicedThrottleMixin, APIView):
             if broke and not content:
                 content = STREAM_BROKE
                 notice = True
+            elif not content:
+                # The workshop's half of ChatView's OFFER_LANDED branch, and
+                # the divergence #154 predicted between the two streaming
+                # turns. All three of this room's tools used to be able to fire
+                # with no words around them, and the turn then wrote no row and
+                # streamed no delta: the builder's own message with nothing
+                # under it, and the meter down one.
+                #
+                # Saved as the turn's content as well as streamed, so the
+                # transcript and the screen agree — the refetch that ends the
+                # turn reads rows, and a sentence that lived only on the wire
+                # would vanish under the builder as they read it.
+                #
+                # Kept as a receipt for what happened and not as a stand-in for
+                # an answer: it is written by the server out of what the server
+                # stored, so a turn that stored nothing says nothing (the
+                # helper returns "" and `if content` below skips the row).
+                receipt = _workshop_receipt(parked, suggested, sketched, candidates)
+                if receipt:
+                    yield _line({"t": "delta", "text": receipt})
+                    content = receipt
             if content:
                 WorkshopMessage.objects.create(
                     workshop=workshop,

@@ -7300,6 +7300,91 @@ class WorkshopTests(CoachTestCase):
         self.assertEqual(rows[1].role, WorkshopMessage.Role.SYSTEM)
         self.assertEqual(rows[1].content, views.STREAM_BROKE)
 
+    # --- a tool call is not a reason to say nothing --------------------------
+
+    def deltas(self, events):
+        return [e["text"] for e in events if e["t"] == "delta"]
+
+    def coach_rows(self):
+        return list(
+            self.workshop().messages.filter(role=WorkshopMessage.Role.COACH)
+        )
+
+    def test_a_park_only_turn_speaks_and_is_recorded(self):
+        """One receipt per tool, and all three of them, because the room has
+        three tools and a turn that calls one used to stream nothing at all —
+        the builder's own message with nothing under it and the meter down one.
+        Streamed AND saved, so the refetch that ends the turn does not replace
+        the bubble they just watched arrive with silence."""
+        _, events = self.say(stream=self.park("hostellers miss dinner"))
+        rows = self.coach_rows()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(self.deltas(events), [rows[0].content])
+        # The state of the pile after the turn, computed by the server.
+        self.assertIn("1 of 3", rows[0].content)
+        self.assertIn("room for 2 more", rows[0].content)
+
+    def test_the_park_receipt_says_when_collecting_is_over(self):
+        """At the cap what changed is not the count: the room stops collecting
+        and the only move left is choosing. prompts.PARKING_FULL says that to
+        the model; this is the builder's half of the same fact."""
+        _, events = self.say(stream=self.park("one", "two", "three"))
+        rows = self.coach_rows()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(self.deltas(events), [rows[0].content])
+        self.assertIn("the pile is full", rows[0].content)
+
+    def test_a_sketch_only_turn_speaks_and_carries_what_is_still_owed(self):
+        """NOTES_LANDED's reason, one room over: a count with nothing owed
+        beside it reads as a finished bar, and the arithmetic is bar.owed's
+        rather than anything the model asserted."""
+        _, events = self.say(
+            stream=self.sketch(problem="hostellers miss dinner when labs run late")
+        )
+        rows = self.coach_rows()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(self.deltas(events), [rows[0].content])
+        self.assertIn("1 of 4", rows[0].content)
+        for label in bar.owed(Phase.IDEA, ["problem"]):
+            self.assertIn(label, rows[0].content)
+
+    def test_a_suggest_goal_only_turn_speaks_and_commits_nothing(self):
+        """The title is in a box the builder can edit; the receipt names the
+        box rather than repeating the title, and says whose the commit is."""
+        _, events = self.say(
+            stream=[
+                (
+                    "tool_call",
+                    {"name": "suggest_goal", "arguments": {"title": "Tiffin for C"}},
+                )
+            ]
+        )
+        rows = self.coach_rows()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(self.deltas(events), [rows[0].content])
+        self.assertIn("goal box", rows[0].content)
+        self.assertFalse(Goal.objects.exists())
+
+    def test_the_receipt_never_replaces_words_the_coach_wrote(self):
+        """A turn that both said something and called a tool keeps its own
+        words: the receipt exists for the silence, not as a suffix on every
+        tool call."""
+        _, events = self.say(
+            stream=[("delta", "Park that one.")] + self.park("hostellers miss dinner")
+        )
+        self.assertEqual(self.deltas(events), ["Park that one."])
+        self.assertEqual([r.content for r in self.coach_rows()], ["Park that one."])
+
+    def test_a_turn_that_changed_nothing_still_says_nothing(self):
+        """The receipt is written out of what the server stored, so a dropped
+        tool call — a repeat, here — has nothing to report. The refusal at the
+        ceiling has its own voice on the `candidates` event and does not need a
+        second one."""
+        self.say(stream=self.park("one"))
+        _, events = self.say(stream=self.park("one"))
+        self.assertEqual(self.deltas(events), [])
+        self.assertEqual(len(self.coach_rows()), 1)
+
     # --- the room costs money too --------------------------------------------
 
     def test_the_room_draws_from_the_same_hourly_budget_as_chat(self):
