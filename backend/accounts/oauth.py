@@ -6,6 +6,7 @@ signup detour: Masterji needs nothing beyond the verified Google identity,
 so first-time users are created on the spot and logged straight in.
 """
 
+import hmac
 import secrets
 import threading
 from urllib.parse import urlencode
@@ -29,6 +30,45 @@ GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 STATE_SALT = "google-oauth-state"
 STATE_MAX_AGE = 600  # seconds a login attempt may take
+
+# The other half of the state, and the half that makes it mean anything.
+#
+# A signed state proves this server minted it. It does not prove the browser
+# presenting it is the browser that asked for it — and without that second
+# half an attacker can start a login themselves, drive their OWN Google
+# account to the consent screen, and then cause a victim's browser to load the
+# callback with the resulting code. The callback would exchange it, get the
+# attacker's verified identity, and set auth cookies for the ATTACKER'S
+# account on the victim's browser. That is login CSRF / session fixation: the
+# victim then writes their declarations, proofs and reflections into an
+# account the attacker signs into normally (#254).
+#
+# So the nonce inside the state is written to a cookie by `google_login` and
+# has to come back with the state at the callback. The attacker can obtain a valid state — that was never
+# the secret — but they cannot set a cookie on the victim's browser for this
+# origin, so the two halves only ever meet in the browser that started.
+#
+# SameSite=Lax is enough, and it is worth saying why rather than reaching for
+# None: Google's callback is a TOP-LEVEL GET NAVIGATION, which is exactly the
+# case Lax still sends cookies for. (A cross-site POST or a subresource fetch
+# would not — neither is in this flow.) The other flags match
+# accounts/cookies.py word for word: HttpOnly, and Secure everywhere except
+# local plain-HTTP development, where a Secure cookie would simply never come
+# back and sign-in would fail with nothing to read.
+#
+# Path-scoped to the auth endpoints for the same reason the refresh cookie is:
+# both the login redirect and the callback live under it, and nothing else
+# needs to see it.
+STATE_COOKIE = "oauth_state"
+STATE_COOKIE_PATH = "/api/auth/"
+
+# What the browser is sent to when the two halves don't meet. Not a 400 with a
+# sentence in it: the two ways this happens to an honest person are sitting on
+# Google's account picker for more than STATE_MAX_AGE, and clearing cookies
+# mid-flow — both of which want the sign-in button, not a dead end. The
+# landing page is where sign-in starts, so it is where a sign-in that didn't
+# happen goes, exactly as the cancel path above already does.
+STATE_FAILED_ERROR = "expired"
 
 
 def _safe_next(value: str | None) -> str:
@@ -68,9 +108,12 @@ def google_login(request):
     _start_db_wakeup()
     # Signed + short-lived: proves the callback originated from a login we
     # started (no server-side session needed), and carries the post-login
-    # destination along for the ride.
+    # destination along for the ride. The nonce is the browser binding — see
+    # STATE_COOKIE above; it is only worth anything because the same value
+    # leaves in a cookie the attacker cannot write.
+    nonce = secrets.token_urlsafe(16)
     state = signing.dumps(
-        {"nonce": secrets.token_urlsafe(16), "next": _safe_next(request.GET.get("next"))},
+        {"nonce": nonce, "next": _safe_next(request.GET.get("next"))},
         salt=STATE_SALT,
     )
     params = {
@@ -81,7 +124,17 @@ def google_login(request):
         "state": state,
         "prompt": "select_account",
     }
-    return redirect(f"{GOOGLE_AUTH_URL}?{urlencode(params)}")
+    response = redirect(f"{GOOGLE_AUTH_URL}?{urlencode(params)}")
+    response.set_cookie(
+        STATE_COOKIE,
+        nonce,
+        max_age=STATE_MAX_AGE,
+        httponly=True,
+        samesite="Lax",
+        secure=not settings.DEBUG,
+        path=STATE_COOKIE_PATH,
+    )
+    return response
 
 
 def _exchange_code(code: str, redirect_uri: str) -> dict:
@@ -119,14 +172,44 @@ def unique_username(email: str) -> str:
 
 def google_callback(request):
     """Google redirected back; verify identity, create the user if new,
-    set auth cookies and send the browser home."""
+    set auth cookies and send the browser home.
+
+    Wraps the real work so the state cookie is cleared on every way out —
+    success, refusal, cancel. It is a one-shot value: leaving it in the
+    browser after the login it belongs to has finished is a second chance for
+    a state somebody else is holding.
+    """
+    response = _google_callback(request)
+    response.delete_cookie(STATE_COOKIE, path=STATE_COOKIE_PATH)
+    return response
+
+
+def _state_failed():
+    """No usable state — expired, forged, or its cookie gone. Send the browser
+    to the page with the sign-in button on it rather than to a 400."""
+    return redirect(f"{settings.FRONTEND_URL}/?error={STATE_FAILED_ERROR}")
+
+
+def _google_callback(request):
+    presented_nonce = request.COOKIES.get(STATE_COOKIE, "")
     try:
         state = signing.loads(
             request.GET.get("state", ""), salt=STATE_SALT, max_age=STATE_MAX_AGE
         )
     except signing.BadSignature:
-        return HttpResponseBadRequest("Invalid or expired OAuth state.")
+        return _state_failed()
     next_path = _safe_next(state.get("next") if isinstance(state, dict) else None)
+
+    # The browser binding. Checked before anything is exchanged or trusted:
+    # the signature says this server minted the state, and only the cookie
+    # says this browser is the one it was minted for.
+    minted_nonce = state.get("nonce", "") if isinstance(state, dict) else ""
+    if not (
+        presented_nonce
+        and minted_nonce
+        and hmac.compare_digest(presented_nonce, minted_nonce)
+    ):
+        return _state_failed()
 
     if "error" in request.GET:  # user hit "cancel" on the consent screen
         # "/" rather than the old /login/, which no longer exists: the landing
