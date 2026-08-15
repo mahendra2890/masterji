@@ -565,6 +565,41 @@ own issue.
 adversarial one disagree here, and only one of them is about security. Reading
 only the first is the mistake this section exists to stop being repeated.
 
+### Finding a header the caller cannot write (#334)
+
+The count was the wrong question. The right one is whether anything reaching
+this process carries a client address that the client could not have written.
+`ForwardedHeaderLogMiddleware` prints every candidate; the test each one has to
+pass is that **your own value does not come back**.
+
+With `LOG_FORWARDED_HEADERS=1`, send them all at once with obviously fake
+values, through the public domain:
+
+```bash
+curl -s -o /dev/null https://masterji.mscsoftwares.in/api/coach/changelog/ \
+  -H 'X-Forwarded-For: 203.0.113.11' \
+  -H 'X-Vercel-Forwarded-For: 203.0.113.22' \
+  -H 'X-Real-IP: 203.0.113.33' \
+  -H 'X-Client-IP: 203.0.113.44'
+```
+
+Then read what arrived, and compare it against what you sent:
+
+```bash
+gcloud run services logs read masterji-api --region asia-southeast1 \
+  --project portfolio-502209 --limit 20 | grep forwarded-headers
+```
+
+- A candidate echoing `203.0.113.x` back is **forgeable** — it cannot key
+  anything, no matter how official its name sounds.
+- A candidate carrying **your real address instead** was replaced upstream of
+  you. That is the one worth building on.
+- A candidate **absent from the line** never arrives at all and is not an
+  option here, whatever the platform documents.
+
+Run it from an ordinary client, not from inside the edge, since the whole point
+is what an outsider can influence.
+
 ## Keep-warm
 
 Not needed for verification, and worth leaving off until step 1. Afterwards, a
