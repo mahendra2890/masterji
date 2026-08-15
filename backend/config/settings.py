@@ -261,6 +261,21 @@ EDGE_SHARED_SECRET = os.environ.get("EDGE_SHARED_SECRET", "").strip()
 # through our own edge, so every request that now reaches a throttled endpoint
 # has crossed the same chain (#317). The count is a measurement again.
 #
+# DEMOTED, 16 August 2026 — read this first. Since #334 the anonymous ceilings
+# do NOT key on this number. They key on `accounts.throttling.trusted_ident`,
+# which reads the one header Vercel writes and a caller cannot, and that module
+# carries the measurement and the argument.
+#
+# What is left for this setting is the FALLBACK: `trusted_ident` returns DRF's
+# own answer when the trusted header is absent, which is local development, the
+# test suite, the two exempt direct callers, and any deployment without the
+# edge gate. Everything below is still true of that fallback and still worth
+# reading — it is simply no longer what stands in front of the password.
+#
+# Kept rather than deleted for that reason. Removing it would not simplify
+# anything; it would just make the fallback silently key on the whole joined
+# header again, which is the worst of the options priced below.
+#
 # THE NUMBER IS 2, AND 2 DOES NOT BUY WHAT IT LOOKS LIKE IT BUYS. Read this
 # before trusting any anonymous ceiling in this file. Measured 15 August 2026.
 #

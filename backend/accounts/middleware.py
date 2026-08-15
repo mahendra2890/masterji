@@ -47,6 +47,8 @@ from django.urls import NoReverseMatch, reverse
 from loguru import logger
 from rest_framework.throttling import BaseThrottle
 
+from .throttling import trusted_ident
+
 KEY_PREFIX = "admin-login-failures"
 
 REFUSAL = "Too many sign-in attempts. Try again later.\n"
@@ -67,7 +69,13 @@ class AdminLoginThrottleMiddleware:
         if request.method != "POST" or request.path != _login_path():
             return self.get_response(request)
 
-        key = f"{KEY_PREFIX}:{BaseThrottle().get_ident(request)}"
+        # `throttling.trusted_ident`, not DRF's own: this is the ceiling in
+        # front of the one password that opens every builder's record, and
+        # keying it on a header the caller can write is the finding in #334.
+        # It moves with the scoped throttles rather than being left behind —
+        # this middleware is the reason "which caller is this" is a shared
+        # function instead of a throttle subclass.
+        key = f"{KEY_PREFIX}:{trusted_ident(request)}"
         window = settings.ADMIN_LOGIN_FAILURE_WINDOW_S
 
         if (cache.get(key) or 0) >= settings.ADMIN_LOGIN_MAX_FAILURES:
@@ -150,12 +158,18 @@ class ForwardedHeaderLogMiddleware:
                 for name in self.CANDIDATES
                 if name in request.META
             }
+            # Both idents: DRF's, which is what the ceilings used to key on,
+            # and ours. They differ exactly when the caller wrote part of
+            # DRF's answer, so printing the pair is what makes a forgery
+            # visible in one line rather than by comparing two runs.
             logger.info(
-                "forwarded-headers path={} candidates={!r} remote_addr={!r} ident={!r}",
+                "forwarded-headers path={} candidates={!r} remote_addr={!r} "
+                "drf_ident={!r} trusted_ident={!r}",
                 request.path,
                 seen,
                 request.META.get("REMOTE_ADDR"),
                 BaseThrottle().get_ident(request),
+                trusted_ident(request),
             )
         return self.get_response(request)
 

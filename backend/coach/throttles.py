@@ -15,13 +15,22 @@ settings.REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"].
 """
 
 from rest_framework.exceptions import Throttled
-from rest_framework.throttling import ScopedRateThrottle
+
+from accounts.throttling import TrustedIdentThrottle
 
 # The one throttle class every paid view uses. Which bucket a view draws from is
 # the view's own `throttle_scope` — no subclass per endpoint, because
 # ScopedRateThrottle reads that attribute off the view and a subclass carrying
 # its own scope would be quietly ignored.
-THROTTLES = [ScopedRateThrottle]
+#
+# It is `TrustedIdentThrottle` rather than DRF's `ScopedRateThrottle` for a
+# reason that belongs to the anonymous scopes rather than these paid ones:
+# `X-Forwarded-For` is writable by the caller on this deployment, so the
+# identity every ceiling counts has to come from somewhere Vercel controls.
+# accounts.throttling carries the measurement. These scopes key by user pk when
+# somebody is signed in and are unaffected either way; sharing one class keeps
+# there from being two answers to "who is this" in one codebase.
+THROTTLES = [TrustedIdentThrottle]
 
 
 class VoicedThrottleMixin:

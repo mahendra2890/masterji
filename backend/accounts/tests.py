@@ -39,7 +39,7 @@ from coach.models import (
 )
 from config import settings as config_settings
 
-from . import erasure, middleware, oauth
+from . import erasure, middleware, oauth, throttling
 from .middleware import EDGE_HEADER, KEY_PREFIX, ForwardedHeaderLogMiddleware
 from .models import PushSubscription, User
 from .views import ThrottledTokenObtainPairView
@@ -1222,6 +1222,111 @@ class EdgeSecretTests(TestCase):
         it crosses the same edge — and it is the surface holding the one
         password that opens every builder's record."""
         self.assertEqual(self.client.get("/admin/login/").status_code, 403)
+
+
+@override_settings(
+    EDGE_SHARED_SECRET=SECRET,
+    ADMIN_LOGIN_MAX_FAILURES=3,
+    # Same reason as AdminLoginCeilingKeysOnTheSameIdentTests: rendering the
+    # admin's login form needs a staticfiles manifest this suite has not built.
+    STORAGES={
+        "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+        "staticfiles": {
+            "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"
+        },
+    },
+)
+class TrustedIdentTests(TestCase):
+    """The ceilings count the caller, not what the caller claims (#334).
+
+    `X-Forwarded-For` is writable here — Vercel forwards a caller-supplied one
+    rather than appending to it, and does so inconsistently enough that small
+    samples read as safe. `x-vercel-proxied-for` was the only candidate that
+    never carried a forged value across the measurement, and it is trustworthy
+    only because the edge gate means nothing else reaches this process.
+    """
+
+    FORGED = "203.0.113.{}, 198.51.100.1, 10.0.0.9"
+    REAL = "152.59.127.247"
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+    def _guess(self, i):
+        """One wrong password, forging every header the caller can reach, with
+        the trusted header saying it is the same caller each time."""
+        return self.client.post(
+            reverse("token_obtain_pair"),
+            {"username": "rootadmin", "password": "wrong"},
+            format="json",
+            headers={EDGE_HEADER: SECRET},
+            HTTP_X_FORWARDED_FOR=self.FORGED.format(i),
+            HTTP_X_REAL_IP=f"203.0.113.{i}",
+            HTTP_X_VERCEL_FORWARDED_FOR=f"203.0.113.{i}",
+            HTTP_X_VERCEL_PROXIED_FOR=self.REAL,
+        )
+
+    def test_a_rotating_forged_header_no_longer_buys_a_bucket(self):
+        """#255's closing criterion, as a test rather than a curl loop against
+        production. Five guesses at a ceiling of three: the fourth is refused,
+        and every header the caller writes rotates the whole time."""
+        with mock.patch.dict(ScopedRateThrottle.THROTTLE_RATES, {"login": "3/hour"}):
+            codes = [self._guess(i).status_code for i in range(5)]
+        self.assertEqual(codes, [401, 401, 401, 429, 429])
+
+    def test_a_genuinely_different_caller_still_gets_its_own_bucket(self):
+        """The other direction, and the one that would be invisible: a ceiling
+        that refused everybody would also pass the test above."""
+        with mock.patch.dict(ScopedRateThrottle.THROTTLE_RATES, {"login": "3/hour"}):
+            for i in range(4):
+                self._guess(i)
+            other = self.client.post(
+                reverse("token_obtain_pair"),
+                {"username": "rootadmin", "password": "wrong"},
+                format="json",
+                headers={EDGE_HEADER: SECRET},
+                HTTP_X_VERCEL_PROXIED_FOR="198.51.100.200",
+            )
+        self.assertEqual(other.status_code, 401)
+
+    def test_the_admin_ceiling_moved_with_it(self):
+        """`AdminLoginThrottleMiddleware` calls the ident by hand, so it is the
+        one that gets left behind by a change like this — and it is the ceiling
+        in front of the password that opens every builder's record."""
+        User.objects.create_superuser(
+            username="rootadmin", email="root@example.com", password="c0rrect-horse"
+        )
+        codes = []
+        for i in range(5):
+            res = self.client.post(
+                reverse("admin:login"),
+                {"username": "rootadmin", "password": "wrong", "next": "/admin/"},
+                headers={EDGE_HEADER: SECRET},
+                HTTP_X_FORWARDED_FOR=self.FORGED.format(i),
+                HTTP_X_VERCEL_PROXIED_FOR=self.REAL,
+            )
+            codes.append(res.status_code)
+        self.assertEqual(codes, [200, 200, 200, 429, 429])
+
+    def test_without_the_edge_secret_the_header_is_not_trusted(self):
+        """The interlock. Anybody can send `X-Vercel-Proxied-For`; what makes
+        it believable is that the gate refused everything which did not come
+        through our edge. No gate, no reason to believe it."""
+        factory = RequestFactory()
+        request = factory.get("/", HTTP_X_VERCEL_PROXIED_FOR="203.0.113.5")
+        with override_settings(EDGE_SHARED_SECRET=""):
+            self.assertNotEqual(throttling.trusted_ident(request), "203.0.113.5")
+
+    def test_with_the_edge_secret_the_header_is_the_answer(self):
+        request = RequestFactory().get("/", HTTP_X_VERCEL_PROXIED_FOR="203.0.113.5")
+        self.assertEqual(throttling.trusted_ident(request), "203.0.113.5")
+
+    def test_an_absent_header_falls_back_rather_than_keying_on_nothing(self):
+        """The exempt direct callers and local development both arrive without
+        it. An empty-string ident would put all of them in one bucket."""
+        request = RequestFactory().get("/", HTTP_X_FORWARDED_FOR="198.51.100.7")
+        self.assertEqual(throttling.trusted_ident(request), "198.51.100.7")
 
 
 class EdgeSecretDefaultTests(SimpleTestCase):
