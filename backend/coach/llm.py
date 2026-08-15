@@ -296,11 +296,25 @@ def stream_chat(
             content = getattr(delta, "content", None)
             if content:
                 yield "delta", content
-            for call in getattr(delta, "tool_calls", None) or []:
+            # `fragment`, never `call`. This loop used to bind `call`, which is
+            # the _Call the `with` above is holding — and a for-target is bound
+            # only when the loop actually iterates, so the seam was correct on
+            # every turn the model stayed quiet and clobbered on every turn it
+            # reached for a tool. The next chunk's _note_usage then wrote the
+            # provider's token counts onto a ChatCompletionDeltaToolCall, which
+            # is a pydantic model and raises: the turn died after the model had
+            # already answered, the tool call never reached the view, and the
+            # breaker booked a failure against a provider that was fine.
+            #
+            # Latent from the first commit and harmless until #214 asked for
+            # stream_options={"include_usage": True} — before that there was no
+            # usage chunk to arrive after the tool call and nothing ever read
+            # the clobbered name.
+            for fragment in getattr(delta, "tool_calls", None) or []:
                 slot = calls.setdefault(
-                    getattr(call, "index", 0) or 0, {"name": "", "arguments": ""}
+                    getattr(fragment, "index", 0) or 0, {"name": "", "arguments": ""}
                 )
-                function = getattr(call, "function", None)
+                function = getattr(fragment, "function", None)
                 # Both arrive piecemeal: the name usually lands whole in the
                 # first fragment, the arguments never do.
                 slot["name"] = getattr(function, "name", None) or slot["name"]

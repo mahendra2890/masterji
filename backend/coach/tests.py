@@ -625,6 +625,73 @@ class VerdictsGetTheJudgeModelTests(CoachTestCase):
             calls = [p for kind, p in llm.stream_chat("system", []) if kind == "tool_call"]
         self.assertEqual(calls, [{"name": "suggest_proof", "arguments": {}}])
 
+    def test_a_tool_call_and_a_usage_chunk_survive_each_other(self):
+        """The two halves in one stream, which is every real tool-calling turn.
+
+        Both were already covered apart and neither covered together, so #290
+        lived in the gap for a day: the loop over `delta.tool_calls` bound
+        `call`, the same name the `with` above holds the in-flight _Call under,
+        and Python binds a for-target only when the loop iterates. So the seam
+        was right whenever the model stayed quiet and clobbered the moment it
+        reached for a tool — and the next chunk's usage went to the fragment.
+
+        Driven live against openai/gpt-5.4-mini on 15 August 2026: the provider
+        sends its tool-call chunks first and the usage chunk last (index 21 of
+        22), so this ordering is the real one and not a worst case invented
+        here.
+
+        REAL litellm types, not mock.Mock, and that is the load-bearing part of
+        this test. A Mock invents any attribute asked of it, so the clobbered
+        object would have accepted `.usage` and this would have passed against
+        the bug — which is exactly how the two tests above missed it.
+        ChatCompletionDeltaToolCall is a pydantic model and raises, which is
+        what took the turn down in production.
+        """
+        from litellm.types.utils import (
+            ChatCompletionDeltaToolCall,
+            Delta,
+            Function,
+            ModelResponseStream,
+        )
+
+        from . import llm
+
+        fragment = ChatCompletionDeltaToolCall(
+            id="call_1",
+            type="function",
+            index=0,
+            function=Function(name="suggest_proof", arguments='{"text": "spoke to Ramesh"}'),
+        )
+        tool_chunk = ModelResponseStream(
+            choices=[{"index": 0, "delta": Delta(content=None, tool_calls=[fragment])}]
+        )
+        usage_chunk = ModelResponseStream(choices=[])
+        usage_chunk.usage = _tokens(1200, 300, 1500)
+
+        recorded = {}
+        with (
+            mock.patch(
+                "coach.llm.litellm.completion",
+                return_value=iter([tool_chunk, usage_chunk]),
+            ),
+            mock.patch(
+                "coach.llm.spend.record", side_effect=lambda **kw: recorded.update(kw)
+            ),
+        ):
+            calls = [p for kind, p in llm.stream_chat("system", []) if kind == "tool_call"]
+
+        # The tool call still reaches the view. Without the fix the stream
+        # raised before it was ever yielded, so the builder got STREAM_BROKE
+        # and no drafted proof, no gate check and no close box.
+        self.assertEqual(
+            calls,
+            [{"name": "suggest_proof", "arguments": {"text": "spoke to Ramesh"}}],
+        )
+        # And the ledger still gets the row. This is the half that was lost
+        # silently even where the raise did not land, and it was lost on
+        # precisely the expensive turns — see #261 before quoting any total.
+        self.assertEqual(recorded["usage"]["total_tokens"], 1500)
+
 
 # --- auth ------------------------------------------------------------------
 
