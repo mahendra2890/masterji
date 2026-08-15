@@ -39,6 +39,7 @@ from . import (
     export,
     gates,
     guidance,
+    judging,
     links,
     nudges,
     prompts,
@@ -1504,7 +1505,7 @@ class PhaseIntentTests(CoachTestCase):
         self.assertEqual(by_phase[Phase.VALIDATION], "three hostellers who pay today")
         self.assertEqual(by_phase[Phase.BUILD], "one screen they can actually open")
         # And the coach reads the one for the phase they are standing in.
-        self.assertEqual(views._phase_intent(goal), "one screen they can actually open")
+        self.assertEqual(judging._phase_intent(goal), "one screen they can actually open")
 
     def test_it_can_be_fixed_while_the_phase_is_open(self):
         """Write-once buys a tidier record at the cost of a builder living for
@@ -1512,7 +1513,7 @@ class PhaseIntentTests(CoachTestCase):
         goal = self.advance(self.make_goal())
         self.set_intent(goal, "three hostlers")
         self.set_intent(goal, "three hostellers who pay today")
-        self.assertEqual(views._phase_intent(goal), "three hostellers who pay today")
+        self.assertEqual(judging._phase_intent(goal), "three hostellers who pay today")
         self.assertEqual(goal.transitions.count(), 1)
 
     def test_an_empty_line_and_a_paragraph_are_both_refused(self):
@@ -1522,7 +1523,7 @@ class PhaseIntentTests(CoachTestCase):
             self.set_intent(goal, "x" * (views.PhaseIntentView.MAX_CHARS + 1)).status_code,
             400,
         )
-        self.assertEqual(views._phase_intent(goal), "")
+        self.assertEqual(judging._phase_intent(goal), "")
 
     def test_the_phase_is_the_builders_own(self):
         goal = self.advance(self.make_goal())
@@ -6209,7 +6210,7 @@ class BankedRecordTests(CoachTestCase):
             0,
             "state",
             "ENGLISH",
-            banked=views._banked(self.goal),
+            banked=judging._banked(self.goal),
         )
 
     def test_what_they_proved_reaches_the_coach(self):
@@ -6240,16 +6241,16 @@ class BankedRecordTests(CoachTestCase):
         self.assertNotIn("nobody read it", system)
 
     def test_the_record_is_capped_and_trimmed(self):
-        for i in range(views.RECORD_LIMIT + 4):
-            self.bank("x" * (views.RECORD_CHARS + 50), date=date.today() - timedelta(days=i))
-        banked = views._banked(self.goal)
-        self.assertEqual(len(banked), views.RECORD_LIMIT)
-        self.assertTrue(all(len(p["proof"]) == views.RECORD_CHARS for p in banked))
+        for i in range(judging.RECORD_LIMIT + 4):
+            self.bank("x" * (judging.RECORD_CHARS + 50), date=date.today() - timedelta(days=i))
+        banked = judging._banked(self.goal)
+        self.assertEqual(len(banked), judging.RECORD_LIMIT)
+        self.assertTrue(all(len(p["proof"]) == judging.RECORD_CHARS for p in banked))
 
     def test_the_newest_proofs_are_the_ones_that_travel(self):
         self.bank("oldest", date=date.today() - timedelta(days=9))
         self.bank("newest", date=date.today())
-        self.assertEqual(views._banked(self.goal)[0]["proof"], "newest")
+        self.assertEqual(judging._banked(self.goal)[0]["proof"], "newest")
 
     def test_the_evening_judge_is_told_not_to_bank_it_twice(self):
         self.bank("Ramesh says 40-50 plates go to waste")
@@ -6265,7 +6266,7 @@ class BankedRecordTests(CoachTestCase):
 
     def test_the_row_being_judged_is_not_in_its_own_record(self):
         checkin = self.bank("the one under judgement")
-        self.assertEqual(views._banked(self.goal, exclude=checkin), [])
+        self.assertEqual(judging._banked(self.goal, exclude=checkin), [])
 
     def test_a_banked_day_is_never_written_up_a_second_time(self):
         """The hole the exact-match check could not reach.
@@ -6273,7 +6274,7 @@ class BankedRecordTests(CoachTestCase):
         "A proof cannot be banked twice" rests on two things: _already_banked,
         which is exact after flattening and deliberately no looser, and
         RECORD_FOR_JUDGE, which lives only in the EVENING's prompt. A complete
-        draft filed unedited never reaches that prompt — views._react_to_proof
+        draft filed unedited never reaches that prompt — judging._react_to_proof
         accepts it with no model call at all. So Tuesday's conversation,
         described again tonight and written up by him in his own words, made new
         text that no exact match catches and no judge ever read, and it banked
@@ -6304,7 +6305,7 @@ class BankedRecordTests(CoachTestCase):
         """One formatter, two wordings. If they ever read different lists they
         would disagree about what the builder has done."""
         self.bank("Ramesh says 40-50 plates go to waste")
-        banked = views._banked(self.goal)
+        banked = judging._banked(self.goal)
         for template in (prompts.RECORD_BLOCK, prompts.RECORD_FOR_JUDGE):
             with self.subTest(template=template[:30]):
                 self.assertIn(
@@ -8688,13 +8689,13 @@ class WorkshopSurvivesTheCommitTests(CoachTestCase):
         )
 
         goal.brief = {"text": "the room's sketch", "parts": ["problem"], "source": "WORKSHOP"}
-        replaced = views._brief_from_proof(goal, checkin)
+        replaced = judging._brief_from_proof(goal, checkin)
         self.assertIsNotNone(replaced)
         self.assertEqual(replaced["source"], "PROOF")
         self.assertEqual(replaced["text"], "The four-part answer as I filed it.")
 
         goal.brief = {"text": "my own words", "parts": [], "source": "BUILDER"}
-        self.assertIsNone(views._brief_from_proof(goal, checkin))
+        self.assertIsNone(judging._brief_from_proof(goal, checkin))
 
     # --- the first morning ---------------------------------------------------
 

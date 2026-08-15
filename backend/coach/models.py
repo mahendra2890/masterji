@@ -314,7 +314,7 @@ class CheckIn(SoftDeleteModel):
     # separated. It is the whole of what Masterji may still ask for tonight,
     # and it is the difference between notes and an offer: empty means the
     # draft clears the phase's bar, and ONLY then may filing it unedited skip
-    # the evening's judgement (views._react_to_proof). Notes are a record of
+    # the evening's judgement (judging._react_to_proof). Notes are a record of
     # what the builder said, never a verdict — a partial draft that gets filed
     # is judged like any other proof.
     proof_missing = models.TextField(blank=True)
