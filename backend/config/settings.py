@@ -68,6 +68,11 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    # Directly above the ceiling below it, because the value it prints is the
+    # value that ceiling keys on and the two should not be able to drift.
+    # Costs one attribute lookup per request while it is off, which is the
+    # default and should be the steady state — see LOG_FORWARDED_HEADERS.
+    "accounts.middleware.ForwardedHeaderLogMiddleware",
     # Inside the session/CSRF layers, so it only counts POSTs that actually
     # reached the admin's login view — a request rejected for a missing CSRF
     # token never checked a password and is not a guess.
@@ -159,8 +164,83 @@ CSRF_TRUSTED_ORIGINS = env_list(
 if RENDER_HOST:
     CSRF_TRUSTED_ORIGINS.append(f"https://{RENDER_HOST}")
 
+# How many proxies sit between a client and this process — and therefore what
+# every anonymous throttle in this file is actually keyed on. Unset by default,
+# and that is a decision rather than an omission. Read this before setting it.
+#
+# UNSET is what the deployment has always run. DRF's `BaseThrottle.get_ident`
+# then returns `''.join(xff.split())` — the WHOLE `X-Forwarded-For` header,
+# including whatever the client themselves put at the front of it. So an
+# anonymous caller who varies that header lands in a fresh bucket every request
+# and meets no ceiling at all (#255).
+#
+# That is not one small public read endpoint. Every scope below that is reached
+# without a session goes through this one function:
+#
+#   * `changelog`   — ChangelogView and SharedRecordView, both AllowAny
+#   * `cohort_join` — the code lookup
+#   * `login`       — POST /api/auth/token/, guarding the operator's password
+#   * and accounts.middleware.AdminLoginThrottleMiddleware, which calls the
+#     same `get_ident` by hand for /admin/login/
+#
+# The last two are the ones that make this worth care. They guard a CREDENTIAL,
+# and a credential ceiling that a header can step around is decoration.
+#
+# WHAT WAS MEASURED, on 15 August 2026, against the live deployment:
+#
+#   1. Cloud Run REPLACES `X-Forwarded-Proto`. A request to the run.app host
+#      carrying `X-Forwarded-Proto: http` was served (404 on a missing path),
+#      not answered with the 301 that SECURE_SSL_REDIRECT would have produced
+#      had Django seen anything but "https".
+#   2. Cloud Run PASSES THROUGH the `X-Forwarded-*` headers it does not manage.
+#      `X-Forwarded-Host: evil.example` to the run.app host came back 400 —
+#      Django's ALLOWED_HOSTS refusing a host it could only have read from the
+#      forged header. Through the Vercel domain the same request was 200, so
+#      Vercel normalises that header and Cloud Run does not.
+#   3. The forgeability is REAL on the run.app host. Eleven wrong-password
+#      POSTs to /api/auth/token/ from one address earned a 429 on the twelfth —
+#      and then twelve more from that same, already-refused address, each with
+#      a different `X-Forwarded-For`, were all answered 401. The ceiling was
+#      walked around with one header.
+#   4. Through the primary domain the ceiling does not bind AT ALL. Thirty-two
+#      consecutive wrong-password POSTs to
+#      https://masterji.mscsoftwares.in/api/auth/token/ — fixed client, no
+#      header of our own — never produced a 429. The key is varying on
+#      something the client never sent, which is what a per-request Vercel
+#      egress address in the joined header would do.
+#
+# WHY NO NUMBER IS SET HERE ANYWAY. `get_ident` with this set returns
+# `xff.split(',')[-n]`, so `n` has to be the count of proxies that append,
+# and this deployment does not have one count:
+#
+#   * Browsers arrive browser → Vercel → Cloud Run → Django.
+#   * The Cloud Run URL is ALSO publicly reachable (its /api/health/ answers
+#     200 to a direct request), so an attacker can simply choose the shorter
+#     chain — and an attacker is the only caller who gets to pick.
+#
+# Set it to 1 and the direct path is fixed while the Vercel path keys on
+# Vercel's egress address; set it to 2 and the Vercel path is fixed only if
+# Vercel overwrites a client-supplied `X-Forwarded-For` rather than prepending
+# to it — which cannot be observed from outside, because measurement 4 says
+# that key is already varying for reasons of its own. Too high re-opens the
+# forgery; too low puts every visitor behind the proxy in one bucket, where one
+# attacker refuses everybody. A guess here is worse than the honest gap.
+#
+# WHAT WOULD SETTLE IT: the raw header from one real browser request through
+# masterji.mscsoftwares.in. Set LOG_FORWARDED_HEADERS=1 below, load any page,
+# read the one line accounts.middleware.ForwardedHeaderLogMiddleware writes,
+# count the addresses the proxies appended, set DRF_NUM_PROXIES to that, and
+# turn the logging back off. Then re-run measurement 3 above and confirm the
+# rotating header no longer buys a fresh bucket. Whoever does that should also
+# decide whether the run.app host stays publicly reachable, because while it
+# does, the number that is right for one path is wrong for the other.
+_num_proxies = os.environ.get("DRF_NUM_PROXIES", "").strip()
+DRF_NUM_PROXIES = int(_num_proxies) if _num_proxies else None
+
 REST_FRAMEWORK = {
     "DEFAULT_RENDERER_CLASSES": ["rest_framework.renderers.JSONRenderer"],
+    # None until somebody measures it — the block above is the whole argument.
+    "NUM_PROXIES": DRF_NUM_PROXIES,
     "DEFAULT_AUTHENTICATION_CLASSES": [
         # Reads the httpOnly access-token cookie, falls back to the
         # Authorization: Bearer header (curl, tests, other API clients).
@@ -277,6 +357,12 @@ CACHES = {
 # from that same address waits out the window too. That is the trade, and it is
 # the right way round: a staff member locked out for an hour is recoverable, an
 # unmetered guessing oracle for the admin credential is not.
+# The one-request instrument for DRF_NUM_PROXIES above. Off, and meant to go
+# back off: it writes the raw X-Forwarded-For — which is client addresses — to
+# the log, so it is a measurement somebody takes deliberately and then stops
+# taking. accounts.middleware.ForwardedHeaderLogMiddleware is the whole of it.
+LOG_FORWARDED_HEADERS = os.environ.get("LOG_FORWARDED_HEADERS", "0") == "1"
+
 ADMIN_LOGIN_MAX_FAILURES = int(os.environ.get("ADMIN_LOGIN_MAX_FAILURES", "10"))
 ADMIN_LOGIN_FAILURE_WINDOW_S = int(
     os.environ.get("ADMIN_LOGIN_FAILURE_WINDOW_S", "3600")
