@@ -166,9 +166,11 @@ GATE_NUDGE = {
     Phase.LAUNCH: (
         "One rung tonight: send it personally to one person from your "
         "VALIDATION notes, or post it in one room where these people already "
-        "sit — with the ask attached. Three rungs is the count, but one of the "
-        "three has to be a stranger actually doing something, so make the ask "
-        "concrete enough that doing it leaves a trace you can screenshot."
+        "sit — with the ask attached. The three this gate counts are accepted "
+        "proofs, not rungs: the ladder has four rungs and you climb one a "
+        "night. One of the three nights has to be a stranger actually doing "
+        "something, so make the ask concrete enough that doing it leaves a "
+        "trace you can screenshot."
     ),
 }
 
