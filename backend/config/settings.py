@@ -61,6 +61,12 @@ AUTH_USER_MODEL = "accounts.User"
 MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
+    # Above whitenoise and everything below it, because a request that did not
+    # come through our edge should cost this process a string compare and
+    # nothing else — no static file read, no session load, no database. Below
+    # SecurityMiddleware so an http:// caller still gets the redirect it would
+    # have got before, rather than learning about this gate instead.
+    "accounts.middleware.EdgeSecretMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -209,33 +215,52 @@ if RENDER_HOST:
 #      something the client never sent, which is what a per-request Vercel
 #      egress address in the joined header would do.
 #
-# WHY NO NUMBER IS SET HERE ANYWAY. `get_ident` with this set returns
-# `xff.split(',')[-n]`, so `n` has to be the count of proxies that append,
-# and this deployment does not have one count:
+# WHY THERE WAS NO NUMBER TO SET. `get_ident` with this set returns
+# `xff.split(',')[-n]`, so `n` has to be the count of proxies that append, and
+# for as long as the run.app host answered anonymous requests this deployment
+# had two counts rather than one:
 #
-#   * Browsers arrive browser → Vercel → Cloud Run → Django.
-#   * The Cloud Run URL is ALSO publicly reachable (its /api/health/ answers
-#     200 to a direct request), so an attacker can simply choose the shorter
-#     chain — and an attacker is the only caller who gets to pick.
+#   * Browsers arrive browser → Vercel → Cloud Run → Django.      (2 append)
+#   * The Cloud Run URL was ALSO publicly reachable, so an attacker could
+#     choose the shorter chain — and an attacker is the only caller who
+#     gets to pick.                                               (1 appends)
 #
-# Set it to 1 and the direct path is fixed while the Vercel path keys on
-# Vercel's egress address; set it to 2 and the Vercel path is fixed only if
-# Vercel overwrites a client-supplied `X-Forwarded-For` rather than prepending
-# to it — which cannot be observed from outside, because measurement 4 says
-# that key is already varying for reasons of its own. Too high re-opens the
-# forgery; too low puts every visitor behind the proxy in one bucket, where one
-# attacker refuses everybody. A guess here is worse than the honest gap.
+# Set it to 1 and the direct path was fixed while the Vercel path keyed on
+# Vercel's egress address; set it to 2 and the direct path stayed forgeable.
+# Too high re-opens the forgery; too low puts every visitor behind the proxy in
+# one bucket, where one attacker refuses everybody. A guess was worse than the
+# honest gap, which is why this stayed unset through #255.
 #
-# WHAT WOULD SETTLE IT: the raw header from one real browser request through
-# masterji.mscsoftwares.in. Set LOG_FORWARDED_HEADERS=1 below, load any page,
-# read the one line accounts.middleware.ForwardedHeaderLogMiddleware writes,
-# count the addresses the proxies appended, set DRF_NUM_PROXIES to that, and
-# turn the logging back off. Then re-run measurement 3 above and confirm the
-# rotating header no longer buys a fresh bucket. Whoever does that should also
-# decide whether the run.app host stays publicly reachable, because while it
-# does, the number that is right for one path is wrong for the other.
+# WHAT CHANGED. EDGE_SHARED_SECRET below closes the second door: with it set,
+# accounts.middleware.EdgeSecretMiddleware refuses anything that did not come
+# through our own edge, so every request that now reaches a throttled endpoint
+# has crossed the same chain (#317). The count is a measurement again.
+#
+# WHAT IS STILL LEFT, and it is one page load. Set LOG_FORWARDED_HEADERS=1
+# below, load any page through masterji.mscsoftwares.in, read the one line
+# accounts.middleware.ForwardedHeaderLogMiddleware writes, count the addresses
+# the proxies appended, set DRF_NUM_PROXIES to that, and turn the logging back
+# off. Then re-run measurement 3 above and confirm the rotating header no
+# longer buys a fresh bucket. DEPLOY-cloudrun.md §8 is the same procedure with
+# the commands filled in.
 _num_proxies = os.environ.get("DRF_NUM_PROXIES", "").strip()
 DRF_NUM_PROXIES = int(_num_proxies) if _num_proxies else None
+
+# The secret that tells our own edge apart from the open internet, and so the
+# thing that makes DRF_NUM_PROXIES above a measurement rather than a guess.
+# Vercel's proxy.ts attaches it to everything it forwards; this process refuses
+# anything else. accounts.middleware.EdgeSecretMiddleware is the whole of it,
+# and its docstring is the argument.
+#
+# Empty is inert, deliberately: local development, this test suite, and any
+# deployment that has not adopted it are all unaffected — and none of them has
+# a second door to close either. Once it IS set, it is required; there is no
+# middle state where a missing header is waved through.
+#
+# Set it on Cloud Run and in Vercel's environment TOGETHER — see
+# DEPLOY-cloudrun.md §8, which gives the order that has no window in which one
+# side has rotated and the other has not.
+EDGE_SHARED_SECRET = os.environ.get("EDGE_SHARED_SECRET", "")
 
 REST_FRAMEWORK = {
     "DEFAULT_RENDERER_CLASSES": ["rest_framework.renderers.JSONRenderer"],

@@ -39,7 +39,7 @@ from coach.models import (
 )
 
 from . import erasure, middleware, oauth
-from .middleware import KEY_PREFIX, ForwardedHeaderLogMiddleware
+from .middleware import EDGE_HEADER, KEY_PREFIX, ForwardedHeaderLogMiddleware
 from .models import PushSubscription, User
 from .views import ThrottledTokenObtainPairView
 
@@ -1033,3 +1033,95 @@ class ForwardedHeaderLoggingTests(SimpleTestCase):
 
     def test_the_default_is_off(self):
         self.assertFalse(settings.LOG_FORWARDED_HEADERS)
+
+
+SECRET = "edge-secret-for-the-suite"
+
+
+@override_settings(EDGE_SHARED_SECRET=SECRET, DEBUG=False)
+class EdgeSecretTests(TestCase):
+    """The door that had to close before `NUM_PROXIES` could be one number.
+
+    The finding these guard (#317) is that the Cloud Run host answered the open
+    internet directly, so this process had two front doors with different proxy
+    counts in front of them and an attacker picked the shorter. The tests are
+    about the gate refusing, not about what is behind it — the endpoint used is
+    a cheap public read for that reason.
+    """
+
+    URL = "/api/coach/changelog/"
+
+    def test_absent_header_is_refused(self):
+        self.assertEqual(self.client.get(self.URL).status_code, 403)
+
+    def test_wrong_header_is_refused(self):
+        res = self.client.get(self.URL, headers={EDGE_HEADER: "not-it"})
+        self.assertEqual(res.status_code, 403)
+
+    def test_empty_header_is_refused(self):
+        """Separately from absent, because an empty string is what a
+        misconfigured edge sends and `compare_digest("", "")` would wave it
+        through if the secret were ever empty too."""
+        res = self.client.get(self.URL, headers={EDGE_HEADER: ""})
+        self.assertEqual(res.status_code, 403)
+
+    def test_the_right_header_passes(self):
+        res = self.client.get(self.URL, headers={EDGE_HEADER: SECRET})
+        self.assertEqual(res.status_code, 200)
+
+    def test_absent_and_wrong_answer_identically(self):
+        """A 403 that distinguished them would tell a caller whether they had
+        found the header's name, which is the first half of finding its
+        value."""
+        absent = self.client.get(self.URL)
+        wrong = self.client.get(self.URL, headers={EDGE_HEADER: "not-it"})
+        self.assertEqual(absent.status_code, wrong.status_code)
+        self.assertEqual(absent.content, wrong.content)
+
+    @override_settings(EDGE_SHARED_SECRET="")
+    def test_unset_is_inert(self):
+        """Local development, this suite, and any deployment that has not
+        adopted the secret. None of them has the second door either."""
+        self.assertEqual(self.client.get(self.URL).status_code, 200)
+
+    @override_settings(DEBUG=True)
+    def test_off_under_debug(self):
+        self.assertEqual(self.client.get(self.URL).status_code, 200)
+
+    def test_health_is_exempt(self):
+        """The deploy check, the keep-warm ping and proxy.ts's wake probe all
+        reach this service directly by design."""
+        self.assertEqual(self.client.get("/api/health/").status_code, 200)
+
+    @override_settings(NUDGE_TOKEN="test-nudge-token")
+    def test_the_hourly_tick_is_exempt(self):
+        """`.github/workflows/checks.yml` POSTs this from a GitHub runner, not
+        through Vercel, and it already carries its own secret. A gate in front
+        of it would stop every evening nudge in the product the first time
+        somebody rotated one secret and not the other."""
+        res = self.client.post(
+            "/api/coach/nudges/run/", headers={"X-Nudge-Token": "test-nudge-token"}
+        )
+        self.assertEqual(res.status_code, 200)
+
+    @override_settings(NUDGE_TOKEN="test-nudge-token")
+    def test_the_exempt_tick_still_checks_its_own_secret(self):
+        """The exemption is from THIS gate, not from authentication. Stated as
+        a test because "exempt" is the word that invites the wrong reading."""
+        res = self.client.post(
+            "/api/coach/nudges/run/", headers={"X-Nudge-Token": "wrong"}
+        )
+        self.assertEqual(res.status_code, 401)
+
+    def test_the_gate_is_in_front_of_the_admin_too(self):
+        """`/admin/` is proxied onto the primary domain by next.config.ts, so
+        it crosses the same edge — and it is the surface holding the one
+        password that opens every builder's record."""
+        self.assertEqual(self.client.get("/admin/login/").status_code, 403)
+
+
+class EdgeSecretDefaultTests(SimpleTestCase):
+    def test_the_default_is_unset(self):
+        """Outside the class above, which sets one. The gate ships off and is
+        switched on by the deployment that has a door to close."""
+        self.assertEqual(settings.EDGE_SHARED_SECRET, "")
