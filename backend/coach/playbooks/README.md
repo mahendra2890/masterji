@@ -33,7 +33,15 @@ decision back where it belongs rather than leaving the promise behind.
    understood.
 3. **They credit the source by name** in the playbook's header line.
    Borrowed authority is fine; hidden authority is not.
-4. **They wire it to a phase** in `PLAYBOOKS_BY_PHASE`. A playbook that
+4. **Or the header says the method is ours** — `Masterji's own — no
+   external source` — and then it must **name what in the product it
+   encodes**: the gate, the rule or the refusal it is the reasoning for.
+   Credited and original are both honest; the state the rule exists to
+   forbid is the third one, where a borrowed method arrives with nobody's
+   name on it. Without this line an original file is indistinguishable
+   from a quiet borrowing, and pointing at a gate is what stops the
+   marker becoming a self-exemption any unsourced file can claim.
+5. **They wire it to a phase** in `PLAYBOOKS_BY_PHASE`. A playbook that
    applies to every phase applies to none — pick the moment the advice
    is supposed to interrupt.
 
