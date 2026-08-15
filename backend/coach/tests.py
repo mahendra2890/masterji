@@ -10193,6 +10193,15 @@ class ModelSpendLedgerTests(TestCase):
             set(ModelCall.Kind.values),
         )
 
+    def test_the_sources_the_seam_names_are_the_sources_the_model_stores(self):
+        """Same trap as the kinds, one column over — and worse here, because
+        `choices` are not enforced on write: a name that drifted would insert
+        happily and leave a pointer nothing can filter on."""
+        from . import spend
+        from .models import ModelCall
+
+        self.assertEqual(set(spend.SOURCES), set(ModelCall.Source.values))
+
     def test_the_ledger_has_no_default_ordering(self):
         """Meta.ordering joins the GROUP BY on .values(), which would split a
         per-user total into one row per call — on the one table in this project
@@ -10329,3 +10338,206 @@ class ModelSpendAttributionTests(APITestCase):
         LlmBudgetMiddleware(view)(RequestFactory().get("/"))
         self.assertIsNotNone(seen["actor"])
         self.assertEqual(seen["actor"].path, "/")
+
+
+class ModelSpendCauseTests(APITestCase):
+    """Which turn caused it.
+
+    `kind` says what the seam did and `user` says whose turn it was; neither
+    says which row. The pointer is a table name and an id rather than a foreign
+    key, so nothing in the database checks it — which makes these tests the
+    only thing standing between a correct pointer and a plausible one.
+    """
+
+    def setUp(self):
+        from . import llm
+
+        cache.clear()
+        llm.clear_actor()
+        llm.clear_source()
+        self.addCleanup(llm.clear_actor)
+        self.addCleanup(llm.clear_source)
+
+    def _complete(self, content="ok"):
+        """One real trip through the seam, with only the provider stubbed."""
+        from . import llm
+
+        message = mock.Mock()
+        message.content = content
+        response = mock.Mock(
+            choices=[mock.Mock(message=message)], usage=_tokens(3, 1, 4)
+        )
+        with (
+            mock.patch("coach.llm.tracer.start_span", return_value=mock.Mock()),
+            mock.patch("coach.llm.litellm.completion", return_value=response),
+        ):
+            return llm.complete("system", "user")
+
+    # --- the null case, which is a real state --------------------------------
+
+    def test_a_call_with_nothing_behind_it_still_writes_a_row(self):
+        """The nudge cron, a management command and a shell reach the seam with
+        no request and no causing row. That spend is the operator's own and
+        still counts, so the row is written and the pointer is null — pinned
+        rather than assumed, because a null is also what a bug looks like."""
+        from .models import ModelCall
+
+        self.assertEqual(self._complete(), "ok")
+        row = ModelCall.objects.get()
+        self.assertIsNone(row.source)
+        self.assertIsNone(row.source_id)
+        self.assertIsNone(row.user_id)
+        # The money was still spent, so the operator's total must still hold it.
+        self.assertEqual(row.total_tokens, 4)
+
+    # --- the pointer itself --------------------------------------------------
+
+    def test_a_call_inside_a_turn_names_the_row_that_caused_it(self):
+        from . import llm
+        from .models import ModelCall
+
+        with llm.attributing(ModelCall.Source.CHECKIN, 7):
+            self._complete()
+        row = ModelCall.objects.get()
+        self.assertEqual(row.source, ModelCall.Source.CHECKIN)
+        self.assertEqual(row.source_id, 7)
+
+    def test_the_pointer_does_not_outlive_the_turn(self):
+        """The reason this is scoped where the actor is not. A stale actor is
+        at worst the wrong user; a stale source is a lie about causation, and
+        it looks exactly like a correct answer."""
+        from . import llm
+        from .models import ModelCall
+
+        with llm.attributing(ModelCall.Source.MESSAGE, 3):
+            self._complete()
+        self._complete()
+        after = ModelCall.objects.order_by("id").last()
+        self.assertIsNone(after.source)
+        self.assertIsNone(after.source_id)
+
+    def test_a_failed_turn_still_lets_go_of_its_pointer(self):
+        """`finally`, not the end of the block: a judge call that raises must
+        not leave the next call on this thread charged to its check-in."""
+        from . import llm
+        from .models import ModelCall
+
+        with self.assertRaises(RuntimeError):
+            with llm.attributing(ModelCall.Source.CHECKIN, 11):
+                raise RuntimeError("the provider hung up")
+        self._complete()
+        self.assertIsNone(ModelCall.objects.get().source)
+
+    # --- what an unreadable pointer costs, and what it must not --------------
+
+    def test_a_source_the_ledger_does_not_know_costs_the_pointer_not_the_row(self):
+        """`choices` are not enforced on write, so a drifted name would insert
+        and leave a column nothing can filter on. It is dropped instead — and
+        the row, which is the part that cost money, is still written."""
+        from . import llm
+        from .models import ModelCall
+
+        with llm.attributing("PROOF_ATTEMPT", 4):
+            self.assertEqual(self._complete(), "ok")
+        row = ModelCall.objects.get()
+        self.assertIsNone(row.source)
+        self.assertIsNone(row.source_id)
+        self.assertEqual(row.total_tokens, 4)
+
+    def test_half_a_pointer_is_no_pointer(self):
+        """An id with no table is unreadable and a table with no id names
+        nothing, so either both survive or neither does."""
+        from . import llm
+        from .models import ModelCall
+
+        with llm.attributing(ModelCall.Source.MESSAGE, None):
+            self._complete()
+        row = ModelCall.objects.get()
+        self.assertIsNone(row.source)
+        self.assertIsNone(row.source_id)
+
+    def test_an_impossible_id_does_not_become_an_exception_on_a_turn(self):
+        """`source_id` is a PositiveIntegerField, so a negative one would raise
+        on write — and spend.record is built around never being the reason a
+        turn fails. Checked before the insert rather than caught after it, so
+        the row survives with a null pointer instead of being lost with it."""
+        from . import llm
+        from .models import ModelCall
+
+        with llm.attributing(ModelCall.Source.GOAL, -1):
+            self.assertEqual(self._complete(), "ok")
+        row = ModelCall.objects.get()
+        self.assertIsNone(row.source)
+        self.assertEqual(row.total_tokens, 4)
+
+    # --- the call sites carrying the questions the ledger was built for ------
+
+    def test_a_chat_turns_spend_points_at_the_message(self):
+        """The whole point of the contextvar: the stream is consumed after
+        every middleware has returned, so a pointer handed in as an argument
+        would have to survive a scope that has already closed."""
+        from .models import ModelCall
+
+        user = make_user("chatter")
+        self.client.force_authenticate(user)
+        Goal.objects.create(user=user, title="Tiffin app")
+
+        spoken = mock.Mock(
+            choices=[
+                mock.Mock(delta=mock.Mock(content="Kaam dikhao.", tool_calls=None))
+            ],
+            usage=None,
+        )
+        final = mock.Mock(choices=[], usage=_tokens(120, 8, 128))
+        with (
+            mock.patch("coach.llm.tracer.start_span", return_value=mock.Mock()),
+            mock.patch(
+                "coach.llm.litellm.completion", return_value=iter([spoken, final])
+            ),
+        ):
+            response = self.client.post(
+                "/api/coach/chat/", {"content": "which stack?"}
+            )
+            b"".join(response.streaming_content)
+
+        turn = Message.objects.get(role=Message.Role.USER)
+        row = ModelCall.objects.get()
+        self.assertEqual(row.kind, ModelCall.Kind.CHAT)
+        self.assertEqual(row.source, ModelCall.Source.MESSAGE)
+        self.assertEqual(row.source_id, turn.id)
+        self.assertEqual(row.user_id, user.id)
+
+    def test_a_judge_calls_spend_points_at_the_checkin(self):
+        """The judge calls carry the large prompts, and they are exactly the
+        ones a foreign key to Message could never have seen."""
+        from .models import ModelCall
+
+        user = make_user("judged")
+        self.client.force_authenticate(user)
+        goal = Goal.objects.create(user=user, title="Tiffin app")
+        checkin = CheckIn.objects.create(
+            goal=goal,
+            date=date.today(),
+            phase=goal.phase,
+            am_declaration="Talk to three canteen owners.",
+        )
+        message = mock.Mock()
+        message.content = (
+            '{"fit": "on_phase", "reaction": "Good.", "proof_ask": "Names."}'
+        )
+        with (
+            mock.patch("coach.llm.tracer.start_span", return_value=mock.Mock()),
+            mock.patch(
+                "coach.llm.litellm.completion",
+                return_value=mock.Mock(
+                    choices=[mock.Mock(message=message)], usage=_tokens(900, 40, 940)
+                ),
+            ),
+        ):
+            response = self.client.post(f"/api/coach/checkins/{checkin.pk}/judge/")
+
+        self.assertEqual(response.status_code, 200)
+        row = ModelCall.objects.get()
+        self.assertEqual(row.source, ModelCall.Source.CHECKIN)
+        self.assertEqual(row.source_id, checkin.id)
+        self.assertEqual(row.user_id, user.id)
