@@ -179,7 +179,7 @@ const SLIDES: Slide[] = [
               <p className={app.workshopTitle}>
                 Not sure yet? Think it through with him.
               </p>
-              <p className={app.workshopTurns}>15 of 15 turns left</p>
+              <p className={app.workshopTurns}>20 of 20 turns left</p>
             </div>
             <div className={app.openers}>
               <p className={app.openersLabel}>Start with:</p>
@@ -264,10 +264,13 @@ const SLIDES: Slide[] = [
         it.
       </>,
       <>
-        <strong>No idea yet? The workshop is under the box.</strong> Fifteen
+        <strong>No idea yet? The workshop is under the box.</strong> Twenty
         turns with him before you commit — he walks your own week for problems,
-        parks at most three, then makes you choose. It banks nothing, and when
-        the turns are gone the only door left is Commit.
+        parks at most three, makes you choose, and then works the winner through
+        the four things IDEA will ask you for. Those four stand on the left the
+        whole time, filling in as you answer them. It banks nothing and refuses
+        nothing: Commit works from the first turn, and when the turns are gone
+        it is the only door left.
       </>,
       <>
         You start in <strong>IDEA</strong> at <strong>0/1</strong>, whatever

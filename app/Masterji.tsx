@@ -25,7 +25,7 @@ import {
   missingPieces,
   notesRunning as isNotesRunning,
 } from "@/lib/day";
-import { gateKey, isEarned } from "@/lib/gate";
+import { commitIsLoud, gateKey, isEarned } from "@/lib/gate";
 import { pinLog } from "@/lib/log-pin";
 import { saidBefore } from "@/lib/messages";
 import {
@@ -764,8 +764,8 @@ export default function Masterji({ user }: { user: SessionUser }) {
   }, [state?.messages.length, streamingText, pane]);
 
   // The same pin for the room's log, which never had one. That log is a 320px
-  // window (.workshopLog) on a conversation the server lets run to fifteen
-  // turns, so at rest it opened on the OLDEST three: a builder reopening the tab
+  // window (.workshopLog) on a conversation the server lets run to WORKSHOP_TURNS
+  // turns (twenty, and it has moved once), so at rest it opened on the OLDEST three: a builder reopening the tab
   // was shown "I don't have an idea yet." as the most recent thing said, with
   // the tiebreak they came back for nearly three screens down inside it — and
   // the tiebreak is the room's whole output, the thing `suggest_goal` is
@@ -1472,6 +1472,16 @@ export default function Masterji({ user }: { user: SessionUser }) {
     // shape, and this screen was holding all of it in one 520px stack with a
     // 320px window cut in the middle of it.
     const roomOpen = !!(ws?.messages.length || wsPending !== null);
+    // The soft gate, decided in one place and read in two: the Commit button's
+    // weight and the scaffold's. Not a permission — see commitIsLoud, which
+    // holds the whole four-row table and the dead end at the bottom of it.
+    const commitLoud = commitIsLoud({
+      roomOpen,
+      turnsLeft: roomTurnsLeft,
+      have: ws?.sketch.have ?? 0,
+      need: ws?.sketch.need ?? 0,
+    });
+    const sketchFull = !!ws && ws.sketch.need > 0 && ws.sketch.have >= ws.sketch.need;
     return (
       <main className={styles.onboarding} data-room={roomOpen ? "open" : "shut"}>
         {/* The commit side. Sticky at the top of its column so that every
@@ -1583,7 +1593,16 @@ export default function Masterji({ user }: { user: SessionUser }) {
             onChange={(e) => setGoalTitle(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && onCreateGoal()}
           />
-          <button className={styles.primaryBtn} disabled={busy} onClick={onCreateGoal}>
+          {/* Weight, never permission: `disabled` is still `busy` alone, and
+              this press does the same thing at nought of four as at four of
+              four. See commitIsLoud — including the row that matters most,
+              which is that a spent room gets the filled button back, because by
+              then the composer is gone and the closing copy points here. */}
+          <button
+            className={commitLoud ? styles.primaryBtn : styles.secondaryBtn}
+            disabled={busy}
+            onClick={onCreateGoal}
+          >
             Commit
           </button>
         </div>
@@ -1732,32 +1751,67 @@ export default function Masterji({ user }: { user: SessionUser }) {
           </div>
         )}
 
-        {/* What committing would cost, in IDEA's own four parts. Under the
-            cards because it is about the candidate they are circling, and a
-            readout rather than a control: every number in it was counted by
-            the server off what the coach extracted, the same transfer bar.py
-            makes one screen later.
+        {/* What this room is FOR, standing on screen the whole time it is open:
+            the four things IDEA will ask for, and which of them the
+            conversation has turned up. Under the cards because the pile is what
+            you pick from and this is what sharpening the pick produces. Still a
+            readout — every fact in it was counted by the server off what the
+            coach extracted, the labels included, because bar.py owns IDEA's
+            wording and the evening is judged against that same list.
 
-            Only once something has surfaced. The turn meter in the room's
-            header is on screen from turn zero because it is a budget being
-            spent and a hard end nobody warned you about is a trapdoor; this is
-            the opposite quantity — progress accruing — and "0 of 4" over an
-            empty room is a checklist a builder is failing before they have
-            said anything. It appears when the first piece lands.
+            From the room's turn zero, which is the change here. It used to
+            appear only once a part had landed, and the comment defending that
+            was about not showing "0 of 4" to somebody who had not spoken yet.
+            That concern was real and it was answered by hiding the wrong thing:
+            what made the old block bad was the COUNTER — a score you are losing
+            before you have said anything. Four named questions are not a score,
+            they are the agenda, and a room whose agenda is invisible until you
+            accidentally satisfy part of it is the room a builder spent nine of
+            fifteen turns in without learning it had a shape.
 
-            It never gates. Commit stays the only filled control on the screen
-            and works at 0 of 4 exactly as it does at 4. */}
-        {ws && ws.sketch.have > 0 && (
-          <div className={styles.sketch}>
-            <p className={styles.sketchCount}>
-              You could already write {ws.sketch.have} of the{" "}
-              {ws.sketch.need} pieces IDEA asks for.
+            Still scoped to an opened room. The screen somebody lands on the
+            moment they finish signing up is tuned against a real first
+            impression (masterji.module.css says so at the top), and four
+            questions about a candidate that does not exist yet are noise on it.
+
+            It never gates, and that has NOT changed: committing at nought of
+            four works exactly as it does at four of four, nothing here is
+            disabled, and no server-side check was added. What changed is the
+            second half of the old sentence — Commit is no longer the only
+            filled control on the screen while the conversation is unfinished.
+            The scaffold is the loudest thing in this column until the four are
+            full, and the volume rule is commitIsLoud in lib/gate.ts, where the
+            state it depends on can be stated and tested. The screen carries the
+            opinion; the server and the coach still carry none. */}
+        {ws && roomOpen && ws.sketch.asks.length > 0 && (
+          <div className={styles.sketch} data-full={sketchFull ? "yes" : "no"}>
+            <p className={styles.sketchLabel}>
+              {sketchFull
+                ? "All four. Your first evening's proof is already in this conversation."
+                : "What IDEA will ask you for"}
             </p>
-            <p className={styles.sketchOwed}>
-              {ws.sketch.owed.length > 0
-                ? `Still open: ${ws.sketch.owed.join("; ")}.`
-                : "All four. The first evening's proof is already in this conversation."}
-            </p>
+            <ul className={styles.sketchList}>
+              {ws.sketch.asks.map((ask) => (
+                <li
+                  key={ask.key}
+                  className={ask.have ? styles.sketchHave : styles.sketchOpen}
+                >
+                  {/* The words carry the state, not the glyph. Two rows whose
+                      text is identical in both states would be told apart only
+                      by a tick, and a reader that skips decoration would hear
+                      four answered questions where four are open. */}
+                  <span className={styles.sketchMark} aria-hidden="true">
+                    {ask.have ? "✓" : "○"}
+                  </span>
+                  <span>
+                    <span className={styles.sketchState}>
+                      {ask.have ? "Told him: " : "Still open: "}
+                    </span>
+                    {ask.label}
+                  </span>
+                </li>
+              ))}
+            </ul>
           </div>
         )}
       </div>

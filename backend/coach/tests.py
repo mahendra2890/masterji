@@ -7250,7 +7250,10 @@ class WorkshopTests(CoachTestCase):
         # The authority is the credited corpus, not the model's pretraining —
         # the reason a choosing-an-idea playbook was written at all (#74).
         self.assertIn(prompts._playbook("choosing-an-idea"), text)
-        self.assertIn("2 of 15 left", text)
+        # Derived, not typed: this asserts the prompt's meter is the server's
+        # own subtraction, and a literal here would have to be edited every
+        # time the cap moves — which it just did, from 15 to 20.
+        self.assertIn(f"{views.WORKSHOP_TURNS - 13} of {views.WORKSHOP_TURNS} left", text)
         self.assertIn('"one"', text)
 
     def test_the_week_walk_is_conditioned_not_mandated(self):
@@ -10792,3 +10795,171 @@ class SharpenedDeclarationTests(CoachTestCase):
         rule = text.split("- sharpened is the fix")[1]
         self.assertIn("Never swap their task for a better one", rule)
         self.assertIn("if the reaction is empty, this is empty too", rule)
+
+
+class WorkshopRefinesTheIdeaTests(CoachTestCase):
+    """The room drives at all four of IDEA's parts instead of stopping at one
+    candidate — and still refuses nothing.
+
+    Those two facts are the whole change and they pull against each other, so
+    both are pinned here. The prompt is what drives; the screen is what carries
+    the opinion about being unfinished (lib/gate.ts, gate.test.ts); the server
+    gained no check at all, which is the assertion that must not quietly stop
+    being true.
+    """
+
+    URL = "/api/coach/workshop/chat/"
+    PARTS = {
+        "problem": "hostellers miss dinner when labs run late",
+        "place": "the Block C mess queue at 21:15",
+        "why_there": "I have stood in it every Tuesday this term",
+        "first_conversation": "ask the two people behind me what they ate",
+    }
+
+    def prompt(self, sketch=None, turns_used=0):
+        return prompts.build_workshop_prompt(
+            candidates=[],
+            turns_used=turns_used,
+            turns_total=views.WORKSHOP_TURNS,
+            maximum=Workshop.MAX_CANDIDATES,
+            tone="ENGLISH",
+            sketch=sketch,
+        )
+
+    def say(self, content="I have no idea what to build", stream=None):
+        stream = stream if stream is not None else [("delta", "What did you do Tuesday?")]
+        with mock.patch("coach.views.llm.stream_chat", return_value=iter(stream)):
+            response = self.client.post(self.URL, {"content": content})
+            b"".join(response.streaming_content)
+        return response
+
+    # --- what the room is now for ---------------------------------------------
+
+    def test_the_job_is_choosing_and_then_sharpening(self):
+        """The old job statement ended at "out the door... no bar to clear in
+        here", which is why a nine-turn session produced no parts at all."""
+        text = self.prompt()
+        job = text.split("YOUR JOB IN THIS ROOM:")[1].split("\n\n")[0]
+        self.assertIn("all four", job.lower())
+        self.assertNotIn("there is no bar to clear", job)
+
+    def test_two_of_four_is_no_longer_offered_as_a_good_place_to_commit(self):
+        """The sentence that made the count not matter. It said "never hold the
+        door shut until all four are full: two of four is a good place to commit
+        from", which told the coach to stop asking."""
+        text = self.prompt()
+        self.assertNotIn("two of four is a good place to commit from", text)
+        self.assertIn("ALL FOUR is what you are driving at", text)
+
+    def test_the_room_still_refuses_nothing_and_says_so_twice(self):
+        """The half that must survive the reversal. A room with nothing to earn
+        in it is the room a stuck builder is in, and the failure mode of gating
+        it is that they leave."""
+        text = self.prompt()
+        self.assertIn("still never a gate", text)
+        self.assertIn("you never tell them they are not ready", text)
+        # And the specific thing the coach must not invent now that four is the
+        # target: a number of parts required before committing.
+        self.assertIn("you never say a number of parts is required", text)
+
+    def test_an_empty_sketch_is_no_longer_something_to_keep_quiet_about(self):
+        """SKETCH_EMPTY used to end "not a thing to report to them", which is the
+        opposite of a room whose agenda is on the screen."""
+        text = self.prompt(sketch=[])
+        self.assertNotIn("not a thing to report to them", text)
+        self.assertIn("the four questions are on their screen already", text)
+
+    # --- the scaffold the screen stands up ------------------------------------
+
+    def test_the_payload_carries_the_four_questions_from_turn_zero(self):
+        """The screen shows the agenda before anything has landed, so the
+        payload has to describe all four parts on an empty room — not only the
+        ones still owed."""
+        self.say()
+        sketch = self.client.get("/api/coach/state/").json()["workshop"]["sketch"]
+        self.assertEqual(len(sketch["asks"]), 4)
+        self.assertEqual(sketch["have"], 0)
+        self.assertEqual([a["have"] for a in sketch["asks"]], [False] * 4)
+
+    def test_the_questions_are_bars_own_wording_in_bars_own_order(self):
+        """Not a second copy on the client. IDEA's four questions are read here
+        first and judged against the same list on the evening they are proved,
+        so one wording or they drift."""
+        self.say()
+        sketch = self.client.get("/api/coach/state/").json()["workshop"]["sketch"]
+        self.assertEqual(
+            [a["key"] for a in sketch["asks"]],
+            [p.key for p in bar.BAR[Phase.IDEA].parts],
+        )
+        self.assertEqual(
+            [a["label"] for a in sketch["asks"]],
+            [p.label for p in bar.BAR[Phase.IDEA].parts],
+        )
+
+    def test_parts_flip_as_the_conversation_turns_them_up(self):
+        self.say(
+            stream=[
+                ("delta", "Good — who exactly?"),
+                ("tool_call", {"name": "sketch_idea_bar", "arguments": {
+                    "problem": self.PARTS["problem"], "place": self.PARTS["place"]}}),
+            ]
+        )
+        sketch = self.client.get("/api/coach/state/").json()["workshop"]["sketch"]
+        landed = {a["key"]: a["have"] for a in sketch["asks"]}
+        self.assertEqual(landed["problem"], True)
+        self.assertEqual(landed["place"], True)
+        self.assertEqual(landed["why_there"], False)
+        self.assertEqual(landed["first_conversation"], False)
+        self.assertEqual(sketch["have"], 2)
+
+    def test_the_count_and_the_list_can_never_disagree(self):
+        """Two shapes of one fact, both computed here. `have` is what the meter
+        reads and `asks` is what the list renders, and a screen showing three
+        ticks over "2 of 4" is the drift this being server-side prevents."""
+        for parts in ([], ["problem"], ["problem", "place", "why_there"], list(self.PARTS)):
+            payload = views._sketch_payload(parts)
+            self.assertEqual(payload["have"], sum(a["have"] for a in payload["asks"]))
+            self.assertEqual(
+                payload["need"], len(payload["asks"]), "need is the whole bar"
+            )
+            self.assertEqual(
+                len(payload["owed"]),
+                sum(not a["have"] for a in payload["asks"]),
+            )
+
+    # --- the thing that must NOT have happened --------------------------------
+
+    def test_committing_at_nought_of_four_is_not_refused(self):
+        """The soft gate is a style on the screen. If it ever reaches the server
+        this test is what says so — a builder who wants out at 0 of 4 gets the
+        same goal as one who filled all four."""
+        self.say()
+        response = self.client.post(
+            "/api/coach/goals/", {"title": "Tiffin app for hostel messes"}
+        )
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(Goal.objects.get().title, "Tiffin app for hostel messes")
+
+    def test_committing_at_four_of_four_takes_the_same_route(self):
+        self.say(
+            stream=[
+                ("delta", "That's all four."),
+                ("tool_call", {"name": "sketch_idea_bar", "arguments": self.PARTS}),
+            ]
+        )
+        sketch = self.client.get("/api/coach/state/").json()["workshop"]["sketch"]
+        self.assertEqual(sketch["have"], 4)
+        self.assertEqual(sketch["owed"], [])
+        response = self.client.post("/api/coach/goals/", {"title": "Tiffin app"})
+        self.assertEqual(response.status_code, 201)
+
+    # --- the budget ------------------------------------------------------------
+
+    def test_the_budget_moved_and_the_room_is_still_metered(self):
+        """The number is derived in WORKSHOP_TURNS' own comment and is the one
+        judgement call in this change. What must stay true is that it is a
+        meter: bounded, and smaller is still smaller."""
+        self.assertEqual(views.WORKSHOP_TURNS, 20)
+        self.assertLess(views.REOPENED_TURNS, views.WORKSHOP_TURNS)
+        payload = self.client.get("/api/coach/state/").json()
+        self.assertEqual(payload["workshop_turns"], views.WORKSHOP_TURNS)

@@ -2112,9 +2112,13 @@ no phase. There is no daily loop here and nothing to prove tonight.
 
 {tone_rule}
 
-YOUR JOB IN THIS ROOM: get them to ONE problem they could commit to, and out \
-the door. Not the best possible idea — a testable one. You are not grading \
-this conversation and there is no bar to clear in here.
+YOUR JOB IN THIS ROOM: get them to ONE problem they could commit to, and then \
+make that problem specific enough to act on — all four of the parts below, \
+turned up in conversation. Not the best possible idea: a testable one, \
+described well enough that their first evening is spent doing the work rather \
+than working out what the work is. Choosing is the first half and it is not \
+the whole job. You are still not grading this conversation and there is still \
+nothing to refuse in here.
 
 - Lead with questions, one at a time. Think out loud, name the trade-off you \
 see, say which way you'd lean and why, and let them disagree.
@@ -2177,13 +2181,25 @@ actually said: this is not a form for you to fill in on their behalf.
 
 {sketch_state}
 
-It is a forecast and it is never a gate. Nothing here is banked and nothing is \
-owed tonight — after they commit, IDEA's proof is still theirs to file and \
-still judged, against these same four parts. So never hold the door shut until \
-all four are full: two of four is a good place to commit from, and a builder \
-who can write none of them yet is exactly who the questions are for. How many \
-of the four are there is the server's arithmetic over what you sent — do not \
-put that number in your reply.
+ALL FOUR is what you are driving at, and it is still never a gate. Those are \
+two different sentences and this room needs both of them at once.
+
+Driving at four: the parts are the agenda of this conversation, not a footnote \
+to it. Work the open ones one at a time, in the order they come up naturally, \
+and keep going until they are full or the turns run out. A builder who can \
+write none of them yet is exactly who the questions are for.
+
+Never a gate: nothing here is banked and nothing is owed tonight, and after \
+they commit IDEA's proof is still theirs to file and still judged, against \
+these same four parts. So you never hold the door shut, you never tell them \
+they are not ready, and you never say a number of parts is required before \
+they may commit — because none is. If they want to commit at two of four, that \
+is theirs to do and the box has been on the screen the whole time. What you do \
+NOT do is stop asking because they could leave; the questions are the reason \
+they are in here.
+
+How many of the four are there is the server's arithmetic over what you sent — \
+do not put that number in your reply.
 
 What you send here is also the ONE thing that crosses the commit line. It is \
 carried onto their goal, so their first morning starts from what they already \
@@ -2437,8 +2453,10 @@ def sketch_idea_bar_tool() -> dict:
 # one: "you have two of four" and "the two still open are these" are different
 # facts, and only the second one tells the coach what to ask next.
 SKETCH_EMPTY = (
-    "Nothing of IDEA's bar has surfaced yet — 0 of {need}. That is the normal "
-    "state of a room this early and not a thing to report to them."
+    "None of IDEA's {need} parts has surfaced yet — 0 of {need}. Normal this "
+    "early and not a thing to read out to them: the four questions are on "
+    "their screen already. Get the candidate to a point where the first of "
+    "them can be asked, then ask it."
 )
 SKETCH_SOME = """Of IDEA's bar they could already write {have} of {need}: {have_labels}. \
 Still open: {owed_labels}. Ask about those, one at a time, when the candidate \
