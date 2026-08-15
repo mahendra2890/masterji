@@ -21,8 +21,13 @@ One paragraph, four things in it:
 4. **Why the workaround fails.** Too slow, too expensive, too unreliable,
    too embarrassing to ask for. This is the gap your idea is betting on.
 
-If you can't fill in all four honestly, you have an idea, not a problem
-statement. Go find the fourth thing before writing a line of code.
+Three of those are what Masterji asks for: who has it, what they do about
+it today, and why that fails. Write those three honestly or you have an
+idea, not a problem statement.
+
+The trigger is not counted, and it is still worth finding. It is the part
+that tells you whether the problem is worth acting on at all — the same
+paragraph with a moment attached and without it are two different bets.
 
 ## The route
 The paragraph says who has the problem. The route says how you get to them.
@@ -59,9 +64,10 @@ this?", no asking anyone to confirm they need it. That's VALIDATION's work
 and it starts the moment this phase unlocks.
 
 ## What counts as PROOF for Masterji
-- The one-paragraph problem statement, all four parts filled in honestly —
-  including the workaround, which builders conveniently skip because it's
-  less flattering than the "no one's solved this" story.
+- The one-paragraph problem statement — who has it, what they do about it
+  today, and why that's bad, filled in honestly. Including the workaround,
+  which builders conveniently skip because it's less flattering than the
+  "no one's solved this" story.
 - The route: the specific place, the reason you believe they're there, and
   the first conversation you'd get this week. A place you cannot get into
   is not a route.
