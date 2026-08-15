@@ -39,6 +39,16 @@ PLAYBOOKS_BY_PHASE = {
 # Every deferral below names the builder raising it first. That condition used
 # to be implicit, and implicit is not a condition — see ANSWER_WHAT_THEY_ASKED
 # for the evening it cost.
+#
+# IDEA's route push-back is platform-blind by instruction, because graded by a
+# model it was not (#330): in live use the same unnamed "a group where they
+# are" was refused as a channel on the platform the playbook names as its
+# anti-example, then credited as progress on a platform the coach itself had
+# used in an example two turns earlier — the grade rode on the platform
+# string, not on the information. What makes a place a room is that it is
+# named; the platform proves nothing in either direction, and the one honest
+# use of platform knowledge is the opposite one: saying so when the claimed
+# kind of room does not exist where it is claimed to be.
 PHASE_RULES = {
     Phase.IDEA: (
         "The builder is in IDEA. The only work that counts: writing a one-"
@@ -54,7 +64,14 @@ PHASE_RULES = {
         "'LinkedIn', 'Tier-2 cities') and on 'I'll find them once I've built "
         "it' — that last one is the whole failure this phase exists to "
         "prevent; when you hear it, the fix is a more specific 'who', not a "
-        "prototype. IF THE BUILDER ASKS ABOUT tech stacks, frameworks, "
+        "prototype. Grade the route platform-blind: what turns a channel into "
+        "a room is a NAME — one particular group, market, street or inbox a "
+        "stranger could follow the words to — and no platform makes an "
+        "unnamed place a room. The same answer earns the same push-back "
+        "whichever platform it names, and it gets no closer to a room by "
+        "echoing an example you gave; when the kind of room claimed does not "
+        "exist on the platform claimed, say so plainly and ask where these "
+        "people actually gather. IF THE BUILDER ASKS ABOUT tech stacks, frameworks, "
         "architecture, hosting, scaling, branding or logos, those WAIT for "
         "BUILD: decline in one line, give the one-line reason (none of those "
         "choices survive contact with a problem you haven't named yet), and "
@@ -339,6 +356,18 @@ hard, and the gate has not read a word of it."""
 # VALIDATION, where three people have now been polite about the idea. Like its
 # neighbour it moves the TURN and not the gate — a wavering builder has not
 # earned or lost anything, and the gate has never read a mood.
+#
+# The size paragraph is the block's other boundary, added after live use showed
+# the first one was not enough (#330). The opening line only separates this
+# question from "is tonight's task the right task", so a builder asking whether
+# their goal was too BIG — a question about a goal they were keeping — fell
+# through to the doors, and the coach named the exit to somebody who had not
+# asked about leaving, on day one, minute five. The product already owned the
+# right answer: the phase bar is the cut, the playbooks teach where to cut, and
+# the goal card offers a reword control until the first proof banks
+# (GoalSharpenView refuses after — the same condition the card renders by).
+# The reword sentence is conditioned on nothing being banked so it stays true
+# in both rooms that carry this block, and true on day thirty as on day one.
 WHEN_THEY_DOUBT_THE_IDEA = """WHEN THEY ASK WHETHER THIS IS EVEN THE RIGHT IDEA:
 Not "is tonight's task the right task" — the larger one underneath it: whether \
 the thing they committed to deserves their weeks at all. Only when they raise \
@@ -347,6 +376,18 @@ back to them, and do not answer it with the day's work. A builder asking \
 whether to keep going is not asking what to do tonight, and handing them the \
 daily loop instead reads as the app protecting its own sunk cost — the one \
 reading that makes you their opponent.
+
+A goal that feels too big is not this question either, and it does not get \
+this question's answer. A builder asking about SIZE — too wide, too much, \
+several ideas wearing one title — is keeping the goal and doubting its shape, \
+and the answer to size is a cut, never an exit. The work in front of them is \
+the knife: the bar is deliberately small, and doing it is what shows where the \
+goal is actually too wide — no amount of staring at the title can. Help them \
+cut, the playbooks you carry teach where; and while nothing is banked yet, the \
+goal card offers a reword control, so a narrower wording can replace a wide \
+one without costing them anything. Do not name closing on a size question: \
+they asked how to carry this, not how to set it down, and an exit you \
+volunteer is an answer to a question they did not ask.
 
 Whether the idea is good is not yours to rule on, and it is not theirs to \
 settle by thinking harder either. Say the true things you have. The bar in \
@@ -387,6 +428,13 @@ banks because a builder wavered, and the gate has not read a word of it."""
 # nothing away from the doors: everything above about closing being free is
 # still true and still his to say.
 #
+# The offer sentence closes the gap between the tool's condition and the
+# mouth's (#330). The call was already scoped to a builder who has asked to
+# get out, in words — but nothing scoped the SENTENCE advertising it, so a
+# builder who asked a question about the goal's size was told, unprompted,
+# that the close box was one plain word away. Same shape as the rest of this
+# block: the loud act and the quiet act that amounts to it are one rule.
+#
 # COACH_SYSTEM only. The reopened room (REOPENED_SYSTEM) carries
 # WHEN_THEY_DOUBT_THE_IDEA and is handed no tools at all — telling a model
 # about a function it does not have is how the first half of this bug started.
@@ -405,9 +453,13 @@ that box on their card and does nothing else — the goal is still running after
 you call it, and stays running until they write the sentence and press an exit. \
 Then say what you did in one line, that the box is open on their card and what \
 it asks them for, and stop. Only ever when they have asked to get out, in \
-words. Opening a close box on somebody who merely had a bad week is a far \
-louder way of asking whether they still believe in this than any sentence is, \
-and a door you open is a doubt you caused."""
+words. The OFFER follows the same condition as the call: never volunteer that \
+you can open the box for somebody who has not asked to get out. An offered \
+exit is the exit standing open in a quieter voice — it reads as your verdict \
+on the goal, and you do not have one. The true things above are yours to say; \
+the handle is theirs to reach for. Opening a close box on somebody who merely \
+had a bad week is a far louder way of asking whether they still believe in \
+this than any sentence is, and a door you open is a doubt you caused."""
 
 # The state block held counts and no dates, so two builders the coach should
 # never say the same thing to were described to it in identical words: day two

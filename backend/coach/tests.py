@@ -3910,6 +3910,28 @@ class DoubtingTheIdeaTests(CoachTestCase):
         self.assertIn("bar in front of them", block)
         self.assertNotIn("problem statement", block)
 
+    def test_the_size_question_gets_the_cut_and_not_the_doors(self):
+        """The block's other boundary (#330). Its opening line only separates
+        the quit question from "is tonight's task the right task", so a builder
+        asking whether their goal was too BIG — a question about a goal they
+        were keeping — fell through to the doors and was handed the exit,
+        unprompted, on day one. Size gets a cut; the exit is not an answer to
+        it."""
+        block = prompts.WHEN_THEY_DOUBT_THE_IDEA
+        self.assertIn("the answer to size is a cut, never an exit", block)
+        self.assertIn("Do not name closing on a size question", block)
+
+    def test_the_size_answer_knows_the_control_and_its_condition(self):
+        """The product's own answer to a too-wide goal is the reword control,
+        and the coach could not offer what the prompt never mentioned. The
+        mention must carry the control's real condition — it is offered until
+        the first proof banks (GoalSharpenView refuses after, the card hides
+        it) — so the sentence stays true on day thirty, and in the reopened
+        room, which shares this block."""
+        block = prompts.WHEN_THEY_DOUBT_THE_IDEA
+        self.assertIn("reword control", block)
+        self.assertIn("while nothing is banked yet", block)
+
 
 class ClosingIsTheirsTests(CoachTestCase):
     """A builder typed `close` twice and was told "Done. This goal is closed."
@@ -3968,6 +3990,15 @@ class ClosingIsTheirsTests(CoachTestCase):
             prompts.PROPOSE_GOAL_CLOSE_TOOL["function"]["description"],
         )
 
+    def test_the_offer_obeys_the_same_condition_as_the_call(self):
+        """The gap live use found between the tool and the mouth (#330). The
+        call was scoped to a builder who asked out in words; nothing scoped the
+        sentence advertising it, so a builder asking about the goal's size was
+        told the close box was one plain word away. The offer is the exit
+        standing open in a quieter voice, and it follows the same rule."""
+        self.assertIn("The OFFER follows the same condition", prompts.CLOSING_IS_THEIRS)
+        self.assertIn("never volunteer", prompts.CLOSING_IS_THEIRS)
+
     def test_the_reopened_room_is_not_told_about_a_tool_it_lacks(self):
         """That room is handed no tools at all, and describing propose_goal_close
         to it would be the first half of this bug again — a model told to reach
@@ -4018,6 +4049,48 @@ class ClosingIsTheirsTests(CoachTestCase):
         goal.refresh_from_db()
         self.assertEqual(goal.status, Goal.Status.ACTIVE)
         self.assertEqual(GoalRetirement.objects.filter(goal=goal).count(), 0)
+
+
+class RouteIsGradedPlatformBlindTests(CoachTestCase):
+    """The same unnamed "a group where they are" was refused as a channel on
+    one platform and credited as progress on another (#330). The playbook's
+    anti-example and the coach's own example sentence had turned into the
+    grade: the rule was being applied to the platform string, not to whether
+    a room was named.
+    """
+
+    def system_for(self, goal=None, **kwargs):
+        goal = goal or self.make_goal()
+        return prompts.build_system_prompt(
+            goal, gates.gate_status(goal), 0, "no declaration yet", "ENGLISH", **kwargs
+        )
+
+    def test_the_rule_and_its_test_are_in_ideas_phase_rules(self):
+        """One instruction, three teeth: the grade is platform-blind, an
+        answer earns nothing by echoing an example the coach gave, and
+        platform knowledge is spent the one honest way — saying so when the
+        claimed kind of room does not exist where it is claimed to be."""
+        rule = prompts.PHASE_RULES[Phase.IDEA]
+        self.assertIn("Grade the route platform-blind", rule)
+        self.assertIn("echoing an example you gave", rule)
+        self.assertIn("does not exist on the platform claimed", rule)
+
+    def test_it_reaches_the_room_where_the_grading_happens(self):
+        """PHASE_RULES[IDEA] feeds both the chat turn and the declaration
+        reaction, and the misgrading happened in chat — so the sentence has
+        to survive composition, not just exist in the dict."""
+        self.assertIn("Grade the route platform-blind", self.system_for())
+
+    def test_it_names_no_platform(self):
+        """The fix for grading by platform string must not plant new platform
+        strings to grade by: the rule stays generic or it becomes the next
+        anti-example list. The channel examples already in the rule ('Reddit',
+        'LinkedIn') predate it and are the playbook's own."""
+        start = prompts.PHASE_RULES[Phase.IDEA].index("Grade the route")
+        end = prompts.PHASE_RULES[Phase.IDEA].index("IF THE BUILDER")
+        sentence = prompts.PHASE_RULES[Phase.IDEA][start:end]
+        for platform in ("Instagram", "Telegram", "WhatsApp", "Reddit", "LinkedIn"):
+            self.assertNotIn(platform, sentence)
 
 
 class TheCoachCanSeeTheCalendarTests(CoachTestCase):
