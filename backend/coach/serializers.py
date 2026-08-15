@@ -260,11 +260,15 @@ class PhaseTransitionSerializer(serializers.ModelSerializer):
     `intent` rides along because the drill-in is the one place a builder reads a
     phase back as a whole: what they said it would produce belongs next to what
     it actually did. Read-only here — it is written by PhaseIntentView, which is
-    the one place that knows a line may only describe the open phase."""
+    the one place that knows a line may only describe the open phase.
+
+    `intent_offer` rides along beside it for the box on the card to open with,
+    and sits next to `intent` here on purpose: this is what Masterji heard, that
+    is what the builder pressed, and only one of the two is the record."""
 
     class Meta:
         model = PhaseTransition
-        fields = ["from_phase", "to_phase", "intent", "created_at"]
+        fields = ["from_phase", "to_phase", "intent", "intent_offer", "created_at"]
         read_only_fields = fields
 
 

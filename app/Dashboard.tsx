@@ -1277,6 +1277,39 @@ export default function Dashboard({
                 </button>
               ) : (
                 <div className={styles.phaseIntentBox}>
+                  {/* The line as Masterji heard them say it, when they answered
+                      the question in chat instead of here. Same bargain as the
+                      morning's task and the evening's proof: he writes it
+                      down, they press it — and it renders ABOVE the ask for
+                      the same reason those two do, because this is the answer
+                      and the label below is the question.
+
+                      Nothing is named by any of this. The button fills the
+                      input, and Save is still what posts it, through the one
+                      endpoint that has ever written a phase line.
+
+                      Inside the box branch, so a builder who has already
+                      pressed a line keeps seeing the line they pressed rather
+                      than an alternative to it — and a later draft is still
+                      reachable, because tapping that line to reword opens this
+                      same box with the newer offer above it. */}
+                  {phaseIntent.intentOffer && (
+                    <div className={styles.proofOffer}>
+                      <p className={styles.proofOfferLabel}>
+                        Masterji heard what this phase is for
+                      </p>
+                      <p className={styles.proofOfferText}>
+                        {phaseIntent.intentOffer}
+                      </p>
+                      <button
+                        type="button"
+                        className={styles.proofOfferBtn}
+                        onClick={() => setIntentDraft(phaseIntent.intentOffer)}
+                      >
+                        Use this — edit it below if it&apos;s not right
+                      </button>
+                    </div>
+                  )}
                   <label
                     className={styles.phaseIntentLabel}
                     htmlFor="phase-intent"

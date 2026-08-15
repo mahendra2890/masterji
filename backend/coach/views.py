@@ -58,6 +58,7 @@ from .models import (
     Message,
     ModelCall,
     Phase,
+    PhaseTransition,
     ProofAttempt,
     Workshop,
     WorkshopMessage,
@@ -1466,7 +1467,12 @@ class PhaseIntentView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         transition.intent = intent
-        transition.save(update_fields=["intent"])
+        # And the draft is spent, the way declaring spends the morning's. What
+        # they pressed is on the row now; a draft left beside it is an
+        # alternative to a decision already made, and it would come back up the
+        # moment they tapped the line to reword it.
+        transition.intent_offer = ""
+        transition.save(update_fields=["intent", "intent_offer"])
         logger.info(f"Goal {goal.id} named what {goal.phase} is for")
         return Response(
             PhaseTransitionSerializer(transition).data, status=status.HTTP_200_OK
@@ -2057,6 +2063,13 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
         # a cycle is proved and closed its notes are spent, and reading them
         # back would have him chasing pieces of a proof already on the record.
         target = _offer_target(goal, today)
+        # The row that opened the phase they are standing in — read once here
+        # and used for both halves of the phase's line: the one they already
+        # pressed goes into the system prompt below, and the row itself is what
+        # a draft would be written onto. None in IDEA, always, because nothing
+        # unlocked it; that absence is what keeps suggest_phase_intent out of
+        # the schema in the one window PhaseIntentView would 409 in.
+        transition = judging._current_transition(goal)
         # No marker passed: the digest claims a week once and so must never
         # reach back past its own, but this states a fact every turn and has
         # nothing to claim. Handed the same window either way — see below.
@@ -2096,7 +2109,7 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
             # guidance.BEATS it moves with the count, and that is still a rung
             # rather than a person. This one is about the thing they decided on
             # the morning the phase opened.
-            intent=judging._phase_intent(goal),
+            intent=transition.intent if transition else "",
             # And the day they said they would launch, if they named one. The
             # only fact in the state block the builder put there themselves.
             launch=_launch_payload(goal, today),
@@ -2138,6 +2151,12 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
                 # cannot become a third route into a second cycle, which is
                 # "Declare another task" and stays a button they press.
                 may_declare=target is None and not day_closed,
+                # The row a drafted phase line would land on, and — by being
+                # None or not — whether the tool exists this turn at all. Both
+                # jobs on one object rather than a flag beside it, because a
+                # flag that could disagree with the row is the bug it would be
+                # there to prevent.
+                intent_target=transition,
                 day=today,
                 turn_id=turn.id,
             )
@@ -2151,6 +2170,7 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
         offer_target: CheckIn | None = None,
         day_closed: bool = False,
         may_declare: bool = False,
+        intent_target: PhaseTransition | None = None,
         day: date | None = None,
         turn_id: int | None = None,
     ):
@@ -2159,6 +2179,11 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
         close_proposed = False
         offered = missing = ""
         declared = ""
+        # What they said this phase would produce, as the model heard it. Kept
+        # as a local until the turn ends for the reason the two above are — and
+        # for one more: whether it is written at all depends on something that
+        # has not happened yet when the call arrives. See the gate below.
+        named = ""
         # Today's reading as the model heard it said, kept beside the draft it
         # arrived with. None means no number, which is the ordinary case and the
         # one the guard is built around — see _reading, and note that 0 is a
@@ -2191,6 +2216,18 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
                         # afternoon with a task already on the hook is one this
                         # product does not want acted on.
                         *([prompts.SUGGEST_DECLARATION_TOOL] if may_declare else []),
+                        # Only where there is a phase line to write — which is
+                        # anywhere but IDEA, the phase nothing unlocked. The
+                        # same question PhaseIntentView asks before it will
+                        # accept one, asked once, here: a tool that is absent
+                        # cannot be called in a window the view would 409 in,
+                        # and there is no prompt sentence about that window for
+                        # a later edit to soften.
+                        *(
+                            [prompts.SUGGEST_PHASE_INTENT_TOOL]
+                            if intent_target is not None
+                            else []
+                        ),
                         # Opens the retire box on the goal card, and that is the
                         # whole of it — see PROPOSE_GOAL_CLOSE_TOOL, which says
                         # at length why this one has no server half. Nothing
@@ -2236,6 +2273,34 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
                             declared = str(
                                 payload.get("arguments", {}).get("task") or ""
                             ).strip()
+                        elif (
+                            name == "suggest_phase_intent"
+                            and intent_target is not None
+                        ):
+                            # One line, replaced by a later call in the same
+                            # turn the way the two drafts above are — a builder
+                            # who rewords it mid-conversation should find the
+                            # second answer in the box.
+                            #
+                            # Whitespace-collapsed the way PhaseIntentView does
+                            # it and capped at the same MAX_CHARS, read off the
+                            # view rather than copied, so the box can never open
+                            # holding a line the server would refuse on the way
+                            # back in. Trimmed rather than dropped, as
+                            # declaration_offer is: an over-long draft is one
+                            # the builder can see and cut, and it is their own
+                            # sentence either way. The `and intent_target is not None` is belt
+                            # and braces for the reason its neighbour's is: the
+                            # tool is not in the list above when there is no
+                            # row, so a call cannot arrive — but this is the
+                            # branch that writes, and a guard true only because
+                            # of something forty lines away is a guard the next
+                            # edit can move.
+                            named = " ".join(
+                                str(
+                                    payload.get("arguments", {}).get("intent") or ""
+                                ).split()
+                            )[: PhaseIntentView.MAX_CHARS]
                         elif name == "suggest_proof":
                             # The model sends the parts; bar.read does the
                             # counting, and what is still owed is arithmetic
@@ -2281,6 +2346,25 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
 
             content = "".join(parts)
 
+            # An unlock is enough news for one message, so a phase line drafted
+            # in the same breath as an advance is dropped here rather than
+            # written.
+            #
+            # It is also, on the turn that actually advances, a line about the
+            # wrong phase: `intent_target` was read before the stream, when the
+            # goal was still in the phase it is about to leave, and
+            # gates.try_advance runs below. Writing it would put "three
+            # hostellers who'd pay" on the row that opened VALIDATION on the
+            # evening BUILD opened.
+            #
+            # Keyed off the PROPOSAL rather than off whether the gate opened,
+            # which is the conservative answer and the only one available this
+            # early — but it is also the right one for the refusal: a turn that
+            # asked for the next phase and was told what is still owed has no
+            # room in it for "and what is this one for?" either.
+            if advance_proposed:
+                named = ""
+
             # The morning's draft, on the goal because there is no check-in yet
             # — that absence is the whole situation the tool exists for, and
             # opening a row here would be the app declaring on the builder's
@@ -2304,6 +2388,20 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
                 )
                 span.set_attribute("declaration.offered", True)
                 logger.info(f"Declaration drafted for goal {goal.id}")
+
+            # And the phase's line, onto the row that opened the phase. A row
+            # rather than a wire event for the same reason the two around it
+            # are: the client refetches state when the turn ends, so the draft
+            # is still in the box tomorrow if they close the tab tonight.
+            #
+            # `intent_offer` and not `intent`. Nothing here names the phase —
+            # PhaseIntentView remains the only writer of the line the coach
+            # quotes back, and it is reached by a press on the card.
+            if named and intent_target is not None:
+                intent_target.intent_offer = named
+                intent_target.save(update_fields=["intent_offer"])
+                span.set_attribute("intent.offered", True)
+                logger.info(f"Phase line drafted for goal {goal.id}")
 
             # A drafted proof is a row, not a wire event: the client refetches
             # state the moment the turn ends and reads the offer off the
@@ -2417,6 +2515,17 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
                 # builder's own message with nothing under it.
                 yield _line({"t": "delta", "text": guidance.DECLARATION_LANDED})
                 content = guidance.DECLARATION_LANDED
+            elif named and not content:
+                # The same receipt again, for the line about the phase. Reached
+                # only when the whole turn was this tool call — #270 / #310: a
+                # builder who answered "what's this phase for?" and got a blank
+                # screen back has been answered by the card, on a pane they may
+                # not be looking at.
+                #
+                # Below the advance_proposed reset above, so a turn whose line
+                # was dropped cannot get a receipt for it.
+                yield _line({"t": "delta", "text": guidance.PHASE_INTENT_LANDED})
+                content = guidance.PHASE_INTENT_LANDED
             if advance_proposed:
                 advanced, detail = gates.try_advance(goal)
                 span.set_attribute("gate.advanced", advanced)
