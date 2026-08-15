@@ -6,21 +6,38 @@ Over-engineering feels like work — that's what makes it dangerous. It produces
 commits, diagrams and a warm sense of professionalism, and not one new user.
 
 ## The smells
-1. **Infrastructure before users.** Kubernetes, microservices, queues, or
+Roughly in the order a first project meets them. The top of this list is week
+one; the bottom is a problem you have to earn, and you have not earned it yet.
+
+1. **Tool polishing.** Perfecting the dev environment, CI pipeline, linter
+   config — the metawork treadmill. One afternoon, then ship features.
+2. **The framework you have never used.** Choosing the unfamiliar stack *as*
+   the project, because this is finally the chance to learn it. Then every
+   bug costs two questions — is this my logic, or the thing I don't know
+   yet? Learn the new one on a weekend toy. Build this one in whatever you
+   can already debug at midnight.
+3. **The rewrite.** "The code is messy, I'll redo it properly." Week-one code
+   is supposed to be messy. Messy code with users beats clean code without.
+4. **Rebuilding the UI because it looks amateur.** It probably does, and
+   nobody has said so — you are comparing a two-week build against products
+   with design teams. Your first ten users are deciding whether it does the
+   thing, not whether the spacing is right. Fix the one screen a real user
+   got stuck on and leave the rest plain.
+5. **The app where a link would do.** An APK, a store listing, a review
+   queue — for something a URL you can paste into WhatsApp delivers this
+   afternoon. An app is a distribution decision, and you take it after
+   somebody wants the thing enough to install it.
+6. **The framework migration.** Switching stacks mid-build because a blog
+   post said the new one scales better. Scaling is a problem you earn.
+7. **The abstraction for the future.** A plugin system, a generic engine, a
+   config format — for the one use case you actually have. Build for the
+   case in front of you; generalize the third time, not the first.
+8. **Auth maximalism.** SSO, roles, permissions matrices, audit logs — for a
+   tool whose only users are you and the three people you interviewed.
+9. **Infrastructure before users.** Kubernetes, microservices, queues, or
    "multi-region" anything for a product with zero users. One small server
    and one database survive your first thousand users. Your problem is
    getting to ten.
-2. **The framework migration.** Switching stacks mid-build because a blog
-   post said the new one scales better. Scaling is a problem you earn.
-3. **The abstraction for the future.** A plugin system, a generic engine, a
-   config format — for the one use case you actually have. Build for the
-   case in front of you; generalize the third time, not the first.
-4. **Auth maximalism.** SSO, roles, permissions matrices, audit logs — for a
-   tool whose only users are you and the three people you interviewed.
-5. **The rewrite.** "The code is messy, I'll redo it properly." Week-one code
-   is supposed to be messy. Messy code with users beats clean code without.
-6. **Tool polishing.** Perfecting the dev environment, CI pipeline, linter
-   config — the metawork treadmill. One afternoon, then ship features.
 
 ## The counter-question
 For every technical decision: **"What breaks at ten users?"** If the honest
