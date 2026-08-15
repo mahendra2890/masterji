@@ -161,6 +161,7 @@ class CheckInSerializer(serializers.ModelSerializer):
             "due_hour",
             "declaration_fit",
             "declaration_reaction",
+            "sharpened",
             "proof_ask",
             "proof_offer",
             "proof_missing",

@@ -994,6 +994,53 @@
   filter: brightness(1.08);
 }
 
+/* The sharpened task, offered under the reaction that asked for it. Shares
+   .proofOffer's shape and deliberately not its marigold: that one is the last
+   press of the evening and looks like it, while this one is an alternative to
+   something the builder has already committed to. A grey rail and an outlined
+   button put it below their own words in the reading order and in the weight,
+   which is the whole rule this block is under — the declared task is theirs and
+   stays the heading. */
+.sharpenOffer {
+  margin: 0 0 10px;
+  padding: 9px 11px;
+  border-left: 2px solid var(--border);
+  background: var(--surface-2);
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+
+.sharpenOfferLabel {
+  margin: 0 0 5px;
+  color: var(--muted);
+  font-size: 11.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.sharpenOfferBtn {
+  background: none;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 7px 11px;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+}
+
+.sharpenOfferBtn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* The reword box, opened over a task that is already on the hook. Spaced off
+   the reaction above it so the textarea does not read as part of the critique. */
+.reword {
+  margin: 4px 0 10px;
+}
+
 /* The handle on the folded ask. Reads as a disclosure rather than as another
    instruction, because by the time it folds the instruction has been met. */
 .proofHintSummary {

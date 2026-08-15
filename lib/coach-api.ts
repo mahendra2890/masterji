@@ -110,6 +110,12 @@ export type CheckIn = {
    * UNJUDGED means the model was unreachable, not that it passed. */
   declarationFit: "UNJUDGED" | "ON_PHASE" | "OFF_PHASE";
   declarationReaction: string;
+  /** The same task, rewritten to answer the reaction above it — an offer that
+   * fills the declare box, never a correction anyone is held to. Empty whenever
+   * the reaction is: a sharpening under no complaint is a fix for a problem the
+   * builder was never told they had. Declaring it re-runs the judgement, so the
+   * model never grades wording it handed itself. */
+  sharpened: string;
   /** What tonight's proof must show for THIS task. Empty when unjudged —
    * fall back to the phase's static ask in CoachState.guidance. */
   proofAsk: string;
@@ -294,6 +300,13 @@ export type CoachState = {
    * being server-side prevents. 0 on the day a phase opens. */
   daysInPhase: number;
   today: CheckIn | null;
+  /** Today's task as Masterji heard it in chat, waiting to fill the declare
+   * box — the morning's mirror of `CheckIn.proofOffer`. Top-level rather than
+   * on `today` because at the moment it is written there is no check-in: an
+   * offer is what there is INSTEAD of one. "" once anything is declared, and
+   * "" again tomorrow, since the server only serves a draft stamped with the
+   * date this request sent. */
+  declarationOffer: string;
   checkins: CheckIn[];
   /** How many days the goal actually has, which is not always how many arrived:
    * this payload is capped, and the record card's "Show all N" used to count the
@@ -432,6 +445,7 @@ type ServerCheckIn = {
   due_hour?: number | null;
   declaration_fit?: CheckIn["declarationFit"];
   declaration_reaction?: string;
+  sharpened?: string;
   proof_ask?: string;
   proof_offer?: string;
   proof_missing?: string;
@@ -536,6 +550,7 @@ const fromServerCheckIn = (c: ServerCheckIn): CheckIn => ({
   dueHour: c.due_hour ?? null,
   declarationFit: c.declaration_fit ?? "UNJUDGED",
   declarationReaction: c.declaration_reaction ?? "",
+  sharpened: c.sharpened ?? "",
   proofAsk: c.proof_ask ?? "",
   proofOffer: c.proof_offer ?? "",
   proofMissing: c.proof_missing ?? "",
@@ -790,6 +805,7 @@ export async function getState(): Promise<CoachState> {
     ponds?: { value: string; label: string }[];
     metric?: ServerMetric | null;
     can_set_metric?: boolean;
+    declaration_offer?: string;
     workshop?: ServerWorkshop | null;
     workshop_openers?: string[];
     workshop_turns?: number;
@@ -815,6 +831,10 @@ export async function getState(): Promise<CoachState> {
     // header renders nothing for.
     daysInPhase: data.days_in_phase ?? 0,
     today: data.today ? fromServerCheckIn(data.today) : null,
+    // Defaulted like the rest, and "" is already the case the card draws
+    // nothing for — a browser holding this bundle from before the field
+    // existed sees the morning exactly as it was.
+    declarationOffer: data.declaration_offer ?? "",
     checkins: (data.checkins ?? []).map(fromServerCheckIn),
     // Falls back to what arrived, so a browser holding this bundle from before
     // the field existed reads "nothing is missing" rather than "everything is".

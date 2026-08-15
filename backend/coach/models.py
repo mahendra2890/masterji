@@ -143,6 +143,27 @@ class Goal(SoftDeleteModel):
     # three days of numbers is the vanity swap the playbook's "watch only that"
     # is aimed at, and the series is where the difference shows.
     metric_name = models.CharField(max_length=60, blank=True)
+    # This morning's task as Masterji has heard it, written from work the
+    # builder described in conversation (the suggest_declaration tool). The
+    # morning's mirror of CheckIn.proof_offer, and an OFFER on exactly the same
+    # terms: it fills the declare box and nothing else. Declaring stays a press.
+    #
+    # ON THE GOAL, not on a CheckIn, because at the moment it is written there
+    # is no CheckIn to hang it on — DeclareView is what creates that row, which
+    # is the whole situation this tool exists for. Letting the chat open an
+    # undeclared row instead would change what a CheckIn means: streaks.py
+    # counts a declaration and a proof, and loop_report counts rows as
+    # check-ins, so a row that exists because a model guessed would corrupt
+    # both. A field here adds nothing to the row semantics and nothing to the
+    # gates — gates.py does not read it.
+    declaration_offer = models.TextField(blank=True)
+    # The builder's own date on the day that draft was written. An offer is
+    # about ONE morning: read back on Wednesday, Tuesday's draft is a task
+    # nobody is doing, sitting in the box a fresh day is declared from. Kept as
+    # a date rather than swept by a job because the only clock that can answer
+    # "is this still today" is the client's, and it arrives on the request that
+    # reads the offer (views._client_day). NULL whenever the offer is empty.
+    declaration_offer_date = models.DateField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -262,6 +283,20 @@ class CheckIn(SoftDeleteModel):
         max_length=12, choices=DeclarationFit.choices, default=DeclarationFit.UNJUDGED
     )
     declaration_reaction = models.TextField(blank=True)
+    # The same task, rewritten to clear the bar the reaction just named — one
+    # sentence, in the builder's own terms. Written by the same judging call as
+    # declaration_reaction and blank on the days that call has no complaint:
+    # "an empty reaction is the compliment" extends to it unchanged, and a
+    # sharpening offered against a task that was already specific enough is
+    # noise with a button under it.
+    #
+    # An OFFER, never a record — CheckIn.proof_offer's rule, one screen earlier.
+    # It fills the declare box and the builder presses Declare it, which
+    # re-runs the judgement over whatever they actually send. So the model does
+    # not get to hand itself the wording it will later grade: a suggestion
+    # accepted verbatim is read back as a declaration rather than trusted as
+    # one, and it carries no proof_ask with it.
+    sharpened = models.TextField(blank=True)
     # What tonight's proof must show FOR THIS TASK. Falls back to the phase's
     # static ask (guidance.PROOF_HINT) when empty, so the form is never blank.
     proof_ask = models.TextField(blank=True)
