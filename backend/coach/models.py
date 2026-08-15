@@ -630,6 +630,21 @@ class PhaseTransition(SoftDeleteModel):
     # Never a gate. gates.try_advance does not read it, blank is a legal and
     # common value, and skipping it advances the phase exactly as before.
     intent = models.TextField(blank=True)
+    # The same line as Masterji heard it said in the turn after the unlock,
+    # waiting for the press that would make it `intent` above.
+    #
+    # An OFFER, never a record, and the distance between these two fields is
+    # the whole of that rule: PhaseIntentView stays the only writer of `intent`,
+    # every reader of what the builder said this phase is for — the coach's
+    # state block (prompts.intent_block), the morning judge
+    # (prompts.declaration_intent), the stepper drill-in — reads `intent`, and
+    # nothing but the box on the card reads this. The line a coach quotes back
+    # for three weeks has to be one the builder pressed.
+    #
+    # Re-settable exactly as `intent` is: a later draft replaces the offer.
+    # Blank, never a default sentence — an unset offer means Masterji heard
+    # nothing worth writing down, which is the ordinary case.
+    intent_offer = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta(SoftDeleteModel.Meta):

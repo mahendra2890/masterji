@@ -1477,6 +1477,63 @@ SUGGEST_DECLARATION_TOOL = {
     },
 }
 
+# The unlock's mirror of the two above, on the same bargain: the model writes
+# the line down, the builder presses it. Nothing here names anything.
+#
+# The server decides whether this tool is on the table at all — it is handed to
+# the model only when a row exists that a line could describe, which is the same
+# question PhaseIntentView asks before it will accept one (judging.
+# _current_transition). IDEA has no such row, nothing unlocked it, and the view
+# 409s there; so the tool simply is not in the schema in that window rather than
+# being in it under a rule the model has to remember. Wrong-window silence as a
+# schema fact.
+#
+# What the description has to carry is the guard the issue is actually about.
+# This is the fourth thing a builder can be asked to say, and it is the one with
+# no gate behind it: gates.try_advance has never read PhaseTransition's
+# contents. So the ask is worth ONE sentence in the turn after a phase opens and
+# is worth nothing after that — a coach who asks twice has turned a line nobody
+# has to write into a fifth thing to have declared, which is the exact shape
+# PhaseIntentView's docstring refuses ("there is no version of this endpoint
+# that has to be called before anything").
+SUGGEST_PHASE_INTENT_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "suggest_phase_intent",
+        "description": (
+            "Write down what the builder has just said this phase will have "
+            "produced, in their own words, one line. Call this when they have "
+            "answered what the new phase is for — and call it again if they "
+            "reword it, since each call replaces the last. This NAMES NOTHING: "
+            "it puts the line in the box on their card and they press the "
+            "button themselves. You may ask what the phase is for ONCE, in a "
+            "turn after it unlocks, never in the same message as the unlock "
+            "itself. If they don't answer, or answer something else, let it "
+            "go: nothing waits on this line, no gate reads it, and a phase "
+            "works exactly the same unnamed. Never ask again, never withhold "
+            "an answer until they give you one, and never invent a line they "
+            "have not said. Say what you have to say to them in the same turn; "
+            "a turn that only calls this is a turn they spent getting no "
+            "answer."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "intent": {
+                    "type": "string",
+                    "description": (
+                        "One line, as they said it: the thing this phase will "
+                        "have produced by the time it is behind them. Not a "
+                        "plan, not a list of steps, and not your idea of what "
+                        "they should aim at."
+                    ),
+                }
+            },
+            "required": ["intent"],
+        },
+    },
+}
+
 # Its neighbour below can be PERFORMED, and this one cannot. That is a real
 # difference and not squeamishness, so it is written down here: somebody will
 # later read these two side by side and try to "finish" this one.

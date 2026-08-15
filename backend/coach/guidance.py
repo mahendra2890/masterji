@@ -693,6 +693,19 @@ DECLARATION_LANDED = (
     "until you press it."
 )
 
+# The unlock's version of the two above, and the same argument: a tool call is
+# not a reason to say nothing to someone who just spoke (#270 / #310).
+#
+# It has to say that nothing is named yet, for DECLARATION_LANDED's reason one
+# step softer — nothing at all waits on this line, so a builder who misreads the
+# receipt loses only the line itself. What it must not do is nag: this is a
+# receipt for something they said, not a second ask, and the sentence ends by
+# handing the choice back rather than by chasing the press.
+PHASE_INTENT_LANDED = (
+    "Put that in the box under the phase — your words, as I heard them. It's "
+    "not saved until you press it, and it's fine to leave it."
+)
+
 # On the wire when the model drops the turn, and in the transcript too when it
 # drops it before the first token. Those turns used to save no reply at all,
 # and the refetch that ends every turn then replaced the bubble the builder

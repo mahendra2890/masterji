@@ -77,6 +77,11 @@ export type PhaseTransition = {
    * asked once when the phase unlocked. "" when they skipped it, which is a
    * legal and common state: nothing about the gate reads this. */
   intent: string;
+  /** The same line as Masterji heard the builder say it in chat, waiting to
+   * fill the box above the phase. An offer on `proofOffer`'s terms: "" is the
+   * ordinary state, nothing reads it but the box, and `intent` is the only one
+   * of the two that is the record — this becomes that when they press. */
+  intentOffer: string;
   createdAt: string;
 };
 
@@ -433,6 +438,7 @@ type ServerTransition = {
   from_phase: Phase;
   to_phase: Phase;
   intent?: string;
+  intent_offer?: string;
   created_at: string;
 };
 type ServerRetirement = {
@@ -647,6 +653,7 @@ const fromServerTransition = (t: ServerTransition): PhaseTransition => ({
   fromPhase: t.from_phase,
   toPhase: t.to_phase,
   intent: t.intent ?? "",
+  intentOffer: t.intent_offer ?? "",
   createdAt: t.created_at,
 });
 

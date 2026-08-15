@@ -11268,3 +11268,301 @@ class MetricOfferTests(CoachTestCase):
         row = CheckIn.objects.get()
         self.assertEqual(row.metric_value, 7)
         self.assertIsNone(row.metric_offer)
+
+
+class PhaseIntentOfferTests(CoachTestCase):
+    """Masterji hearing what the new phase is for and writing the line down.
+
+    The strangest of #277's four rows, because the moment it belongs to already
+    happens in chat: the gate opens mid-turn, the brief lands in the transcript,
+    and the natural next sentence is "what will this phase have produced?" — a
+    question the builder then answered in conversation and had to type again
+    into a box on the other pane.
+
+    Everything here turns on one distinction: `intent_offer` is what he heard,
+    `intent` is what they pressed, and only the second is the line the coach
+    quotes back for three weeks. The load-bearing tests are
+    test_the_draft_names_nothing, which is the rule the field exists to keep,
+    and test_the_ask_is_not_in_the_same_breath_as_the_unlock, which is the
+    timing the issue is really about.
+    """
+
+    LINE = "Three hostellers who'd pay today"
+
+    def setUp(self):
+        super().setUp()
+        self.goal = self.make_goal(phase=Phase.VALIDATION)
+        self.transition = PhaseTransition.objects.create(
+            goal=self.goal, from_phase=Phase.IDEA, to_phase=Phase.VALIDATION
+        )
+
+    def chat(self, events=None, line=LINE):
+        events = events or [
+            ("delta", "Good — that's the shape of it."),
+            (
+                "tool_call",
+                {"name": "suggest_phase_intent", "arguments": {"intent": line}},
+            ),
+        ]
+        with mock.patch("coach.views.llm.stream_chat", return_value=iter(events)) as m:
+            response = self.client.post(
+                "/api/coach/chat/", {"content": "three people who'd pay"}
+            )
+            b"".join(response.streaming_content)
+        return m
+
+    def tools(self, called):
+        return [t["function"]["name"] for t in called.call_args.kwargs["tools"]]
+
+    def row(self) -> PhaseTransition:
+        self.transition.refresh_from_db()
+        return self.transition
+
+    def set_intent(self, text: str):
+        return self.client.post(
+            f"/api/coach/goals/{self.goal.id}/intent/", {"intent": text}
+        )
+
+    # --- the window the tool exists in ------------------------------------
+
+    def test_the_tool_is_there_once_something_has_unlocked_the_phase(self):
+        self.assertIn("suggest_phase_intent", self.tools(self.chat()))
+
+    def test_the_tool_is_absent_with_no_transition_row(self):
+        """IDEA, and the whole of the "no ask on the first phase" rule. Nothing
+        unlocked it, so there was never a moment at which to ask — and
+        PhaseIntentView 409s there. A tool that is absent cannot be called in
+        the one window the view refuses; there is no prompt sentence about that
+        window for a later edit to soften."""
+        self.transition.delete()
+        Goal.objects.filter(pk=self.goal.pk).update(phase=Phase.IDEA)
+        self.assertNotIn("suggest_phase_intent", self.tools(self.chat()))
+
+    def test_a_call_with_no_row_to_write_on_writes_nothing(self):
+        """The branch that writes guards itself. The tool being absent is forty
+        lines away from the code that trusts it, and a turn that arrives here
+        anyway must not invent a transition to hang a line on."""
+        self.transition.delete()
+        Goal.objects.filter(pk=self.goal.pk).update(phase=Phase.IDEA)
+        self.chat()
+        self.assertEqual(PhaseTransition.objects.count(), 0)
+
+    def test_the_row_it_lands_on_is_the_one_that_opened_this_phase(self):
+        """A line may only ever describe the phase the builder is standing in —
+        the same rule PhaseIntentView enforces, and the reason the target is a
+        row rather than a field on the goal."""
+        Goal.objects.filter(pk=self.goal.pk).update(phase=Phase.BUILD)
+        opened_build = PhaseTransition.objects.create(
+            goal=self.goal, from_phase=Phase.VALIDATION, to_phase=Phase.BUILD
+        )
+        self.chat()
+        opened_build.refresh_from_db()
+        self.assertEqual(opened_build.intent_offer, self.LINE)
+        self.assertEqual(self.row().intent_offer, "")
+
+    # --- an offer, never a record -----------------------------------------
+
+    def test_the_draft_lands_on_the_row_as_an_offer(self):
+        self.chat()
+        self.assertEqual(self.row().intent_offer, self.LINE)
+
+    def test_the_draft_names_nothing(self):
+        """The one rule this cannot bend. The line a coach quotes back for weeks
+        has to be one the builder pressed, so `intent` stays empty until they
+        do — and every reader of what the phase is for reads `intent`."""
+        self.chat()
+        self.assertEqual(self.row().intent, "")
+        self.assertEqual(judging._phase_intent(self.goal), "")
+        self.assertEqual(prompts.intent_block("", Phase.VALIDATION), "")
+
+    def test_the_card_is_handed_the_offer_beside_the_empty_record(self):
+        self.chat()
+        payload = self.client.get("/api/coach/state/").json()
+        transition = payload["transitions"][-1]
+        self.assertEqual(transition["intent_offer"], self.LINE)
+        self.assertEqual(transition["intent"], "")
+
+    def test_a_later_draft_replaces_the_offer(self):
+        """Re-settable while the phase is open, exactly as the view already is.
+        A builder who rewords it mid-conversation should find the second answer
+        in the box, not the first."""
+        self.chat()
+        self.chat(line="One hosteller who paid twice")
+        self.assertEqual(self.row().intent_offer, "One hosteller who paid twice")
+
+    def test_a_line_too_long_for_the_view_is_trimmed_not_stored_whole(self):
+        """The box can never open holding something the server would refuse on
+        the way back in — MAX_CHARS is read off the view rather than copied."""
+        self.chat(line="x" * (views.PhaseIntentView.MAX_CHARS + 50))
+        self.assertEqual(len(self.row().intent_offer), views.PhaseIntentView.MAX_CHARS)
+        self.assertEqual(self.set_intent(self.row().intent_offer).status_code, 200)
+
+    def test_the_line_is_collapsed_the_way_the_view_collapses_it(self):
+        self.chat(line="  three hostellers  who\n pay today  ")
+        self.assertEqual(self.row().intent_offer, "three hostellers who pay today")
+
+    # --- the press, which is unchanged -------------------------------------
+
+    def test_the_press_goes_through_the_view_it_always_did(self):
+        """The chat is a route to the box, not a second way into the record.
+        PhaseIntentView is still the only writer of `intent`."""
+        self.chat()
+        response = self.set_intent(self.LINE)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.row().intent, self.LINE)
+        self.assertEqual(judging._phase_intent(self.goal), self.LINE)
+
+    def test_pressing_spends_the_draft(self):
+        """What they pressed is on the row now. A draft left beside it is an
+        alternative to a decision already made."""
+        self.chat()
+        self.set_intent("my own words")
+        self.assertEqual(self.row().intent, "my own words")
+        self.assertEqual(self.row().intent_offer, "")
+
+    def test_the_typed_box_still_works_with_no_chat_at_all(self):
+        """#277's Availability rule: a conversational path is an ADDITIONAL
+        route to a write, never the only one. A provider outage, a bad payload
+        or a throttle must never be why a builder cannot say what the phase is
+        for — and the suite stubs every model call to raise, so this is that
+        day."""
+        self.assertEqual(self.set_intent(self.LINE).status_code, 200)
+        self.assertEqual(self.row().intent, self.LINE)
+        self.assertEqual(self.row().intent_offer, "")
+
+    def test_nothing_about_the_gate_reads_either_field(self):
+        """Never a fifth thing to have declared. Skipping the whole of this
+        leaves the phase working exactly as it did."""
+        self.chat()
+        before = gates.gate_status(self.goal)
+        self.set_intent(self.LINE)
+        self.assertEqual(gates.gate_status(self.goal), before)
+
+    # --- the turn it belongs to --------------------------------------------
+
+    def test_the_ask_is_not_in_the_same_breath_as_the_unlock(self):
+        """An unlock is enough news for one message. On the turn that advances,
+        the row the draft would land on is the one that opened the phase they
+        are LEAVING — so a line written here would describe the wrong phase, on
+        top of arriving in a turn already carrying the gate's receipt."""
+        self.accept_proofs(self.goal, gates.PROOFS_REQUIRED[Phase.VALIDATION].n)
+        self.chat(
+            events=[
+                ("tool_call", {"name": "propose_phase_advance", "arguments": {}}),
+                (
+                    "tool_call",
+                    {
+                        "name": "suggest_phase_intent",
+                        "arguments": {"intent": self.LINE},
+                    },
+                ),
+            ]
+        )
+        self.goal.refresh_from_db()
+        self.assertEqual(self.goal.phase, Phase.BUILD)
+        self.assertEqual(self.row().intent_offer, "")
+        self.assertEqual(self.row().intent, "")
+        self.assertEqual(
+            self.goal.transitions.get(to_phase=Phase.BUILD).intent_offer, ""
+        )
+
+    def test_a_refused_advance_is_not_a_turn_for_it_either(self):
+        """A turn that asked for the next phase and was told what is still owed
+        has no room in it for "and what is this one for?"."""
+        self.chat(
+            events=[
+                ("delta", "Let's see where you are."),
+                ("tool_call", {"name": "propose_phase_advance", "arguments": {}}),
+                (
+                    "tool_call",
+                    {
+                        "name": "suggest_phase_intent",
+                        "arguments": {"intent": self.LINE},
+                    },
+                ),
+            ]
+        )
+        self.goal.refresh_from_db()
+        self.assertEqual(self.goal.phase, Phase.VALIDATION)
+        self.assertEqual(self.row().intent_offer, "")
+
+    def test_the_next_turn_is_the_one_that_can_write_it(self):
+        """And the ask lands there. By the turn after the gate event the row for
+        the new phase exists, so the tool is on the table and the line goes
+        where it belongs."""
+        self.accept_proofs(self.goal, gates.PROOFS_REQUIRED[Phase.VALIDATION].n)
+        self.chat(
+            events=[("tool_call", {"name": "propose_phase_advance", "arguments": {}})]
+        )
+        self.goal.refresh_from_db()
+        self.assertEqual(self.goal.phase, Phase.BUILD)
+        self.assertIn("suggest_phase_intent", self.tools(self.chat()))
+        self.assertEqual(
+            self.goal.transitions.get(to_phase=Phase.BUILD).intent_offer, self.LINE
+        )
+
+    # --- not a wordless turn ------------------------------------------------
+
+    def test_a_turn_that_only_wrote_it_down_still_says_something(self):
+        """#270 / #310: the draft arrives alongside an answer, never instead of
+        one. Without this the thing that happened landed on the card beside the
+        conversation, and the conversation showed the builder's own message with
+        nothing under it."""
+        self.chat(
+            events=[
+                (
+                    "tool_call",
+                    {
+                        "name": "suggest_phase_intent",
+                        "arguments": {"intent": self.LINE},
+                    },
+                )
+            ]
+        )
+        row = Message.objects.filter(role=Message.Role.COACH).get()
+        self.assertEqual(row.content, guidance.PHASE_INTENT_LANDED)
+
+    def test_the_receipt_says_nothing_is_saved_and_does_not_chase_it(self):
+        """It is a receipt for something they said, not a second ask. Nothing
+        waits on this line, so the sentence hands the choice back."""
+        self.assertIn("not saved until you press it", guidance.PHASE_INTENT_LANDED)
+        self.assertIn("fine to leave it", guidance.PHASE_INTENT_LANDED)
+
+    def test_a_dropped_line_gets_no_receipt(self):
+        """The counterpart of the turn above. A receipt for a draft that was
+        never written is the app telling the builder to go and press something
+        that is not there."""
+        self.accept_proofs(self.goal, gates.PROOFS_REQUIRED[Phase.VALIDATION].n)
+        self.chat(
+            events=[
+                ("tool_call", {"name": "propose_phase_advance", "arguments": {}}),
+                (
+                    "tool_call",
+                    {
+                        "name": "suggest_phase_intent",
+                        "arguments": {"intent": self.LINE},
+                    },
+                ),
+            ]
+        )
+        self.assertNotIn(
+            guidance.PHASE_INTENT_LANDED,
+            [m.content for m in Message.objects.all()],
+        )
+
+    # --- what the model is told ---------------------------------------------
+
+    def test_the_tool_says_it_names_nothing(self):
+        description = prompts.SUGGEST_PHASE_INTENT_TOOL["function"]["description"]
+        self.assertIn("NAMES NOTHING", description)
+        self.assertIn("they press the button themselves", description)
+
+    def test_the_tool_forbids_asking_twice_or_withholding_on_it(self):
+        """Never a fifth thing to have declared, in the one place the model
+        reads. PhaseIntentView's own rule — "there is no version of this
+        endpoint that has to be called before anything" — binds the prompt."""
+        description = prompts.SUGGEST_PHASE_INTENT_TOOL["function"]["description"]
+        self.assertIn("ONCE", description)
+        self.assertIn("never in the same message as the unlock", description)
+        self.assertIn("Never ask again", description)
+        self.assertIn("never withhold", description)
