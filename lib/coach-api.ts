@@ -362,6 +362,16 @@ export type CoachState = {
    * there is no default date, because a date the app picked is not a
    * commitment anybody made. */
   launch: LaunchDate | null;
+  /** The day and the room as Masterji heard the builder name them in chat,
+   * waiting to fill the launch box. An offer on `proofOffer`'s terms and then
+   * some: what a press writes is an append-only commitment, so nothing in the
+   * chat path writes one — null is the ordinary state, only the box reads
+   * this, and `launch` above is the only one of the two that is the record.
+   *
+   * Never a day that has already been, and never served once the box is gone:
+   * the server drops it rather than prefilling something the press would
+   * refuse. */
+  launchOffer: { date: string; pond: string } | null;
   /** Whether naming one is available yet. BUILD onward: a launch date on a
    * goal with no artifact is a wish. */
   canSetLaunch: boolean;
@@ -833,6 +843,7 @@ export async function getState(): Promise<CoachState> {
       moves: number;
       first: string;
     } | null;
+    launch_offer?: { date: string; pond: string } | null;
     can_set_launch?: boolean;
     ponds?: { value: string; label: string }[];
     metric?: ServerMetric | null;
@@ -899,6 +910,7 @@ export async function getState(): Promise<CoachState> {
           first: data.launch.first,
         }
       : null,
+    launchOffer: data.launch_offer ?? null,
     canSetLaunch: data.can_set_launch ?? false,
     ponds: data.ponds ?? [],
     metric: fromServerMetric(data.metric ?? null),

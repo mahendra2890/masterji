@@ -1381,6 +1381,50 @@ export default function Dashboard({
                   </button>
                 ) : (
                   <div className={styles.launchBox}>
+                    {/* The day and the room as Masterji heard them agreed in
+                        chat, when the date got talked down from "someday" to a
+                        Friday there rather than here. Same bargain as the
+                        morning's task and the evening's proof — he writes it
+                        down, they press it — and above the ask for the same
+                        reason those two are, because this is the answer and the
+                        label below is the question.
+
+                        Nothing is committed by any of this. The button fills
+                        the two controls; Set is still what posts them, through
+                        the one endpoint that has ever written a launch
+                        commitment. That matters more here than anywhere: the
+                        record is append-only and its slip trail is the whole
+                        consequence, so a date on it that nobody pressed would
+                        be a move the builder never made.
+
+                        Inside the box branch, so a builder who has already set
+                        a day keeps seeing the day they set rather than an
+                        alternative to it — and a later draft is still
+                        reachable, because tapping that day to move it opens
+                        this same box with the newer offer above it. */}
+                    {state.launchOffer && (
+                      <div className={styles.proofOffer}>
+                        <p className={styles.proofOfferLabel}>
+                          Masterji heard the day and the room
+                        </p>
+                        <p className={styles.proofOfferText}>
+                          {formatDay(state.launchOffer.date)} ·{" "}
+                          {state.ponds.find(
+                            (p) => p.value === state.launchOffer!.pond,
+                          )?.label ?? state.launchOffer.pond}
+                        </p>
+                        <button
+                          type="button"
+                          className={styles.proofOfferBtn}
+                          onClick={() => {
+                            setLaunchDraft(state.launchOffer!.date);
+                            setPondDraft(state.launchOffer!.pond);
+                          }}
+                        >
+                          Use this — change it below if it&apos;s not right
+                        </button>
+                      </div>
+                    )}
                     <label className={styles.launchLabel} htmlFor="launch-date">
                       When does it go in front of them?
                     </label>

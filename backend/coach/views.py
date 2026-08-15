@@ -567,6 +567,69 @@ def _launch_payload(goal: Goal, today: date) -> dict | None:
     }
 
 
+def _launch_offer_payload(goal: Goal, today: date) -> dict | None:
+    """The day and the room as Masterji heard them, waiting to fill the box.
+
+    An OFFER, never a record — the record is `LaunchCommitment`, and nothing
+    but LaunchDateView has ever written one. This is two fields on the goal and
+    the only thing that reads them is the box on the card.
+
+    Both halves or nothing: a day with no room cannot be pressed, since the Set
+    button needs both, and half a draft in the box is a control that looks ready
+    and isn't.
+
+    And not once the day has been. A draft written on Monday for Wednesday is
+    still exactly as good on Tuesday, which is why there is no `_date` stamp
+    beside it the way the morning's task has one — but read back on Friday it is
+    a day the view would refuse, and the box must never open holding something
+    the server would turn away. The same bound the press applies, applied to
+    what the press starts from.
+    """
+    if not goal.launch_date_offer or not goal.launch_pond_offer:
+        return None
+    if goal.launch_date_offer < today:
+        return None
+    # And not once the box itself is gone. A goal can leave LAUNCH_PHASES with
+    # a draft still on it — the turn that drafted a day is allowed to also be
+    # the turn the gate opens TRACTION — and past that boundary the view 409s,
+    # so the offer is unpressable by the same rule that makes the box unshown.
+    if Phase(goal.phase) not in LAUNCH_PHASES:
+        return None
+    return {
+        "date": goal.launch_date_offer.isoformat(),
+        "pond": goal.launch_pond_offer,
+    }
+
+
+def _launch_draft(arguments: dict, today: date) -> tuple[date, str] | None:
+    """A drafted day and room, or nothing — the view's own bounds, at draft time.
+
+    Every rule LaunchDateView applies is applied here first, against the
+    builder's own clock: a real date, not in the past, inside MAX_DAYS_OUT, and
+    a pond off the ladder. Read off the view and the model rather than copied,
+    so the two cannot drift apart.
+
+    This buys the press NO bypass — LaunchDateView re-checks all of it on the
+    way back in, and has to, since the box is an editable control and the offer
+    is not what it posts. What it buys is that the box never opens holding
+    something the server would refuse: an over-long sentence is a draft a
+    builder can see and cut, but a date in the past is not a thing they can
+    trim, so this one is DROPPED rather than clamped. Clamping would be worse
+    than dropping — a day the app picked, in a box whose whole design is that
+    there is no default day.
+    """
+    try:
+        when = date.fromisoformat(str(arguments.get("date") or ""))
+    except ValueError:
+        return None
+    if when < today or (when - today).days > LaunchDateView.MAX_DAYS_OUT:
+        return None
+    pond = str(arguments.get("pond") or "").strip().upper()
+    if pond not in LaunchCommitment.Pond.values:
+        return None
+    return when, pond
+
+
 # How much of the series travels in the state payload. Thirty because TRACTION
 # is the end of the ladder and the series only exists there: a goal that has
 # recorded thirty readings has been in the terminal phase for a month, and the
@@ -812,6 +875,16 @@ class StateView(APIView):
                 # no default date and no placeholder day, because a date the app
                 # picked is not a commitment anybody made.
                 "launch": _launch_payload(goal, today),
+                # And the day and room as Masterji heard them said in chat,
+                # waiting to fill that same box. Beside the record rather than
+                # inside it, because the distance between the two is the point:
+                # this is what he heard, `launch` is what they pressed, and only
+                # one of them is on the append-only trail.
+                #
+                # Scoped to the builder's own date here rather than served raw,
+                # for _launch_offer_payload's reason — a drafted day that has
+                # since been is one the press would refuse.
+                "launch_offer": _launch_offer_payload(goal, today),
                 "can_set_launch": Phase(goal.phase) in LAUNCH_PHASES,
                 "ponds": [
                     {"value": p.value, "label": p.label}
@@ -1282,6 +1355,27 @@ class LaunchDateView(APIView):
             return Response(
                 {"detail": "Pick which room you're launching into."},
                 status=status.HTTP_400_BAD_REQUEST,
+            )
+        # Everything above has passed, so the press stands and the draft is
+        # spent — including on the dedupe path below, where the builder pressed
+        # a day that was already on the record and got no new row for it. They
+        # still pressed. A draft left in the box beside a decision already made
+        # is an alternative to it, and it would come back up the moment they
+        # tapped the date to move it.
+        #
+        # BELOW every refusal above, deliberately. A 400 leaves the offer where
+        # it is: the builder's own words are still the best starting point for
+        # the correction, and clearing them would answer "that day has already
+        # been" with an empty box.
+        if goal.launch_date_offer or goal.launch_pond_offer:
+            goal.launch_date_offer = None
+            goal.launch_pond_offer = ""
+            goal.save(
+                update_fields=[
+                    "launch_date_offer",
+                    "launch_pond_offer",
+                    "updated_at",
+                ]
             )
         current = _launch_payload(goal, today)
         # A re-declaration of the same date and pond is not a move, and writing
@@ -2157,6 +2251,12 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
                 # flag that could disagree with the row is the bug it would be
                 # there to prevent.
                 intent_target=transition,
+                # Whether a day can be named at all this turn, decided here off
+                # the phase rather than left to the model — the same question
+                # LaunchDateView asks before it will accept one. Before BUILD
+                # the tool is not in the schema, so a date with no artifact is
+                # not something the model can be talked into writing down.
+                may_name_launch=Phase(goal.phase) in LAUNCH_PHASES,
                 day=today,
                 turn_id=turn.id,
             )
@@ -2171,6 +2271,7 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
         day_closed: bool = False,
         may_declare: bool = False,
         intent_target: PhaseTransition | None = None,
+        may_name_launch: bool = False,
         day: date | None = None,
         turn_id: int | None = None,
     ):
@@ -2184,6 +2285,15 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
         # for one more: whether it is written at all depends on something that
         # has not happened yet when the call arrives. See the gate below.
         named = ""
+        # The day and the room as the model heard them named, kept as a pair
+        # for the reason the field on the goal is a pair: half of this cannot be
+        # pressed. None means nothing usable was said, which is the ordinary
+        # case — and it is deliberately NOT the same question as `launch_called`
+        # beside it. A turn that named a day the server will not take has to
+        # clear whatever was in the box, and only the flag can tell that apart
+        # from a turn that mentioned no date at all.
+        launch_draft: tuple[date, str] | None = None
+        launch_called = False
         # Today's reading as the model heard it said, kept beside the draft it
         # arrived with. None means no number, which is the ordinary case and the
         # one the guard is built around — see _reading, and note that 0 is a
@@ -2226,6 +2336,17 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
                         *(
                             [prompts.SUGGEST_PHASE_INTENT_TOOL]
                             if intent_target is not None
+                            else []
+                        ),
+                        # Only where a date could be named — LAUNCH_PHASES, the
+                        # same window LaunchDateView accepts one in. Before
+                        # BUILD the tool does not exist rather than existing
+                        # under a rule the model is asked to remember: a date on
+                        # a goal with no artifact is a wish, and the view's own
+                        # refusal is mirrored here as a schema fact.
+                        *(
+                            [prompts.SUGGEST_LAUNCH_DATE_TOOL]
+                            if may_name_launch
                             else []
                         ),
                         # Opens the retire box on the goal card, and that is the
@@ -2301,6 +2422,32 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
                                     payload.get("arguments", {}).get("intent") or ""
                                 ).split()
                             )[: PhaseIntentView.MAX_CHARS]
+                        elif name == "suggest_launch_date" and may_name_launch:
+                            # The pair, replaced whole by a later call in the
+                            # same turn the way every draft above is — a builder
+                            # who moved the day mid-conversation should find the
+                            # second answer in the box, and a room left over
+                            # from the first would belong to a date that is no
+                            # longer being discussed.
+                            #
+                            # Assigned unconditionally, so a redraft the server
+                            # will not accept — a day already past, a rung that
+                            # is not on the ladder — clears the earlier one
+                            # rather than leaving it sitting under a
+                            # conversation that has moved on.
+                            #
+                            # The `and may_name_launch` is belt and braces for
+                            # its neighbours' reason: the tool is not in the
+                            # list above when it is false, so a call cannot
+                            # arrive — but this is the branch that leads to a
+                            # write, and a guard true only because of something
+                            # sixty lines away is a guard the next edit can
+                            # move.
+                            launch_called = True
+                            launch_draft = _launch_draft(
+                                payload.get("arguments", {}),
+                                day or timezone.now().date(),
+                            )
                         elif name == "suggest_proof":
                             # The model sends the parts; bar.read does the
                             # counting, and what is still owed is arithmetic
@@ -2402,6 +2549,43 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
                 intent_target.save(update_fields=["intent_offer"])
                 span.set_attribute("intent.offered", True)
                 logger.info(f"Phase line drafted for goal {goal.id}")
+
+            # And the day and the room, onto the goal.
+            #
+            # TWO FIELDS ON THE GOAL, and NOT a LaunchCommitment. That is the
+            # whole guard, and it is the strongest one in this family: the
+            # record is append-only, so a row written here would put a slip on a
+            # trail that is the entire consequence of naming a date — a move the
+            # builder never made, on the one surface where a move is the thing
+            # being measured. LaunchDateView is still the only line in this
+            # codebase that creates one, and it is reached by a press on the
+            # card.
+            #
+            # A row rather than a wire event for the reason the drafts around it
+            # are: the client refetches state when the turn ends, so the day is
+            # still in the box tomorrow if they close the tab tonight — and here
+            # that matters more than anywhere, since the box is one they may
+            # deliberately want to sleep on.
+            #
+            # Keyed off the CALL rather than off the draft, so a turn whose day
+            # the server would not take clears whatever was in the box instead
+            # of leaving an earlier draft sitting under a conversation that has
+            # moved on to a different one.
+            if launch_called and may_name_launch:
+                goal.launch_date_offer, goal.launch_pond_offer = launch_draft or (
+                    None,
+                    "",
+                )
+                goal.save(
+                    update_fields=[
+                        "launch_date_offer",
+                        "launch_pond_offer",
+                        "updated_at",
+                    ]
+                )
+                span.set_attribute("launch.offered", launch_draft is not None)
+                what = "drafted" if launch_draft else "cleared"
+                logger.info(f"Launch date {what} for goal {goal.id}")
 
             # A drafted proof is a row, not a wire event: the client refetches
             # state the moment the turn ends and reads the offer off the
@@ -2526,6 +2710,18 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
                 # was dropped cannot get a receipt for it.
                 yield _line({"t": "delta", "text": guidance.PHASE_INTENT_LANDED})
                 content = guidance.PHASE_INTENT_LANDED
+            elif launch_draft and may_name_launch and not content:
+                # The same receipt once more, for the day. Reached only when the
+                # whole turn was this tool call — #270 / #310: a builder who
+                # just said "Friday the 12th, to the rooms" and got a blank
+                # screen back has been answered by a box on the other pane.
+                #
+                # Guarded on the same pair the write is, so a draft the server
+                # dropped — a day already past, a rung that is not on the ladder
+                # — cannot get a receipt telling the builder to go and press
+                # something that is not in the box.
+                yield _line({"t": "delta", "text": guidance.LAUNCH_DATE_LANDED})
+                content = guidance.LAUNCH_DATE_LANDED
             if advance_proposed:
                 advanced, detail = gates.try_advance(goal)
                 span.set_attribute("gate.advanced", advanced)

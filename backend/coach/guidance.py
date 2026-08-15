@@ -706,6 +706,17 @@ PHASE_INTENT_LANDED = (
     "not saved until you press it, and it's fine to leave it."
 )
 
+# The launch date's version, and the one that has to be most careful about what
+# it claims. The others' receipts sit beside things nothing depends on; this one
+# sits beside an APPEND-ONLY record whose whole point is that a date, once
+# named, is on the trail. A builder who reads this as "committed" believes they
+# have a launch day when the server has never heard of one — so the sentence
+# says nothing is committed, and names the button that would do it.
+LAUNCH_DATE_LANDED = (
+    "That day and that room are in the launch box on your card — press Set and "
+    "they're on the record. Nothing's committed until you do."
+)
+
 # On the wire when the model drops the turn, and in the transcript too when it
 # drops it before the first token. Those turns used to save no reply at all,
 # and the refetch that ends every turn then replaced the bubble the builder

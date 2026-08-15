@@ -11566,3 +11566,364 @@ class PhaseIntentOfferTests(CoachTestCase):
         self.assertIn("never in the same message as the unlock", description)
         self.assertIn("Never ask again", description)
         self.assertIn("never withhold", description)
+
+
+class LaunchDateOfferTests(CoachTestCase):
+    """Masterji hearing the day and the room, and writing them into the box.
+
+    Row 5 of #277's inventory, and the one where the offer / record distance is
+    widest. The other three drafts sit beside fields that can be edited; this
+    one sits beside `LaunchCommitment`, which is APPEND-ONLY and whose slip
+    trail is the entire consequence of having named a date at all. So the
+    load-bearing test here is test_a_drafted_date_writes_no_row_ever — a row
+    from a tool call would be a move the builder never made, on the one surface
+    where moves are the thing being measured.
+
+    Everything else follows from that: `launch_date_offer` is what he heard, a
+    LaunchCommitment is what they pressed, and LaunchDateView re-validates the
+    lot on the way in because the offer buys no bypass.
+    """
+
+    POND = "ROOMS"
+
+    def setUp(self):
+        super().setUp()
+        self.goal = self.make_goal(phase=Phase.BUILD)
+        self.today = date.today()
+        self.when = self.today + timedelta(days=12)
+
+    def chat(self, events=None, when=None, pond=POND):
+        when = when if when is not None else self.when
+        events = events or [
+            ("delta", "Friday it is."),
+            (
+                "tool_call",
+                {
+                    "name": "suggest_launch_date",
+                    "arguments": {
+                        "date": when if isinstance(when, str) else when.isoformat(),
+                        "pond": pond,
+                    },
+                },
+            ),
+        ]
+        with mock.patch("coach.views.llm.stream_chat", return_value=iter(events)) as m:
+            response = self.client.post(
+                "/api/coach/chat/", {"content": "let's say the 12th, to the rooms"}
+            )
+            b"".join(response.streaming_content)
+        return m
+
+    def tools(self, called):
+        return [t["function"]["name"] for t in called.call_args.kwargs["tools"]]
+
+    def row(self) -> Goal:
+        self.goal.refresh_from_db()
+        return self.goal
+
+    def press(self, when=None, pond=POND):
+        when = when if when is not None else self.when
+        return self.client.post(
+            f"/api/coach/goals/{self.goal.id}/launch/",
+            {
+                "date": when if isinstance(when, str) else when.isoformat(),
+                "pond": pond,
+            },
+        )
+
+    # --- the window the tool exists in --------------------------------------
+
+    def test_the_tool_is_there_in_build(self):
+        self.assertIn("suggest_launch_date", self.tools(self.chat()))
+
+    def test_the_tool_is_there_in_launch_too(self):
+        """A date that has arrived can still move, and refusing to let it move
+        would turn the honest second row into a reason to say nothing."""
+        Goal.objects.filter(pk=self.goal.pk).update(phase=Phase.LAUNCH)
+        self.assertIn("suggest_launch_date", self.tools(self.chat()))
+
+    def test_the_tool_is_absent_before_build(self):
+        """The view's own refusal, mirrored as a schema fact. A date on a goal
+        with no artifact is a wish, and LaunchDateView 409s in IDEA and
+        VALIDATION — so the tool is simply not on the table there rather than
+        being on it under a prompt rule a later edit could soften."""
+        for phase in (Phase.IDEA, Phase.VALIDATION):
+            with self.subTest(phase=phase):
+                Goal.objects.filter(pk=self.goal.pk).update(phase=phase)
+                self.assertNotIn("suggest_launch_date", self.tools(self.chat()))
+
+    def test_the_tool_is_absent_after_launch(self):
+        Goal.objects.filter(pk=self.goal.pk).update(phase=Phase.TRACTION)
+        self.assertNotIn("suggest_launch_date", self.tools(self.chat()))
+
+    def test_a_call_outside_the_window_drafts_nothing(self):
+        """The branch that writes guards itself. The tool being absent is sixty
+        lines away from the code that trusts it, and a turn that arrives here
+        anyway must not put a date on a goal the view would refuse one for."""
+        Goal.objects.filter(pk=self.goal.pk).update(phase=Phase.VALIDATION)
+        self.chat()
+        self.assertIsNone(self.row().launch_date_offer)
+        self.assertEqual(self.row().launch_pond_offer, "")
+        self.assertEqual(LaunchCommitment.objects.count(), 0)
+
+    # --- an offer, never a record -------------------------------------------
+
+    def test_a_drafted_date_writes_no_row_ever(self):
+        """THE guard, and the reason this is not just another prefill.
+
+        LaunchCommitment is append-only and the trail is the whole consequence
+        — "declared the 24th, moved once, currently the 26th". A drafted date
+        that wrote a row would put a slip on that record which never happened,
+        and a second draft would put a second one there. So: draft, redraft,
+        redraft again, and the table is still empty.
+        """
+        self.chat()
+        self.chat(when=self.today + timedelta(days=20))
+        self.chat(when=self.today + timedelta(days=30), pond="PUBLIC")
+        self.assertEqual(LaunchCommitment.objects.count(), 0)
+        self.assertIsNone(_state_launch(self.client))
+
+    def test_the_draft_lands_on_the_goal_as_an_offer(self):
+        self.chat()
+        self.assertEqual(self.row().launch_date_offer, self.when)
+        self.assertEqual(self.row().launch_pond_offer, self.POND)
+
+    def test_the_card_is_handed_the_offer_beside_an_empty_record(self):
+        self.chat()
+        payload = self.client.get("/api/coach/state/").json()
+        self.assertEqual(
+            payload["launch_offer"],
+            {"date": self.when.isoformat(), "pond": self.POND},
+        )
+        self.assertIsNone(payload["launch"])
+
+    def test_a_later_draft_replaces_the_offer(self):
+        """The way declaration_offer is replaced. A builder who moved the day
+        mid-conversation should find the second answer in the box."""
+        self.chat()
+        later = self.today + timedelta(days=20)
+        self.chat(when=later, pond="PUBLIC")
+        self.assertEqual(self.row().launch_date_offer, later)
+        self.assertEqual(self.row().launch_pond_offer, "PUBLIC")
+
+    def test_a_later_draft_the_server_refuses_clears_the_earlier_one(self):
+        """Rather than leaving the first day sitting in the box under a
+        conversation that has moved on to a day the server will not take."""
+        self.chat()
+        self.chat(when=self.today - timedelta(days=1))
+        self.assertIsNone(self.row().launch_date_offer)
+        self.assertEqual(self.row().launch_pond_offer, "")
+
+    def test_the_offer_is_both_halves_or_nothing(self):
+        """Half a draft cannot be pressed — the Set button needs a day and a
+        room — so a rung that is not on the ladder takes the day down with it
+        rather than leaving a control that looks ready and isn't."""
+        self.chat(pond="LINKEDIN")
+        self.assertIsNone(self.row().launch_date_offer)
+        self.assertIsNone(self.client.get("/api/coach/state/").json()["launch_offer"])
+
+    def test_a_day_the_view_would_refuse_is_never_prefilled(self):
+        """The bounds the press applies, applied to what the press starts from.
+        Dropped rather than clamped: an over-long sentence is a draft a builder
+        can cut, but a nearer date the app picked is a default day in a box
+        designed to have none."""
+        for label, when in (
+            ("yesterday", self.today - timedelta(days=1)),
+            ("past MAX_DAYS_OUT", self.today + timedelta(days=200)),
+            ("not a date at all", "next Friday"),
+        ):
+            with self.subTest(label):
+                Goal.objects.filter(pk=self.goal.pk).update(
+                    launch_date_offer=None, launch_pond_offer=""
+                )
+                self.chat(when=when)
+                self.assertIsNone(self.row().launch_date_offer)
+
+    def test_a_draft_whose_day_has_since_been_stops_being_served(self):
+        """No `_date` stamp beside this one, unlike the morning's task: a day
+        named for Wednesday is exactly as good on Tuesday. What goes stale is
+        the day itself, and the box must not open holding one the press would
+        turn away."""
+        self.chat()
+        Goal.objects.filter(pk=self.goal.pk).update(
+            launch_date_offer=self.today - timedelta(days=1)
+        )
+        self.assertIsNone(self.client.get("/api/coach/state/").json()["launch_offer"])
+
+    def test_a_draft_is_not_served_once_the_box_is_gone(self):
+        self.chat()
+        Goal.objects.filter(pk=self.goal.pk).update(phase=Phase.TRACTION)
+        payload = self.client.get("/api/coach/state/").json()
+        self.assertFalse(payload["can_set_launch"])
+        self.assertIsNone(payload["launch_offer"])
+
+    # --- the press, unchanged, and still re-validating everything -----------
+
+    def test_the_press_is_what_writes_the_row(self):
+        """The chat is a route to the box, not a second way onto the record.
+        LaunchDateView is still the only writer of a LaunchCommitment."""
+        self.chat()
+        response = self.press()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(LaunchCommitment.objects.count(), 1)
+        self.assertEqual(_state_launch(self.client)["date"], self.when.isoformat())
+
+    def test_pressing_spends_the_draft(self):
+        """What they pressed is on the record now. A draft left beside it is an
+        alternative to a decision already made — and a stale draft must not
+        resurface the next time they open the box to move the day."""
+        self.chat()
+        self.press()
+        self.assertIsNone(self.row().launch_date_offer)
+        self.assertEqual(self.row().launch_pond_offer, "")
+
+    def test_the_offer_buys_no_bypass_of_a_past_date(self):
+        """An offer sitting on the goal changes nothing about what the view
+        will take. The box is an editable control, so what it posts need not be
+        what the coach drafted — and the press re-checks all of it."""
+        self.chat()
+        response = self.press(when=self.today - timedelta(days=2))
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("already been", response.json()["detail"])
+        self.assertEqual(LaunchCommitment.objects.count(), 0)
+
+    def test_the_offer_buys_no_bypass_of_max_days_out(self):
+        self.chat()
+        response = self.press(
+            when=self.today + timedelta(days=views.LaunchDateView.MAX_DAYS_OUT + 1)
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(LaunchCommitment.objects.count(), 0)
+
+    def test_the_offer_buys_no_bypass_of_the_ladder(self):
+        self.chat()
+        response = self.press(pond="LINKEDIN")
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(LaunchCommitment.objects.count(), 0)
+
+    def test_the_offer_buys_no_bypass_of_the_phase(self):
+        Goal.objects.filter(pk=self.goal.pk).update(
+            launch_date_offer=self.when,
+            launch_pond_offer=self.POND,
+            phase=Phase.IDEA,
+        )
+        response = self.press()
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(LaunchCommitment.objects.count(), 0)
+
+    def test_the_offer_buys_no_bypass_of_the_same_answer_dedupe(self):
+        """A second press of a day already on the record is not a move, offer
+        or no offer. A row for it would be exactly the invented slip this whole
+        change is built to avoid."""
+        self.press()
+        self.chat()
+        response = self.press()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(LaunchCommitment.objects.count(), 1)
+        self.assertEqual(_state_launch(self.client)["moves"], 0)
+        self.assertIsNone(self.row().launch_date_offer)
+
+    def test_a_refused_press_keeps_the_draft(self):
+        """The builder's own words are the best starting point for the
+        correction. Clearing them would answer "that day has already been" with
+        an empty box."""
+        self.chat()
+        self.press(when=self.today - timedelta(days=2))
+        self.assertEqual(self.row().launch_date_offer, self.when)
+
+    def test_the_typed_box_still_works_with_no_chat_at_all(self):
+        """#277's Availability rule: a conversational path is an ADDITIONAL
+        route to a write, never the only one. A throttle, a provider outage or
+        a bad payload must never be why a builder cannot commit to a date — and
+        the suite stubs every model call to raise, so this is that day."""
+        self.assertEqual(self.press().status_code, 200)
+        self.assertEqual(LaunchCommitment.objects.count(), 1)
+        self.assertIsNone(self.row().launch_date_offer)
+
+    def test_nothing_about_the_gate_reads_any_of_it(self):
+        """PROOFS_REQUIRED and gates.py do not know LaunchCommitment exists,
+        and nothing here changes that — for the offer either."""
+        before = gates.gate_status(self.goal)
+        self.chat()
+        self.assertEqual(gates.gate_status(self.row()), before)
+        self.press()
+        self.assertEqual(gates.gate_status(self.row()), before)
+
+    # --- not a wordless turn ------------------------------------------------
+
+    def test_a_turn_that_only_wrote_it_down_still_says_something(self):
+        """#270 / #310: the draft arrives alongside an answer, never instead of
+        one. A builder who just said "the 12th, to the rooms" and got a blank
+        screen back has been answered by a box on the other pane."""
+        self.chat(
+            events=[
+                (
+                    "tool_call",
+                    {
+                        "name": "suggest_launch_date",
+                        "arguments": {
+                            "date": self.when.isoformat(),
+                            "pond": self.POND,
+                        },
+                    },
+                )
+            ]
+        )
+        row = Message.objects.filter(role=Message.Role.COACH).get()
+        self.assertEqual(row.content, guidance.LAUNCH_DATE_LANDED)
+
+    def test_the_receipt_says_nothing_is_committed_yet(self):
+        """The receipt that has to be most careful about what it claims: this
+        one sits beside an append-only record whose point is that a named date
+        is on the trail."""
+        self.assertIn("Nothing's committed until you do", guidance.LAUNCH_DATE_LANDED)
+        self.assertIn("press Set", guidance.LAUNCH_DATE_LANDED)
+
+    def test_a_dropped_draft_gets_no_receipt(self):
+        """A receipt for a draft that was never written is the app telling the
+        builder to go and press something that is not in the box."""
+        self.chat(
+            when=self.today - timedelta(days=1),
+            events=[
+                (
+                    "tool_call",
+                    {
+                        "name": "suggest_launch_date",
+                        "arguments": {
+                            "date": (self.today - timedelta(days=1)).isoformat(),
+                            "pond": self.POND,
+                        },
+                    },
+                )
+            ],
+        )
+        self.assertNotIn(
+            guidance.LAUNCH_DATE_LANDED,
+            [m.content for m in Message.objects.all()],
+        )
+
+    # --- what the model is told ---------------------------------------------
+
+    def test_the_tool_says_it_commits_nothing(self):
+        description = prompts.SUGGEST_LAUNCH_DATE_TOOL["function"]["description"]
+        self.assertIn("COMMITS NOTHING", description)
+        self.assertIn("they press Set", description)
+
+    def test_the_tool_forbids_choosing_the_date_itself(self):
+        """The box has no default day and no placeholder on purpose — a date
+        the app chose is not one anybody committed to — and a model that
+        suggests a Friday and writes it down in the same breath has handed the
+        default back. Coaching toward a date is chat; choosing one is not the
+        tool's to do."""
+        description = prompts.SUGGEST_LAUNCH_DATE_TOOL["function"]["description"]
+        self.assertIn("named a day THEMSELVES", description)
+        self.assertIn("never a date you picked for them", description)
+
+    def test_the_ladder_in_the_schema_is_the_playbooks_own(self):
+        """Served from LaunchCommitment.Pond rather than typed out again — a
+        builder inventing a fifth rung is a builder avoiding the four, and a
+        second copy of the four would drift."""
+        pond = prompts.SUGGEST_LAUNCH_DATE_TOOL["function"]["parameters"]["properties"][
+            "pond"
+        ]
+        self.assertEqual(pond["enum"], list(LaunchCommitment.Pond.values))
