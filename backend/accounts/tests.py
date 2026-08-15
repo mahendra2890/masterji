@@ -35,8 +35,8 @@ from coach.models import (
     WorkshopMessage,
 )
 
-from . import erasure
-from .middleware import KEY_PREFIX
+from . import erasure, middleware
+from .middleware import KEY_PREFIX, ForwardedHeaderLogMiddleware
 from .models import PushSubscription, User
 from .views import ThrottledTokenObtainPairView
 
@@ -672,3 +672,176 @@ class AppAuthCookiesAreUnchangedTests(APITestCase):
                 # keep the cookie off localhost — `secure = not DEBUG` is the
                 # rule, and it is the rule this test is protecting.
                 self.assertFalse(morsel["secure"])
+
+
+def _num_proxies(n):
+    """`REST_FRAMEWORK` with NUM_PROXIES swapped, whole — DRF reloads its own
+    settings from the entire dict on setting_changed, so a partial override
+    would quietly drop every throttle rate along with it."""
+    return override_settings(REST_FRAMEWORK={**settings.REST_FRAMEWORK, "NUM_PROXIES": n})
+
+
+class AnonymousThrottlesKeyOnAForgeableHeaderTests(APITestCase):
+    """What the ceilings on anonymous callers are actually keyed on.
+
+    With `NUM_PROXIES` unset — which is the deployment as it stands — DRF's
+    `get_ident` returns the WHOLE `X-Forwarded-For` header, the client's own
+    prefix included. So a caller who varies that header gets a fresh bucket
+    every request and meets no ceiling at all (#255).
+
+    The scope exercised here is `login`, not `changelog`, and deliberately:
+    the issue was filed about two cheap public reads, but the same function
+    keys the ceiling in front of the one password in this deployment that
+    opens the admin. Both halves of that ceiling are below — DRF's, and the
+    admin middleware's, which calls `get_ident` by hand.
+
+    Neither of these tests asserts a proxy count. Which number is right is a
+    property of the deployment, measured from a real request; what is pinned
+    here is that the mechanism does what it is supposed to once somebody has
+    measured it, and that it does nothing while nobody has.
+    """
+
+    # What Django sees when a client forges a prefix and two proxies then
+    # append: the attacker's invention first, then the address the first proxy
+    # actually received the request from, then the hop after it. With
+    # NUM_PROXIES=2 the middle entry is the one that counts, and it is the one
+    # the client cannot write.
+    FORGED = "203.0.113.{}, 198.51.100.1, 10.0.0.9"
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+    def _guess(self, forwarded_for):
+        return self.client.post(
+            reverse("token_obtain_pair"),
+            {"username": "rootadmin", "password": "wrong"},
+            format="json",
+            HTTP_X_FORWARDED_FOR=forwarded_for,
+        )
+
+    def test_the_setting_is_absent_until_somebody_has_measured_it(self):
+        """Pinned so a number cannot arrive by tidying.
+
+        Getting it wrong is expensive in both directions — too high and the
+        client forges the trusted position back, too low and every visitor
+        behind the proxy shares one bucket, which is one attacker refusing
+        everybody. config/settings.py carries the measurements taken so far
+        and what is still missing.
+        """
+        self.assertIsNone(settings.REST_FRAMEWORK["NUM_PROXIES"])
+
+    def test_unset_means_the_client_writes_its_own_throttle_key(self):
+        """The finding, pinned rather than described. Five guesses against a
+        ceiling of three, one unchanging attacker behind them, and not one
+        refusal — because the whole header is the key and the attacker writes
+        part of the header."""
+        with (
+            _num_proxies(None),
+            mock.patch.dict(ScopedRateThrottle.THROTTLE_RATES, {"login": "3/hour"}),
+        ):
+            codes = [self._guess(self.FORGED.format(i)).status_code for i in range(5)]
+        self.assertEqual(codes, [401] * 5)
+
+    def test_a_measured_count_takes_the_key_away_from_the_client(self):
+        """The same five requests, with the count the deployment has yet to
+        measure standing in as 2: the forged prefix stops being read and the
+        address a proxy actually observed is what counts, so the ceiling
+        arrives on the fourth."""
+        with (
+            _num_proxies(2),
+            mock.patch.dict(ScopedRateThrottle.THROTTLE_RATES, {"login": "3/hour"}),
+        ):
+            codes = [self._guess(self.FORGED.format(i)).status_code for i in range(5)]
+        self.assertEqual(codes, [401, 401, 401, 429, 429])
+
+    def test_a_different_client_still_gets_its_own_bucket(self):
+        """The other direction, and the one that would be invisible: a count
+        set too high keys everybody onto a shared hop, so one refused attacker
+        refuses every anonymous visitor along with them."""
+        with (
+            _num_proxies(2),
+            mock.patch.dict(ScopedRateThrottle.THROTTLE_RATES, {"login": "3/hour"}),
+        ):
+            for _ in range(4):
+                self._guess("203.0.113.9, 198.51.100.1, 10.0.0.9")
+            # Somebody else, arriving through the same proxies.
+            other = self._guess("203.0.113.9, 198.51.100.77, 10.0.0.9")
+        self.assertEqual(other.status_code, 401)
+
+
+@override_settings(
+    STORAGES={
+        "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+        "staticfiles": {
+            "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"
+        },
+    },
+    ADMIN_LOGIN_MAX_FAILURES=3,
+)
+class AdminLoginCeilingKeysOnTheSameIdentTests(TestCase):
+    """The admin half of the same finding. `AdminLoginThrottleMiddleware` calls
+    `BaseThrottle().get_ident` itself, so `NUM_PROXIES` moves it too — which is
+    the reason that setting is not a knob affecting two public reads."""
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+        User.objects.create_superuser(
+            username="rootadmin", email="root@example.com", password="c0rrect-horse"
+        )
+
+    FORGED = "203.0.113.{}, 198.51.100.1, 10.0.0.9"
+
+    def _guess(self, forwarded_for):
+        return self.client.post(
+            reverse("admin:login"),
+            {"username": "rootadmin", "password": "wrong", "next": "/admin/"},
+            HTTP_X_FORWARDED_FOR=forwarded_for,
+        )
+
+    def test_unset_lets_a_guessing_run_rotate_past_the_wall(self):
+        with _num_proxies(None):
+            codes = [self._guess(self.FORGED.format(i)).status_code for i in range(5)]
+        # 200 is Django's admin re-rendering its form: a wrong password that
+        # was answered rather than refused.
+        self.assertEqual(codes, [200] * 5)
+
+    def test_a_measured_count_walls_the_same_run_off(self):
+        with _num_proxies(2):
+            codes = [self._guess(self.FORGED.format(i)).status_code for i in range(5)]
+        self.assertEqual(codes, [200, 200, 200, 429, 429])
+
+
+class ForwardedHeaderLoggingTests(SimpleTestCase):
+    """The instrument that would settle the count, and the fact that it is off.
+
+    It writes client addresses to the log, so "off by default" is the whole of
+    its safety and is worth a test rather than a reading of the settings file.
+    """
+
+    def _call(self, **extra):
+        request = RequestFactory().get("/api/health/", **extra)
+        return ForwardedHeaderLogMiddleware(lambda r: HttpResponse("ok"))(request)
+
+    def test_it_says_nothing_unless_it_is_switched_on(self):
+        with (
+            override_settings(LOG_FORWARDED_HEADERS=False),
+            mock.patch.object(middleware.logger, "info") as logged,
+        ):
+            self.assertEqual(self._call().status_code, 200)
+        logged.assert_not_called()
+
+    def test_switched_on_it_prints_the_header_it_was_asked_about(self):
+        """The RAW header, not a count of it — the count is the thing in
+        question, and a middleware that reported its own answer would be the
+        same guess this setting exists to avoid making."""
+        with (
+            override_settings(LOG_FORWARDED_HEADERS=True),
+            mock.patch.object(middleware.logger, "info") as logged,
+        ):
+            self._call(HTTP_X_FORWARDED_FOR="203.0.113.7, 10.0.0.9")
+        self.assertIn("203.0.113.7, 10.0.0.9", logged.call_args.args)
+
+    def test_the_default_is_off(self):
+        self.assertFalse(settings.LOG_FORWARDED_HEADERS)

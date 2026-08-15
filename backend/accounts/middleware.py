@@ -37,6 +37,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.http import HttpResponse
 from django.urls import NoReverseMatch, reverse
+from loguru import logger
 from rest_framework.throttling import BaseThrottle
 
 KEY_PREFIX = "admin-login-failures"
@@ -79,6 +80,41 @@ class AdminLoginThrottleMiddleware:
                 # The key expired between the add and the incr — start again.
                 cache.set(key, 1, window)
         return response
+
+
+class ForwardedHeaderLogMiddleware:
+    """The instrument for `NUM_PROXIES`, off unless somebody switches it on.
+
+    `config/settings.py` declines to guess how many proxies append to
+    `X-Forwarded-For` in front of this process, because guessing wrong in
+    either direction breaks a ceiling — too high and a client forges the
+    trusted position back, too low and every visitor behind the proxy shares
+    one bucket. The only thing that settles it is the raw header from a real
+    request, and there was no way to see one from inside the repository.
+
+    So: set `LOG_FORWARDED_HEADERS=1`, load one page through the public
+    domain, read the line, count the addresses the proxies appended, set
+    `DRF_NUM_PROXIES`, and set this back to 0.
+
+    It logs the whole header rather than a count, because the count is the
+    thing in question. That means client addresses in a log line, which is why
+    this is off by default and why the instruction above ends with turning it
+    off again — it is a measurement, not telemetry.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        if settings.LOG_FORWARDED_HEADERS:
+            logger.info(
+                "forwarded-headers path={} xff={!r} remote_addr={!r} ident={!r}",
+                request.path,
+                request.META.get("HTTP_X_FORWARDED_FOR"),
+                request.META.get("REMOTE_ADDR"),
+                BaseThrottle().get_ident(request),
+            )
+        return self.get_response(request)
 
 
 def _login_path() -> str:
