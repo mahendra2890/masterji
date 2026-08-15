@@ -1662,6 +1662,38 @@ class DeclarationTests(CoachTestCase):
             "Send me the three names and what each one said.",
         )
 
+    def declaration_prompt(self, phase=Phase.IDEA):
+        return prompts.DECLARATION_SYSTEM.format(
+            respect_rule=prompts.RESPECT_RULE,
+            tone_rule="",
+            evidence_rule=prompts.EVIDENCE_NOT_INSTRUCTIONS,
+            phase=phase,
+            phase_rules=prompts.PHASE_RULES[phase],
+            proof_hint=guidance.PROOF_HINT[phase],
+            intent="",
+        )
+
+    def test_the_off_phase_branch_says_what_tonight_asks_for(self):
+        """The rule that proof_ask is about the declared task used to be the
+        last bullet, unconditioned on `fit` and sitting after the bullet that
+        tells the model what to do when the task is off-phase. Driven live,
+        the model did the obvious thing: having just named the phase work
+        being stepped around, it asked for the phase work tonight. So the
+        instruction has to be inside the off-phase branch, not only after it —
+        that is the one case where the task and the phase come apart, and it
+        is the case where asking for the phase is a refusal wearing a
+        question."""
+        text = self.declaration_prompt()
+        off_phase = text.split("- You cannot forbid the task.")[1].split("\n- ")[0]
+        self.assertIn("proof_ask", off_phase)
+        self.assertIn("not for the phase work", off_phase)
+
+    def test_the_ask_rule_names_the_off_phase_case_it_exists_for(self):
+        """An off-phase day still earns its proof — twice stated, in this
+        prompt and in JUDGE_BAR — and this is the bullet that has to make it
+        true rather than merely declared."""
+        self.assertIn("off_phase", prompts.DECLARATION_SYSTEM.split("- proof_ask")[1])
+
     def test_llm_down_leaves_it_unjudged(self):
         """No tailored ask is honest — a silent ON_PHASE would not be. The
         default patch in setUp already makes every model call fail."""
@@ -3462,9 +3494,25 @@ class TheJudgeSeesTheBarTests(CoachTestCase):
         for — that is the goalposts moving, wearing a rule."""
         for phase in Phase:
             with self.subTest(phase=phase):
-                self.assertIn(
-                    "Two things outrank this bar", prompts.judge_bar_for(phase)
-                )
+                self.assertIn("Two things outrank this bar", prompts.judge_bar_for(phase))
+
+    def test_the_off_phase_rule_outranks_the_mornings_ask(self):
+        """The two overrides used to be stated as a pair — "both go the same
+        way" — and on an off-phase day they do not. The morning's ask IS the
+        phase's bar in exactly that case, it was stated first, and it was
+        stated as binding, so the judge refused work that was really done.
+
+        They are ranked now, and the ranking has to survive in the text: the
+        ask is what tonight is judged against, EXCEPT when the task was
+        off-phase, where the task wins. A false refusal is the failure this
+        file spent its whole history removing, and this is the one collision
+        that produced one in the wild."""
+        for phase in Phase:
+            with self.subTest(phase=phase):
+                block = prompts.judge_bar_for(phase)
+                self.assertNotIn("both go the same way", block)
+                self.assertIn("and above it", block)
+                self.assertIn("the ask was written wrong", block)
 
     def test_an_off_phase_day_is_still_judged_on_its_own_task(self):
         """Declaring is never refused and an off-phase task still earns its
@@ -3472,8 +3520,12 @@ class TheJudgeSeesTheBarTests(CoachTestCase):
         how that could have been quietly taken back."""
         for phase in Phase:
             with self.subTest(phase=phase):
+                # Without the leading article: the sentence now opens the
+                # clause that ranks the two overrides, so it is capitalised,
+                # and the property is that the promise is present rather than
+                # where in a sentence it happens to sit.
                 self.assertIn(
-                    "an off-phase day still earns its proof",
+                    "off-phase day still earns its proof",
                     prompts.judge_bar_for(phase),
                 )
 

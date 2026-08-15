@@ -779,15 +779,20 @@ Rules:
 - You cannot forbid the task. They are allowed to spend their day how they like, \
 and an off-phase task still earns its proof tonight. If it's off-phase, say so \
 plainly, name the phase work they are stepping around, and move on — one or two \
-sentences, no sermon.
+sentences, no sermon. Then write proof_ask for the task they DECLARED, not for \
+the phase work you have just named. You have already said the detour costs them \
+the phase; asking them to bring the phase's work tonight charges for it twice, \
+and it is a refusal wearing a question.
 - If it's on-phase, keep the reaction empty or to a single sharpening sentence \
 (what would make the task more specific). Don't praise a declaration — nothing \
 has been done yet — but don't manufacture a complaint to avoid praising one \
 either. A task that is already the right size and specific enough earns an \
 empty reaction, and an empty reaction is the compliment.
-- proof_ask is about the task they actually declared, not the phase in general. \
-If they said they'd talk to three shopkeepers, ask for the three names and what \
-each one said — not a generic "notes from a conversation"."""
+- proof_ask is about the task they actually declared, not the phase in general \
+— and hardest of all when fit is off_phase, which is the one case where the two \
+come apart. If they said they'd talk to three shopkeepers, ask for the three \
+names and what each one said — not a generic "notes from a conversation". If \
+they declared build work in IDEA, ask for the thing they said they would build."""
 
 # What the builder was TOLD would count, in the room where it is decided.
 #
@@ -815,6 +820,22 @@ each one said — not a generic "notes from a conversation"."""
 # the task. A bar arriving in the judging room must not become a new way to
 # refuse work that was actually done — false refusals are the failure this file
 # spent its whole history removing.
+#
+# Those two guards are RANKED, and they did not used to be. They were written as
+# a pair — "both go the same way" — which is true on every day except the one
+# they both exist for. On an off-phase day the tailored ask IS the phase's bar,
+# because DECLARATION_SYSTEM had just written it that way, and the ask was
+# stated first and stated as binding. So the judge did what it was told and
+# refused work that was really done: declared a Postgres schema and a deployed
+# skeleton in IDEA, did it, filed it, and got PUSHED_BACK for not bringing the
+# problem paragraph. Reproduced on a second account with a different detour.
+#
+# Both halves of that are fixed, and the fix is deliberately in both places
+# rather than only the cheaper one. DECLARATION_SYSTEM's off-phase branch now
+# says what to ask for, so the wrong ask should not be written; this prompt now
+# ranks the overrides and says plainly what to do when it was written anyway.
+# The morning's judgement is one model call and it will get this wrong again —
+# the evening must not be defenceless when it does.
 JUDGE_BAR = """WHAT THE BUILDER WAS TOLD WOULD COUNT IN THIS PHASE — the same words the app \
 shows them under the proof box, and the standard they were working to today:
 {proof_hint}
@@ -827,12 +848,16 @@ they are not a checklist to tick: the same facts in their own words, in any \
 order, scattered through a scruffy paragraph, clear them. You may not ask for \
 more than this because you can picture a better version of it.
 
-Two things outrank this bar, and both go the same way. If there is a tailored \
-ask below — what you told them this morning to bring — that is what tonight is \
-judged against, and nothing here raises it. And if the task they declared was \
-not this phase's work, judge the proof against THAT task: an off-phase day \
-still earns its proof, and what makes the detour cost something is the phase \
-gate, not you."""
+Two things outrank this bar, and they are ranked against each other. First: if \
+there is a tailored ask below — what you told them this morning to bring — that \
+is what tonight is judged against, and nothing here raises it. Second, and \
+above it: if the task they declared was not this phase's work, judge the proof \
+against THAT task. An off-phase day still earns its proof, and what makes the \
+detour cost something is the phase gate, not you.
+
+So when this morning's ask describes the phase's work rather than the task they \
+actually declared, the ask was written wrong. Judge what they declared and what \
+they did, and do not hold them to it."""
 
 # The line between a gate that means something and a gate that is a spelling
 # test. The bar above describes what evidence has to CONTAIN; a builder who did
