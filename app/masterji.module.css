@@ -1817,6 +1817,48 @@
   opacity: 0.5;
 }
 
+/* `Request phase advance` while the phase has banked nothing. Quiet, because on
+   a builder's first morning it is the card's only control and the only thing it
+   can produce is a refusal — and still 44px, because it is the forward move and
+   a builder aims at it. It borrowed `.retireLink` to get the quiet, and
+   inherited that class's exemption from the floor along with it: 28.5px, which
+   is less than the 34px it had before the floor was ever applied.
+
+   Its own class rather than a `min-height` on `.retireLink`, because the two
+   are not the same kind of control and because `.retireLink` carries
+   `margin: 6px -10px 0` — the reason the floor was applied there as height only
+   and then given up: negative side margins overlap the rename box's 8px gap and
+   overflow the retire row. Nothing here has that history, so the height comes
+   from `min-height` with the padding rebalanced away entirely: no side padding
+   at all, so the underline still starts at the card's left edge without needing
+   to be pulled back, and no vertical padding either, so the 44px is the box and
+   the text centres in it. `fit-content` for the same reason `.retireLink` wants
+   it — a quiet link that lights up across the whole card reads much louder than
+   it is.
+
+   The underline and the muted colour stay, because they are the signature of
+   quiet in this card and quiet is the part worth keeping. What stops being
+   shared is the class, not the look. */
+.advanceLink {
+  display: flex;
+  align-items: center;
+  width: fit-content;
+  min-height: 44px;
+  margin: 0;
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.advanceLink:hover {
+  color: var(--text);
+}
+
 /* --- retiring a goal -------------------------------------------------------------------------- */
 
 /* The way out of a goal, and it was a 15px-tall target — the smallest thing on
@@ -1825,7 +1867,16 @@
    card's left edge and the gap above it is the 14px it always was. `fit-content`
    because a block-level button with negative side margins would otherwise take
    the full row, and a quiet link that lights up across the whole card on hover
-   reads as something much louder than it is. */
+   reads as something much louder than it is.
+
+   The 44px floor does not apply here, and that is a decision rather than an
+   oversight. This class is the signature of the exits — the two doors out of a
+   goal, and the way back from the reopened room — and 29px is the weight they
+   are meant to carry: a mis-tap on one of them opens a box you can close, and
+   the loudest thing on the card must stay the day's work. The floor was written
+   for the controls a builder aims at, which these are not. The forward move
+   used to borrow this class and it does aim at the floor; it has its own now,
+   `.advanceLink` above, which is where that reasoning lives. */
 .retireLink {
   display: block;
   width: fit-content;

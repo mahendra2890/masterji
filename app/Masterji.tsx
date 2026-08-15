@@ -2556,10 +2556,18 @@ export default function Masterji({ user }: { user: SessionUser }) {
                         `have === 0` rather than "below the bar": a builder at
                         1/3 has evidence on the record and a real question about
                         what is left, and the refusal at 2/3 names WHICH piece is
-                        missing, which is worth a button. */}
+                        missing, which is worth a button.
+
+                        Quiet is where it stops. `.advanceLink`, not
+                        `.retireLink`: it took the exits' class to get the look
+                        and took their exemption from the 44px floor with it,
+                        which left the forward move a 28.5px target on the one
+                        morning it is the only thing on the card. It looks the
+                        same and it is 44px again. `.retireLink` is the two
+                        doors' own class, and this is not a door. */}
                     <button
                       className={
-                        gate.have === 0 ? styles.retireLink : styles.secondaryBtn
+                        gate.have === 0 ? styles.advanceLink : styles.secondaryBtn
                       }
                       disabled={busy}
                       onClick={onAdvance}
