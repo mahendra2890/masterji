@@ -109,10 +109,12 @@ describe("gateKey", () => {
   });
 
   it("moves when the goal does, even into the same phase at the same count", () => {
-    // The component survives a goal ending — retiring takes the render down the
-    // no-goal branch without unmounting. Without the id, a refusal left over
-    // from the last idea would match a brand-new goal standing in IDEA at 0
-    // proofs and greet it with a refusal it never earned.
+    // Without the id, a refusal left over from the last idea would match a
+    // brand-new goal standing in IDEA at 0 proofs and greet it with a refusal
+    // it never earned. That was reachable in one step while the whole app was
+    // one component — retiring took the render down the no-goal branch without
+    // unmounting. <Dashboard /> owns `gateNote` now and dies with the goal, so
+    // this pins a second line of defence; see gateKey's own note.
     const dead = { goal: { id: 7, phase: "IDEA" as const }, gate: { have: 0, banked: 0 } };
     const fresh = { goal: { id: 8, phase: "IDEA" as const }, gate: { have: 0, banked: 0 } };
     expect(gateKey(dead)).not.toBe(gateKey(fresh));

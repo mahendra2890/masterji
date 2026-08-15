@@ -4,9 +4,21 @@
 // pre-goal room on the onboarding screen, and this goal's one reopening on the
 // dashboard.
 
-import type { RefObject } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ComponentProps,
+  type RefObject,
+} from "react";
+import { fitBox } from "@/lib/fit-box";
+import { pinLog } from "@/lib/log-pin";
 import { isSendKey } from "@/lib/send-key";
-import type { Workshop as WorkshopRoom } from "@/lib/coach-api";
+import {
+  streamWorkshopChat,
+  type Workshop as WorkshopRoom,
+} from "@/lib/coach-api";
 import styles from "./masterji.module.css";
 
 /** The room, drawn once for both of the screens that can hold one.
@@ -236,4 +248,168 @@ export default function Workshop({
       )}
     </section>
   );
+}
+
+/** Everything the room reaches out of its parent for, in one type. The parent
+ * holds it — see useRoom — because the room is the one block both screens
+ * draw, and the two screens now unmount each other. */
+export type RoomProps = Omit<ComponentProps<typeof Workshop>, "reopened">;
+
+/* --- the room's own state ------------------------------------------------- */
+
+/** Said when the workshop turns away a fourth candidate. The cap is server
+ * code (Workshop.MAX_CANDIDATES), and this is the only thing the refetch after
+ * the turn cannot say: the builder watched a suggestion not appear, and silence
+ * there reads as the app having dropped their idea rather than having refused
+ * it on purpose. */
+const REFUSED_PARK =
+  "Three is the limit — nothing else got parked. Drop one of these or pick one.";
+
+/** Everything the room needs from the client side, in one hook.
+ *
+ * It is called by the PARENT rather than by either screen, and that placement
+ * is the point of it. The room is the one block both screens draw — the
+ * pre-goal room on the onboarding screen and this goal's one reopening on the
+ * dashboard — and the two screens now unmount each other. State held inside
+ * either of them would be state the other cannot see: `wsDraft` in particular
+ * survives a goal being committed and another being retired (the composer's
+ * own comment below has always said so), and it can only go on doing that from
+ * above the branch that swaps the screens.
+ *
+ * That is also why this is a hook and not a third component. The parent is
+ * above both early returns, so calling it there is legal — and it is the only
+ * place from which one room's box is the same box on both screens.
+ */
+export function useRoom({
+  refresh,
+  logLength,
+  shown,
+}: {
+  /** Re-read the dashboard payload once a turn has settled. */
+  refresh: () => Promise<unknown>;
+  /** How many turns the server is holding for this room, so the log can be
+   * pinned to the newest one when a reply lands. */
+  logLength: number | undefined;
+  /** Any value whose change may have made the composer visible — the phone's
+   * pane, on the dashboard. The box is measured through `offsetParent`, so one
+   * mounted inside a display:none pane cannot be sized until the pane shows,
+   * and nothing else would re-run the fit at that moment. */
+  shown?: unknown;
+}) {
+  const [wsDraft, setWsDraft] = useState("");
+  const [wsStreaming, setWsStreaming] = useState<string | null>(null);
+  const [wsPending, setWsPending] = useState<string | null>(null);
+  const [wsError, setWsError] = useState("");
+  const wsBoxRef = useRef<HTMLTextAreaElement>(null);
+  // The room's log, so it can be pinned to the newest turn the way the chat's is.
+  const wsLogRef = useRef<HTMLDivElement>(null);
+
+  // The pin for the room's log, which never had one. That log is a 320px
+  // window (.workshopLog) on a conversation the server lets run to
+  // WORKSHOP_TURNS turns (twenty, and it has moved once), so at rest it opened
+  // on the OLDEST three: a builder reopening the tab was shown "I don't have an
+  // idea yet." as the most recent thing said, with the tiebreak they came back
+  // for nearly three screens down inside it — and the tiebreak is the room's
+  // whole output, the thing `suggest_goal` is grounded in.
+  //
+  // Which end of the newest turn gets pinned is lib/log-pin.ts, and the
+  // arithmetic lives there because it is the same question for both logs.
+  //
+  // `wsPending` counts as arriving, not settled: it is the builder's own line,
+  // shown the moment they press send, and the reply is about to land under it.
+  useEffect(() => {
+    pinLog(wsLogRef.current, wsStreaming !== null || wsPending !== null);
+  }, [logLength, wsStreaming, wsPending]);
+
+  const fitRoom = useCallback(() => {
+    fitBox(wsBoxRef.current, wsLogRef.current);
+  }, []);
+
+  // The composer is the height of what's in it — the arithmetic and the reason
+  // the log is re-pinned with it are in lib/fit-box. `shown` because a box
+  // mounted inside a display:none pane has nothing to measure until the pane
+  // shows; window resize because how many lines a paragraph wraps to is a
+  // function of width, and a phone turned on its side re-wraps every one.
+  useEffect(() => {
+    fitRoom();
+  }, [wsDraft, shown, fitRoom]);
+
+  useEffect(() => {
+    window.addEventListener("resize", fitRoom);
+    return () => window.removeEventListener("resize", fitRoom);
+  }, [fitRoom]);
+
+  // Fit the box when it attaches, not only when the draft changes. The room
+  // mounts and unmounts constantly — the whole no-goal screen goes the moment a
+  // goal is committed and comes back when one is retired, and the reopened room
+  // is behind a link on the dashboard — while `wsDraft` outlives every one of
+  // those, because it is held here rather than in either screen. So the box can
+  // come back holding five lines with the one row `rows` gives a fresh element,
+  // and nothing above would re-run: none of that effect's deps changed. It
+  // would sit a row tall, hiding a draft the builder never lost, until the next
+  // keystroke.
+  const attachWsComposer = useCallback((el: HTMLTextAreaElement | null) => {
+    wsBoxRef.current = el;
+    if (el) fitBox(el, wsLogRef.current);
+  }, []);
+
+  /** Say something in the workshop — the room before the goal.
+   *
+   * Its own sender rather than a branch inside the chat's `send`: the two
+   * endpoints refuse each other by design (chat 400s without a goal, this one
+   * 400s with one), so a single function would spend its life deciding which
+   * product it is in. The cap's refusal arrives as a 429 whose detail is the
+   * coach's own sentence, and it goes in the same place as any other refusal
+   * here. It reads as a notice rather than a fault because the calm version is
+   * already under it: by the time this fires, the refetch has zeroed the meter
+   * and swapped the composer for the closed-room line. The banner stays because
+   * the hourly throttle arrives down this same path and is a genuinely
+   * different thing — one says the room is done, the other says come back in a
+   * bit. */
+  const sendWorkshop = async (retryOf?: string) => {
+    const content = (retryOf ?? wsDraft).trim();
+    if (!content || wsStreaming !== null) return;
+    if (retryOf === undefined) setWsDraft("");
+    setWsError("");
+    setWsPending(content);
+    setWsStreaming("");
+    let spoke = false;
+    try {
+      await streamWorkshopChat(content, {
+        onDelta: (text) => {
+          spoke = true;
+          setWsStreaming((s) => (s ?? "") + text);
+        },
+        // The cards are read off the refetch that ends this turn, the same way
+        // the evening's draft is: one source of truth, and a card that only
+        // existed in the stream can't vanish under the builder's finger. What
+        // this handles is the one thing the refetch cannot say — that a fourth
+        // candidate was turned away.
+        onCandidates: ({ refused }) => {
+          if (refused) setWsError(REFUSED_PARK);
+        },
+        onError: (detail) => {
+          if (spoke) setWsError(detail);
+        },
+      });
+    } catch (e) {
+      setWsError(e instanceof Error ? e.message : "Something broke.");
+    } finally {
+      await refresh();
+      setWsPending(null);
+      setWsStreaming(null);
+    }
+  };
+
+  return {
+    wsDraft,
+    wsStreaming,
+    wsPending,
+    wsError,
+    wsLogRef,
+    wsBoxRef,
+    attachWsComposer,
+    setWsDraft,
+    sendWorkshop: () => void sendWorkshop(),
+  };
 }
