@@ -14,6 +14,7 @@ import NudgeSwitch from "@/components/NudgeSwitch";
 import ClosedIdea from "./ClosedIdea";
 import DashboardShell from "./DashboardShell";
 import DayDetail from "./DayDetail";
+import Workshop from "./Workshop";
 import { updatePrefs, type SessionUser } from "@/lib/auth-client";
 import { useDialogFocus } from "@/lib/dialog-focus";
 import { readDraft, writeDraft } from "@/lib/drafts";
@@ -28,6 +29,7 @@ import {
 import { commitIsLoud, gateKey, isEarned } from "@/lib/gate";
 import { pinLog } from "@/lib/log-pin";
 import { saidBefore } from "@/lib/messages";
+import { isSendKey } from "@/lib/send-key";
 import {
   anyRepeat as anyRepeatIn,
   cycleOrdinals,
@@ -124,48 +126,6 @@ const METRIC_NAME_MAX = 60;
 
 const formatDate = (iso: string) =>
   new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short" });
-
-/** Whether the return key should send the reply, or make a line.
- *
- * "Enter sends, Shift+Enter breaks the line" is a hardware-keyboard bargain,
- * and a soft keyboard can't hold up its end: there is no Shift to hold, so
- * the only newline key a phone has was the send button. Tapping the ⏎ icon —
- * which draws itself as a line break, and is the one key there for starting a
- * paragraph — fired the reply off half-written. What gets typed in that box is
- * a night's thinking, so a second paragraph is the normal case, not an edge
- * one, and losing the first one to a keystroke costs the builder the whole
- * point of the box.
- *
- * So ask for the hardware instead of guessing at the screen: a pointer that
- * is fine and hovers is a mouse or a trackpad, and a device driven by one has
- * a Shift key to pair with Enter. Everywhere else the return key does what
- * its icon says and Send is what sends — which is the only affordance a phone
- * had all along. Deliberately not a width test: a desktop window dragged
- * narrow still has the keyboard, and a tablet held wide still doesn't.
- *
- * Asked at the keypress rather than read once at mount, which costs nothing at
- * this rate and means there is no matchMedia call during SSR, no state to
- * hydrate, and no stale answer for an iPad that has since been put in a
- * keyboard case.
- */
-const enterSends = () =>
-  window.matchMedia("(hover: hover) and (pointer: fine)").matches;
-
-/** Whether this keystroke means send, in either of the two boxes that talk to
- * Masterji.
- *
- * One predicate because both used to spell the condition out, and the
- * workshop's copy was missing the `enterSends()` half — so on a phone the room
- * fired a half-written turn where the chat inserted a newline. That is worse in
- * the room than it would be in the chat: a workshop turn is metered
- * (views.WORKSHOP_TURNS), the row is written before the model is called, and
- * the coach's opening move there is to ask for a walk through the builder's
- * last seven days, which is a multi-paragraph answer by design.
- *
- * Takes the fields it reads rather than a React event, so a third box cannot
- * diverge by copying four fifths of the condition again. */
-const isSendKey = (e: { key: string; shiftKey: boolean }) =>
-  e.key === "Enter" && !e.shiftKey && enterSends();
 
 /** The way out, with a press between the thumb and the door.
  *
@@ -1270,192 +1230,29 @@ export default function Masterji({ user }: { user: SessionUser }) {
   const ws = state.workshop;
   const roomTurnsLeft = ws ? ws.turnsLeft : state.workshopTurns;
 
-  /** The room, drawn once for both of the screens that can hold one.
+  /** Everything the room reaches out of this component for, gathered once
+   * because the two screens that draw it differ in exactly one prop —
+   * `reopened` — and spelling the other thirteen out twice is how the two
+   * rooms would start to drift.
    *
-   * A function rather than a component so it keeps the refs it is given: a
-   * nested component would be a new type on every render, remounting the
-   * composer and taking the caret out of it mid-sentence.
-   *
-   * What differs between the two is copy and one block — the reopened room has
-   * no openers, because "start with:" is for a builder who has nothing, and
-   * this one has a goal, a phase and three weeks of record. What does not
-   * differ is everything the room IS: the meter, the transcript, the composer,
-   * and that nothing in it banks. */
-  const renderRoom = (reopened: boolean) => (
-    <section className={styles.workshop}>
-      <div className={styles.workshopHead}>
-        <p className={styles.workshopTitle}>
-          {roomTurnsLeft === 0 && ws
-            ? reopened
-              ? "Room closed."
-              : "Workshop closed."
-            : reopened
-              ? "Still the right idea? Say it out loud."
-              : "Not sure yet? Think it through with him."}
-        </p>
-        {/* The meter is the mechanism, so it is on screen BEFORE the first
-            turn, not from the second: a room whose hard end only announces
-            itself once you are near it is a trapdoor. Both numbers are the
-            server's — turnsLeft is computed there so this and the refusal can
-            never disagree, and the budget is sent even with no room open
-            precisely so this line can exist at rest. The reopened room's
-            budget is smaller and the server says which it is sending. */}
-        {state.workshopTurns > 0 && (
-          <p className={styles.workshopTurns}>
-            {roomTurnsLeft} of{" "}
-            {ws ? ws.turnsTotal : state.workshopTurns} turns left
-          </p>
-        )}
-      </div>
-
-      {(ws?.messages.length || wsPending !== null) && (
-        <div className={styles.workshopLog} ref={wsLogRef}>
-          {ws?.messages.map((m) =>
-            /* A turn that never landed, in the log's one shape that belongs
-               to neither speaker — the same dashed pill the chat uses,
-               because it is the same event: the app saying a turn broke. It
-               used to be drawn as something Masterji said. */
-            m.role === "SYSTEM" ? (
-              <div key={m.id} data-turn className={styles.systemMsg}>
-                <p className={styles.systemText}>{m.content}</p>
-              </div>
-            ) : (
-              <div
-                key={m.id}
-                data-turn
-                className={m.role === "USER" ? styles.userMsg : styles.coachMsg}
-              >
-                {m.role === "COACH" && <span className={styles.avatar}>म</span>}
-                <p className={styles.msgBody}>{m.content}</p>
-              </div>
-            )
-          )}
-          {wsPending !== null && (
-            <div data-turn className={styles.userMsg}>
-              <p className={styles.msgBody}>{wsPending}</p>
-            </div>
-          )}
-          {wsStreaming !== null && (
-            <div data-turn className={styles.coachMsg}>
-              <span className={styles.avatar}>म</span>
-              <p className={styles.msgBody}>
-                {wsStreaming || <span className={styles.thinking}>…</span>}
-              </p>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Openers, while the room is still silent. Same bargain as the phase
-          openers in chat: tapping fills the box and leaves the sending — and
-          the editing — with the builder. Tapping the first one is also how the
-          coach learns they arrived empty-handed, which is the one case his
-          week-walk is the right opening move for.
-
-          Not in the reopened room. Its builder is not short of a first
-          sentence — they came in with one, and it is the whole reason the
-          room exists. */}
-      {!reopened &&
-        !ws?.messages.length &&
-        wsPending === null &&
-        state.workshopOpeners.length > 0 && (
-          <div className={styles.openers}>
-            <p id="ws-openers-label" className={styles.openersLabel}>
-              Start with:
-            </p>
-            <ul className={styles.openerList} aria-labelledby="ws-openers-label">
-              {state.workshopOpeners.map((opener) => (
-                <li key={opener}>
-                  <button
-                    type="button"
-                    className={styles.opener}
-                    onClick={() => {
-                      setWsDraft(opener);
-                      wsBoxRef.current?.focus();
-                    }}
-                  >
-                    {opener}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-
-      {wsError && <p className={styles.error}>{wsError}</p>}
-
-      {/* No composer once the turns are gone. The refusal is already on screen
-          above as the coach's own words, and leaving a box there that only ever
-          answers 429 is the product pretending a door is open. */}
-      {/* The {" "} in both closed-door sentences is load-bearing and must not be
-          reformatted away — see the same note in Landing.tsx and Tour.tsx.
-          Written as `{turns} turns, done.` it shipped as "15turns, done." for
-          as long as the room has existed: the text node after the expression
-          wraps to the next source line, and the build drops the space at the
-          front of it. The one sentence that has to send a builder somewhere,
-          with a typo in its first word. */}
-      {ws && roomTurnsLeft === 0 ? (
-        reopened ? (
-          <p className={styles.workshopSpent}>
-            {state.workshopTurns}{" "}
-            turns, and this room opens once per goal. Nothing in here touched
-            your record. Finish the bar in front of you, sharpen the wording, or
-            close it today — yours to pick.
-          </p>
-        ) : (
-          <p className={styles.workshopSpent}>
-            {state.workshopTurns}{" "}
-            turns, done. You don&apos;t need a better idea — you need one you
-            can test. Put it in the box above.
-          </p>
-        )
-      ) : (
-        /* The chat's composer band, not a second one. Two fixed rows with
-           `resize: none` was the room telling a builder their answer had a size
-           before they had said anything — in the one conversation where the
-           useful answer is long. It grows a line at a time now, up to the same
-           cap, through the same fitComposer.
-
-           Send stays `secondaryBtn`. That is the safeguard on all of this: the
-           room may speak the chat's language, but the one filled control on
-           whichever screen it is sitting on is not this. */
-        <div className={styles.composer}>
-          <div className={styles.composerRow}>
-            <textarea
-              ref={attachWsComposer}
-              className={styles.composerInput}
-              placeholder={
-                reopened
-                  ? "I'm not sure this is worth it any more…"
-                  : "I don't know what to build yet…"
-              }
-              value={wsDraft}
-              /* The resting height, not the height — see the same note on the
-                 chat composer. */
-              rows={1}
-              maxLength={2000}
-              disabled={wsStreaming !== null}
-              onChange={(e) => setWsDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (isSendKey(e)) {
-                  e.preventDefault();
-                  void sendWorkshop();
-                }
-              }}
-            />
-            <button
-              type="button"
-              className={styles.secondaryBtn}
-              disabled={wsStreaming !== null || wsDraft.trim() === ""}
-              onClick={() => void sendWorkshop()}
-            >
-              Send
-            </button>
-          </div>
-        </div>
-      )}
-    </section>
-  );
+   * The width of it is the point of the extraction, not a cost of it: this is
+   * how much of the parent the room was silently holding when it was a closure
+   * in the render body. */
+  const roomProps = {
+    ws,
+    roomTurnsLeft,
+    workshopTurns: state.workshopTurns,
+    workshopOpeners: state.workshopOpeners,
+    wsDraft,
+    wsStreaming,
+    wsPending,
+    wsError,
+    wsLogRef,
+    wsBoxRef,
+    attachWsComposer,
+    setWsDraft,
+    sendWorkshop: () => void sendWorkshop(),
+  };
 
   /* --- onboarding / just-retired ---------------------------------------- */
   if (!state.goal) {
@@ -1834,7 +1631,7 @@ export default function Masterji({ user }: { user: SessionUser }) {
 
             Everything here is a control. What the room is FOR is explained in
             the tour, not in help text wedged between the buttons. */}
-        {renderRoom(false)}
+        <Workshop reopened={false} {...roomProps} />
 
         {state.archive.length > 0 && (
           <section className={styles.archive}>
@@ -2640,7 +2437,7 @@ export default function Masterji({ user }: { user: SessionUser }) {
                  gates.py never reads it: the same terms the room before the
                  goal has always run on, with a smaller meter. */
               <>
-                {renderRoom(true)}
+                <Workshop reopened {...roomProps} />
                 <button
                   className={styles.retireLink}
                   onClick={() => setReopening(false)}
