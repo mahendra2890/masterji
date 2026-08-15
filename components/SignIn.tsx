@@ -100,7 +100,12 @@ export function SignInProvider({
   next?: string;
   offerDemo?: boolean;
 }) {
-  const [open, setOpen] = useState(error === "cancelled");
+  // Any ?error at all opens it, not only "cancelled". Whoever is holding one
+  // came back from Google without a session, and the retry button is inside
+  // this popup — so a code this file has no sentence for (a newer one from
+  // accounts/oauth.py, say) still lands on the way back in rather than on a
+  // landing page that silently forgets the attempt.
+  const [open, setOpen] = useState(Boolean(error));
   const value = useRef<SignIn>({
     open: () => setOpen(true),
     href: `/api/auth/google/login/?next=${encodeURIComponent(next)}`,
@@ -271,6 +276,17 @@ function SignInDialog({
         {error === "cancelled" && (
           <p className={styles.error}>
             Sign-in was cancelled — Masterji will pretend not to notice. Once.
+          </p>
+        )}
+        {/* accounts/oauth.py sends this when the sign-in that came back is not
+            one this browser started: the ten-minute window ran out at Google's
+            account picker, or the cookie holding the other half went away
+            mid-flow. Both want the button above, so say so and get out of the
+            way. */}
+        {error === "expired" && (
+          <p className={styles.error}>
+            That sign-in took too long to come back. One more press and
+            you&rsquo;re in.
           </p>
         )}
         {offerDemo && (

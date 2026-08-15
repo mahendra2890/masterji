@@ -9,13 +9,16 @@ import importlib.util
 import os
 from datetime import UTC, date, datetime, timedelta
 from unittest import mock
+from urllib.parse import parse_qs, urlparse
 
 import jwt
 from django.conf import settings
+from django.core import signing
 from django.core.cache import cache
 from django.http import HttpResponse
 from django.middleware.security import SecurityMiddleware
 from django.test import (
+    Client,
     RequestFactory,
     SimpleTestCase,
     TestCase,
@@ -35,7 +38,7 @@ from coach.models import (
     WorkshopMessage,
 )
 
-from . import erasure
+from . import erasure, oauth
 from .middleware import KEY_PREFIX
 from .models import PushSubscription, User
 from .views import ThrottledTokenObtainPairView
@@ -672,3 +675,190 @@ class AppAuthCookiesAreUnchangedTests(APITestCase):
                 # keep the cookie off localhost — `secure = not DEBUG` is the
                 # rule, and it is the rule this test is protecting.
                 self.assertFalse(morsel["secure"])
+
+
+class OAuthStateIsBoundToTheBrowserTests(TestCase):
+    """A signed state proves this server minted it. Only a cookie proves the
+    browser presenting it is the one that asked for it.
+
+    Without that second half a validly-signed state is accepted from any
+    browser — so an attacker can start a login, walk their OWN Google account
+    to the consent screen, and then make a victim's browser load the callback
+    with the resulting code. The callback would hand that browser auth cookies
+    for the ATTACKER'S account, and every declaration and reflection the victim
+    then writes lands somewhere the attacker signs into normally (#254).
+
+    These are deliberately about the pairing rather than about Google: the
+    state a real `google_login` mints is used throughout, and the only thing
+    varied is whether the browser presenting it holds the cookie that came
+    with it.
+    """
+
+    def setUp(self):
+        # google_login answers 503 without a client id. Google itself is never
+        # reached: the two calls that would are stubbed in the tests that get
+        # that far.
+        ctx = self.settings(
+            GOOGLE_CLIENT_ID="test-client-id", FRONTEND_URL="https://app.example"
+        )
+        ctx.enable()
+        self.addCleanup(ctx.disable)
+        # The Neon warm-up thread has nothing to do with this and everything to
+        # do with flakiness: it opens a second connection to the test database
+        # from outside the test's transaction.
+        waker = mock.patch.object(oauth, "_start_db_wakeup")
+        waker.start()
+        self.addCleanup(waker.stop)
+        # The base case spends no code, the same way the suite's base case
+        # refuses to call the model: a refusal that happens AFTER Google has
+        # been asked is a different (and worse) thing than one that happens
+        # before, and stubbing this to raise is what tells the two apart. The
+        # tests that mean to get through re-stub it themselves.
+        spend = mock.patch.object(
+            oauth,
+            "_exchange_code",
+            side_effect=AssertionError("the authorization code must not be spent"),
+        )
+        spend.start()
+        self.addCleanup(spend.stop)
+
+    def _start_login(self, next_path="/"):
+        """Drive the real first leg; return (state, the cookie it set)."""
+        response = self.client.get(reverse("google_login"), {"next": next_path})
+        self.assertEqual(response.status_code, 302)
+        state = parse_qs(urlparse(response["Location"]).query)["state"][0]
+        return state, response.cookies[oauth.STATE_COOKIE].value
+
+    def _callback(self, state, cookie=None, **params):
+        """The callback, from a browser that holds `cookie` — or none at all,
+        which is the attacker's position and the cleared-cookies one alike."""
+        browser = Client()
+        if cookie is not None:
+            browser.cookies[oauth.STATE_COOKIE] = cookie
+        return browser.get(reverse("google_callback"), {"state": state, **params})
+
+    def test_the_login_hands_the_browser_the_other_half(self):
+        """The flags are the defence, not decoration: a readable cookie is one
+        any script on this origin can lift, and these are the values
+        accounts/cookies.py already uses for the session itself."""
+        response = self.client.get(reverse("google_login"))
+        morsel = response.cookies[oauth.STATE_COOKIE]
+        self.assertTrue(morsel["httponly"])
+        self.assertEqual(morsel["samesite"], "Lax")
+        self.assertEqual(morsel["path"], oauth.STATE_COOKIE_PATH)
+        self.assertEqual(morsel["max-age"], oauth.STATE_MAX_AGE)
+        # Django's test runner forces DEBUG off, so this IS the production
+        # branch of `secure = not settings.DEBUG`.
+        self.assertTrue(morsel["secure"])
+
+    def test_local_development_over_plain_http_still_gets_the_cookie(self):
+        """The gate on Secure, and the half that breaks silently if it is
+        wrong: a Secure cookie is one the browser never sends back to
+        http://localhost, so an ungated flag would make every local sign-in
+        fail the binding check with nothing to read."""
+        with self.settings(DEBUG=True):
+            response = self.client.get(reverse("google_login"))
+        self.assertFalse(response.cookies[oauth.STATE_COOKIE]["secure"])
+
+    def test_the_cookie_carries_the_nonce_that_is_inside_the_state(self):
+        """The two halves have to be the same value, or the comparison in the
+        callback is comparing nothing."""
+        state, cookie = self._start_login()
+        self.assertTrue(cookie)
+        self.assertEqual(signing.loads(state, salt=oauth.STATE_SALT)["nonce"], cookie)
+
+    def test_a_valid_state_from_another_browser_is_refused(self):
+        """The finding itself: a real, correctly-signed, unexpired state,
+        presented by a browser that never started the login.
+
+        Google is stubbed to succeed — the attacker's code is a real one, and
+        the point is that it never gets spent. Before the cookie, this exact
+        request answered 302 to https://app.example/goal/ with `access_token`
+        and `refresh_token` set for the attacker's account.
+        """
+        state, _ = self._start_login()
+        claims = {"email": "attacker@example.com", "email_verified": True}
+        with (
+            mock.patch.object(oauth, "_exchange_code", return_value={"id_token": "t"}),
+            mock.patch.object(oauth, "_verify_id_token", return_value=claims),
+        ):
+            response = self._callback(state, code="attackers-code")
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response["Location"], "https://app.example/?error=expired")
+        # And, the part that matters: no session was handed out on the way.
+        self.assertNotIn(settings.AUTH_ACCESS_COOKIE, response.cookies)
+        self.assertNotIn(settings.AUTH_REFRESH_COOKIE, response.cookies)
+        # Refused before the code is spent, not after.
+        self.assertFalse(User.objects.filter(email="attacker@example.com").exists())
+
+    def test_another_logins_cookie_does_not_open_this_state(self):
+        """Two sign-ins in flight at once. Holding *a* state cookie is not the
+        same as holding *this* state's cookie."""
+        state, _ = self._start_login()
+        _, someone_elses = self._start_login()
+        response = self._callback(state, someone_elses, code="attackers-code")
+        self.assertEqual(response["Location"], "https://app.example/?error=expired")
+
+    def test_a_cleared_cookie_gets_a_retry_not_a_500(self):
+        """The honest way to arrive here — cookies cleared mid-flow. What a
+        builder sees is the landing page with the sign-in popup open on it
+        (components/SignIn.tsx renders `expired`), not a stack trace and not a
+        bare 400 with nothing to press."""
+        state, _ = self._start_login(next_path="/goal/")
+        response = self._callback(state, code="a-real-code")
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response["Location"], "https://app.example/?error=expired")
+
+    def test_an_unreadable_state_lands_in_the_same_place(self):
+        """Expired or forged. This used to be a 400 with a sentence in it,
+        which is a dead end for the one person who reaches it honestly by
+        sitting on Google's account picker for ten minutes."""
+        response = self._callback("not-a-state-this-server-signed", "n", code="c")
+        self.assertEqual(response["Location"], "https://app.example/?error=expired")
+
+    def test_the_matching_pair_still_signs_in(self):
+        """The half that breaks loudly: the browser that started the login
+        gets through, and still lands on the ?next it asked for."""
+        state, cookie = self._start_login(next_path="/goal/")
+        claims = {
+            "email": "New.Builder@example.com",
+            "email_verified": True,
+            "given_name": "New",
+            "family_name": "Builder",
+        }
+        with (
+            mock.patch.object(oauth, "_exchange_code", return_value={"id_token": "t"}),
+            mock.patch.object(oauth, "_verify_id_token", return_value=claims),
+        ):
+            response = self._callback(state, cookie, code="a-real-code")
+        self.assertEqual(response["Location"], "https://app.example/goal/")
+        self.assertIn(settings.AUTH_ACCESS_COOKIE, response.cookies)
+        self.assertTrue(User.objects.filter(email="new.builder@example.com").exists())
+
+    def test_the_state_cookie_is_spent_on_the_way_out(self):
+        """One shot. A state cookie still sitting in the browser after the
+        login it belongs to has ended is a second chance for it, so it is
+        cleared on refusal and on success alike."""
+        state, cookie = self._start_login()
+        cancelled = self._callback(state, cookie, error="access_denied")
+        self.assertEqual(cancelled.cookies[oauth.STATE_COOKIE].value, "")
+
+        state, cookie = self._start_login()
+        with (
+            mock.patch.object(oauth, "_exchange_code", return_value={"id_token": "t"}),
+            mock.patch.object(
+                oauth,
+                "_verify_id_token",
+                return_value={"email": "a@example.com", "email_verified": True},
+            ),
+        ):
+            signed_in = self._callback(state, cookie, code="c")
+        self.assertEqual(signed_in.cookies[oauth.STATE_COOKIE].value, "")
+
+    def test_a_cancelled_sign_in_still_reads_as_cancelled(self):
+        """Pressing cancel on the consent screen comes back with the state and
+        the cookie both intact, so the new gate must not swallow the case that
+        already had a sentence written for it."""
+        state, cookie = self._start_login()
+        response = self._callback(state, cookie, error="access_denied")
+        self.assertEqual(response["Location"], "https://app.example/?error=cancelled")
