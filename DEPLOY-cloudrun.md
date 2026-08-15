@@ -462,10 +462,15 @@ rollout rather than left as a follow-up. It is one page load.
 
 4. **Count the addresses the proxies appended** — that is the number, and it is
    the count of hops that add to the header, not the total number of addresses
-   in it. For this deployment it came out at 2 and is now the default in
+   in it. For this deployment it came out at 2 and is the default in
    `config/settings.py`, so there is nothing to set unless the reading differs
-   from 2 — in which case change the default rather than layering an
-   environment variable over a constant that has become wrong:
+   — in which case change the default rather than layering an environment
+   variable over a constant that has become wrong.
+
+   **Do not stop at this step.** A page load only exercises the case where the
+   caller sent no header, and on this chain that is the case that agrees with
+   the wrong answer. Send a forged one as well and read what `ident` becomes —
+   "The reading" below is what that showed:
 
    ```bash
    # Only if the chain has changed and you are not ready to ship the constant.
@@ -509,39 +514,56 @@ rollout rather than left as a follow-up. It is one page load.
    real users being refused rather than in this probe, so prefer re-measuring
    step 3 to trying numbers.
 
-### The reading, taken 15 August 2026
+### The reading, taken 15 August 2026 — and why it does not settle it
 
-**The number is 2, and it is now the default in `config/settings.py`** rather
-than an environment variable somebody has to know about — the same reason #327
-pinned the Vercel region in the repository instead of a dashboard. The env var
-still overrides it, which is how any other deployment sets its own.
+**The number is 2 and it is the default in `config/settings.py`. It is also
+not a secure key.** Both halves matter; the second one is the reason this
+section is longer than it looks like it should be.
 
-The line the procedure above produced, from one page load through
-`masterji.mscsoftwares.in`:
+The page load the procedure above asks for:
 
 ```
-path=/api/auth/me/  xff='152.59.127.247,13.233.186.70'  remote_addr='169.254.169.126'
+path=/api/auth/me/  xff='152.59.127.247,13.233.186.70'  ident='152.59.127.247'
 ```
 
-Two entries: the browser, then an AWS Mumbai address, which is where Vercel's
-`bom1` egress sits. Two hops append, so `[-2]` is the browser and the count
-is 2.
+Two entries — the browser, then an AWS Mumbai address where Vercel's `bom1`
+egress sits. `[-2]` is the browser, so 2 looked right.
 
-Two other things that reading showed, both worth keeping:
+**Then the same probe with a header sent on purpose:**
 
-- **Vercel's egress address varies per request** — `13.233.186.70`, then
-  `3.110.215.22` one second later from the same browser. That is the mechanism
-  behind the "32 wrong passwords, no 429" measurement in `settings.py`, which
-  recorded the symptom without being able to name the cause. It also rules
-  out 1: `[-1]` would be that rotating address.
-- **Requests with a single entry appear in the same log**, from callers
-  reaching the `run.app` host directly — the second door, measured rather than
-  argued.
+```
+path=/api/auth/token/  xff='203.0.113.20,13.233.186.70'  ident='203.0.113.20'
+```
 
-**Do not re-derive this by editing the constant.** If the chain ever changes —
-a different edge, a load balancer, a region move — take the reading again.
-A number in this file that nobody measured is exactly what `settings.py`
-spends thirty lines refusing to have.
+Still two entries — and the trusted `[-2]` slot now holds the caller's own
+value. **Vercel does not append the client address when the client already
+supplied the header.** It forwards theirs, and only Google's front end appends.
+So the position `NUM_PROXIES=2` trusts belongs to the browser only for callers
+who did not think to write it.
+
+Confirmed against the live ceiling, 20 requests each from one client:
+
+| header | got through |
+| --- | --- |
+| fixed | 6/20 |
+| rotating | **14/20** |
+
+**Why 2 is set anyway.** Unset keys on the whole joined header, whose second
+entry — Vercel's egress — varies per request (`13.233.186.70` then
+`3.110.215.22`, one second apart, same browser; this is also the mechanism
+behind the "32 wrong passwords, no 429" note in `settings.py`). Unset therefore
+binds on nobody at all, while 2 binds on every caller who does not forge. 1 is
+worse than both: `[-1]` is that rotating egress, useless as a key and shared by
+every visitor at once.
+
+2 is the best of three bad options. **Treat the anonymous ceilings as bounding
+accidents rather than attackers until the real fix lands** — an address stamped
+by `proxy.ts`, which the gate above already makes the only way in, filed as its
+own issue.
+
+**If you re-measure, send a forged header too.** The benign reading and the
+adversarial one disagree here, and only one of them is about security. Reading
+only the first is the mistake this section exists to stop being repeated.
 
 ## Keep-warm
 
