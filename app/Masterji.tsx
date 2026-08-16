@@ -41,7 +41,13 @@ export default function Masterji({ user }: { user: SessionUser }) {
   // Phone only: the dashboard and the chat take turns instead of stacking.
   // Here rather than in <Dashboard /> because the room's composer is measured
   // against it as well, and the room is held here.
-  const [pane, setPane] = useState<"today" | "chat">("today");
+  //
+  // Opens on the conversation. Since the inline commit cards (#326) the chat
+  // is where a draft completes and where its press lives, so the pane a
+  // builder needs first is the one they talk in. Today stays one tap away as
+  // the state view, its pill badges carrying the errands — the default is the
+  // whole of this decision (recorded on #277's thread); no card control moved.
+  const [pane, setPane] = useState<"today" | "chat">("chat");
 
   // Which closed goal the next one comes out of, set by "Same problem, new
   // idea" and spent by the commit. Client-side only and deliberately not
