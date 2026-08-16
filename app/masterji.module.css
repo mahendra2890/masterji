@@ -74,20 +74,29 @@
     display: grid;
     /* The conversation takes the larger share. It is the thing being read. */
     grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
-    align-items: start;
+    /* Stretch, so the two panels stand the same height. `start` left the
+       commit side ending wherever its content ran out — a ragged open stack
+       beside a full-height card, which is the asymmetry this block existed
+       to avoid making worse. */
+    align-items: stretch;
     justify-content: initial;
     gap: 12px 28px;
   }
 
-  /* Every sentence the room produces points up at the box: the closing line
-     says "Put it in the box above", parkedLabel says "tap to put it in the
-     box", and WORKSHOP_SYSTEM tells the coach to say "the box is right there".
-     Sticky is what makes all three true at the moment they are read. It also
-     strengthens the hierarchy rather than weakening it — the box becomes the
-     only permanently visible control on the screen. */
+  /* The same chrome as the room beside it, because the two are halves of one
+     screen: a panel each, the same border, the same cap at the viewport. Every
+     sentence the room produces pointing "up at the box" stays true — both
+     panels fit the viewport whole, so the box and the sentence naming it are
+     on screen together without a pin. The sticky this replaces was doing that
+     job for a column taller than the screen, which the cap means it no longer
+     is; like the room's card, anything past the cap scrolls inside. */
   .onboarding[data-room="open"] .commitSide {
-    position: sticky;
-    top: 24px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    padding: 20px 24px;
+    max-height: calc(100dvh - 48px);
+    overflow-y: auto;
   }
 
   /* Full width under both, where it was already last in the flow. */
@@ -2983,9 +2992,15 @@
 .sketch {
   margin-bottom: 12px;
   padding: 10px 12px;
+  /* The rail carries the accent; the shape stays the column's. It used to be
+     square on the left (radius 0 8px 8px 0), which made this the one block in
+     a stack of symmetric ones with a corner treatment of its own — read as
+     lopsided, not as louder. A hairline on the other three sides so the
+     rounded corners have an edge to round. */
+  border: 1px solid var(--border);
   border-left: 2px solid var(--accent);
   background: var(--surface-2);
-  border-radius: 0 8px 8px 0;
+  border-radius: 8px;
 }
 
 /* Full, and the panel says so rather than the builder counting ticks. The
@@ -2996,19 +3011,19 @@
   border-left-width: 2px;
 }
 
+/* Sentence case, never uppercase: the label's subject is IDEA, a phase name,
+   and a transform that capitalises the whole line erases the one capital that
+   carries meaning — "WHAT IDEA WILL ASK YOU FOR" reads as a shout with a word
+   missing, not as a sentence about the phase on the other side of the door. */
 .sketchLabel {
   margin: 0 0 7px;
   color: var(--accent);
-  font-size: 11.5px;
+  font-size: 12.5px;
   font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
   line-height: 1.35;
 }
 
 .sketch[data-full="yes"] .sketchLabel {
-  text-transform: none;
-  letter-spacing: 0;
   font-size: 13px;
 }
 
