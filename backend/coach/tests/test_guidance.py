@@ -34,7 +34,7 @@ class DeclineOnlyWhatWasAskedTests(CoachTestCase):
     def system_for(self, goal=None, **kwargs):
         goal = goal or self.make_goal()
         return prompts.build_system_prompt(
-            goal, gates.gate_status(goal), 0, "no declaration yet", "ENGLISH", **kwargs
+            goal, gates.gate_status(goal), 0, "no declaration yet", **kwargs
         )
 
     def test_every_phase_is_told_to_answer_what_was_asked(self):
@@ -82,7 +82,7 @@ class ThinkingModeTests(CoachTestCase):
     def system_for(self, **kwargs):
         goal = self.make_goal()
         return prompts.build_system_prompt(
-            goal, gates.gate_status(goal), 0, "no declaration yet", "ENGLISH", **kwargs
+            goal, gates.gate_status(goal), 0, "no declaration yet", **kwargs
         )
 
     def as_thinker(self):
@@ -152,7 +152,7 @@ class NotAboutTheWorkTests(CoachTestCase):
     def system_for(self, goal=None, **kwargs):
         goal = goal or self.make_goal()
         return prompts.build_system_prompt(
-            goal, gates.gate_status(goal), 0, "no declaration yet", "ENGLISH", **kwargs
+            goal, gates.gate_status(goal), 0, "no declaration yet", **kwargs
         )
 
     def test_every_phase_knows_what_to_do_when_it_is_not_about_the_work(self):
@@ -277,7 +277,7 @@ class DoubtingTheIdeaTests(CoachTestCase):
     def system_for(self, goal=None, **kwargs):
         goal = goal or self.make_goal()
         return prompts.build_system_prompt(
-            goal, gates.gate_status(goal), 0, "no declaration yet", "ENGLISH", **kwargs
+            goal, gates.gate_status(goal), 0, "no declaration yet", **kwargs
         )
 
     def test_every_phase_can_answer_the_doubt(self):
@@ -360,7 +360,7 @@ class ClosingIsTheirsTests(CoachTestCase):
     def system_for(self, goal=None, **kwargs):
         goal = goal or self.make_goal()
         return prompts.build_system_prompt(
-            goal, gates.gate_status(goal), 0, "no declaration yet", "ENGLISH", **kwargs
+            goal, gates.gate_status(goal), 0, "no declaration yet", **kwargs
         )
 
     def test_the_guard_reaches_every_phase(self):
@@ -417,7 +417,7 @@ class ClosingIsTheirsTests(CoachTestCase):
         to it would be the first half of this bug again — a model told to reach
         for something that isn't there."""
         room = prompts.build_reopened_prompt(
-            "Tiffin app", "VALIDATION", 4, 2, None, 1, 6, "ENGLISH"
+            "Tiffin app", "VALIDATION", 4, 2, None, 1, 6
         )
         self.assertNotIn("propose_goal_close", room)
         self.assertIn(prompts.WHEN_THEY_DOUBT_THE_IDEA, room)
@@ -475,7 +475,7 @@ class RouteIsGradedPlatformBlindTests(CoachTestCase):
     def system_for(self, goal=None, **kwargs):
         goal = goal or self.make_goal()
         return prompts.build_system_prompt(
-            goal, gates.gate_status(goal), 0, "no declaration yet", "ENGLISH", **kwargs
+            goal, gates.gate_status(goal), 0, "no declaration yet", **kwargs
         )
 
     def test_the_rule_and_its_test_are_in_ideas_phase_rules(self):
@@ -519,7 +519,7 @@ class TheCoachCanSeeTheCalendarTests(CoachTestCase):
 
     def block(self, goal, **kwargs):
         return prompts.build_system_prompt(
-            goal, gates.gate_status(goal), 0, "nothing yet", "ENGLISH", **kwargs
+            goal, gates.gate_status(goal), 0, "nothing yet", **kwargs
         )
 
     def test_the_state_block_says_how_long_this_phase_has_been_open(self):

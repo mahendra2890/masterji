@@ -3,14 +3,14 @@
 // Account chrome, and the one chip both screens draw.
 //
 // These are the pieces the onboarding screen and the dashboard both put on the
-// page: the way out, the way to the tour, the language switch, and how a closed
-// idea reads in the "Behind you" list. They were declared above `Masterji()`
-// when there was one component; with two screens they belong to neither, and a
-// copy each is how two headers start to disagree.
+// page: the way out, the way to the tour, and how a closed idea reads in the
+// "Behind you" list. They were declared above `Masterji()` when there was one
+// component; with two screens they belong to neither, and a copy each is how
+// two headers start to disagree.
 
 import { useState } from "react";
 import { signOutAndLeave } from "@/components/AuthGate";
-import type { CoachState, Retirement } from "@/lib/coach-api";
+import type { Retirement } from "@/lib/coach-api";
 import styles from "./masterji.module.css";
 
 /** How each closed idea reads, in one chip. The wording states what the record
@@ -91,57 +91,5 @@ export function TourLink() {
     >
       How it works
     </a>
-  );
-}
-
-/** EN ⇄ हिं. Both languages on screen with the live one lit — a single button
- * reading "EN" states the language you already have and never reveals that the
- * other one exists.
- *
- * A component rather than JSX in the header, because the header was not the only
- * place it belonged and being there alone was a bug. The workshop's system
- * prompt reads `user.tone` too (views.build_workshop_prompt), so the room has
- * always spoken Hinglish — while the only control that sets it rendered inside
- * the goal branch. That made the FIRST conversation a builder ever has with him
- * the one conversation they could not switch, on a product whose pitch is being
- * voiced for India, and Hinglish reachable only after committing the goal the
- * room exists to help someone who cannot commit one yet.
- *
- * Where it goes on the no-goal screen is the footer, on this file's own
- * taxonomy: language is picked once and forgotten, which is account chrome, and
- * the footer is where that screen keeps account chrome. Not over the composer —
- * that slot is for a control reached for mid-conversation, which is the mode.
- */
-export function ToneSwitch({
-  tone,
-  busy,
-  onSet,
-}: {
-  tone: CoachState["tone"];
-  busy: boolean;
-  onSet: (next: CoachState["tone"]) => void;
-}) {
-  return (
-    <div className={styles.toneSwitch} role="group" aria-label="Coach language">
-      <button
-        type="button"
-        className={tone === "ENGLISH" ? styles.toneOptOn : styles.toneOpt}
-        aria-pressed={tone === "ENGLISH"}
-        disabled={busy}
-        onClick={() => onSet("ENGLISH")}
-      >
-        EN
-      </button>
-      <button
-        type="button"
-        lang="hi"
-        className={tone === "HINGLISH" ? styles.toneOptOn : styles.toneOpt}
-        aria-pressed={tone === "HINGLISH"}
-        disabled={busy}
-        onClick={() => onSet("HINGLISH")}
-      >
-        हिं
-      </button>
-    </div>
   );
 }

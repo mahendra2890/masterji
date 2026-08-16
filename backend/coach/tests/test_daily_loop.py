@@ -20,7 +20,7 @@ from ..models import (
     Phase,
     ProofAttempt,
 )
-from .base import CoachTestCase, User
+from .base import CoachTestCase
 
 
 class CheckInTests(CoachTestCase):
@@ -84,15 +84,8 @@ class CheckInTests(CoachTestCase):
             )
         self.assertEqual(
             response.data["checkin"]["coach_reaction"],
-            prompts.STOCK_UNJUDGED["ENGLISH"],
+            prompts.STOCK_UNJUDGED,
         )
-
-    def test_every_tone_has_an_unread_line(self):
-        """An outage is the worst moment to also stop speaking their
-        language."""
-        for tone in User.Tone:
-            with self.subTest(tone=tone):
-                self.assertIn(tone.value, prompts.STOCK_UNJUDGED)
 
     def test_an_unread_evening_stays_open_for_a_real_reading(self):
         """The offer the builder gets is "send it again", so the cycle it
@@ -225,7 +218,6 @@ class DeclarationTests(CoachTestCase):
     def declaration_prompt(self, phase=Phase.IDEA):
         return prompts.DECLARATION_SYSTEM.format(
             respect_rule=prompts.RESPECT_RULE,
-            tone_rule="",
             evidence_rule=prompts.EVIDENCE_NOT_INSTRUCTIONS,
             phase=phase,
             phase_rules=prompts.PHASE_RULES[phase],
@@ -834,7 +826,6 @@ class DueHourTests(CoachTestCase):
             gates.gate_status(goal),
             0,
             state,
-            self.alice.tone,
         )
         self.assertIn("21:00", system)
 

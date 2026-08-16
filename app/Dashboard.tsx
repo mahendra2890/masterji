@@ -25,7 +25,7 @@ import NudgeSwitch from "@/components/NudgeSwitch";
 import ClosedIdea from "./ClosedIdea";
 import DayDetail from "./DayDetail";
 import Workshop, { type RoomProps } from "./Workshop";
-import { CLOSED_CHIP, SignOutButton, ToneSwitch, TourLink } from "./chrome";
+import { CLOSED_CHIP, SignOutButton, TourLink } from "./chrome";
 import { updatePrefs, type SessionUser } from "@/lib/auth-client";
 import { useDialogFocus } from "@/lib/dialog-focus";
 import { readDraft, writeDraft } from "@/lib/drafts";
@@ -454,7 +454,6 @@ export default function Dashboard({
   pane,
   setPane,
   room,
-  onSetTone,
   onRetired,
 }: {
   user: SessionUser;
@@ -478,7 +477,6 @@ export default function Dashboard({
   pane: "today" | "chat";
   setPane: (next: "today" | "chat") => void;
   room: RoomProps;
-  onSetTone: (next: CoachState["tone"]) => void;
   /** Hand the closing up to the parent: the screen that shows it is
    * <Onboarding />, which this render is about to be replaced by. */
   onRetired: (retirement: Retirement, pivotFrom: number | null) => void;
@@ -1241,35 +1239,13 @@ export default function Dashboard({
         <span className={styles.brand}>
           Masterji <span className={styles.brandHindi}>मास्टरजी</span>
         </span>
-        {/* Outside .headerRight, and that placement is the fix rather than an
-            accident of refactoring.
-
-            At 360px the four controls needed 322px of a 320px content box, so
-            "sign out" wrapped onto a third header line: 150px of header on the
-            smallest screen this runs on, against a chat pane that only had
-            230px to spend. #179 had already fought the same deficit down from
-            15px to 2px by tightening the gap, and stopped there correctly —
-            the next 2px would have come out of the 44px touch targets it was
-            buying, and this does not give those back.
-
-            So the room comes from the row above instead. The wordmark is 146px
-            of a 360px row and the rest of that row was doing nothing. Measured
-            at 360×640 with the switch up here, the control row went from 320px
-            of 320px — full, and overflowing onto a third line — to 239px, and
-            the header from 150px to 106px. That 81px of slack is the point: a
-            longer label, a wider Hindi string or a fifth control no longer puts
-            it back on three lines, which is exactly what shaving the gap to 8px
-            would not have survived.
-
-            One DOM node, moved — not a second copy behind a breakpoint. Desktop
-            is unchanged: `.header > .toneSwitch` takes `margin-left: auto`, so
-            it sits against the control group where it always has.
-
-            Both languages on screen with the live one lit, the same fix the
-            mode switch got for the same reason. The no-goal screen renders this
-            same control: the room before the goal speaks Hinglish too, and that
-            was the only place to say so. */}
-        <ToneSwitch tone={state.tone} busy={busy} onSet={onSetTone} />
+        {/* The EN/हिं switch used to sit here, outside .headerRight, because
+            four controls in one row wrapped onto a third header line at 360px
+            and the wordmark's row had space going spare. It is gone (#268 —
+            the chat never spoke Hinglish, so the switch promised a language
+            the product did not have), and the 74px it occupied stays spent on
+            nothing: the header is the scarcest space on the phone screen, and
+            the slack is what stops the next label from wrapping. */}
         <div className={styles.headerRight}>
           {/* The mode used to sit here, next to the language toggle, on the
               grounds that both are "how Masterji talks to you". They aren't

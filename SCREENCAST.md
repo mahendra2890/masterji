@@ -156,8 +156,8 @@ argued against when it proposed the cap. *The enforcement is the product.*
 ## What to leave out
 
 - The architecture diagram. Nobody scores it and it costs thirty seconds.
-- A feature tour. Hinglish and thinking-partner mode are good work and belong
-  in the README, not in a four-minute video about how it was built.
+- A feature tour. Thinking-partner mode is good work and belongs in the
+  README, not in a four-minute video about how it was built.
 - Anything you have not personally seen happen. Every beat above was observed;
   keep that property.
 

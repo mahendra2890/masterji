@@ -64,22 +64,13 @@ export default function DashboardShell() {
         <span className={styles.brand}>
           Masterji <span className={styles.brandHindi}>मास्टरजी</span>
         </span>
-        {/* The header's height, taken from the rule that actually sets it
-            rather than from a number copied out of one. The language switch is
-            the tallest thing in this row, and it is structural — both options
-            exist on every dashboard — so this is the real control's geometry
-            with the one data-dependent part left out: which of the two is lit
-            is the answer we are still waiting for, so neither is.
-
-            A direct child of .header on purpose. `.header > .toneSwitch` takes
-            margin-left: auto, and a placeholder one level down would sit in a
-            different place than the control it stands in for. */}
-        <div className={styles.toneSwitch} aria-hidden="true">
-          <span className={styles.toneOpt}>EN</span>
-          <span className={styles.toneOpt} lang="hi">
-            हिं
-          </span>
-        </div>
+        {/* The language switch used to stand here, and it was what set this
+            row's height — it was the tallest thing in the header. It went with
+            #268, so the height now comes from .headerRight below, exactly as
+            it does in the real header. That equality is the whole job of this
+            file: a skeleton one pixel taller than the screen it becomes is
+            0.06 of CLS on the product's main route (#241), and the way to
+            keep it is to draw the same rules rather than the same numbers. */}
         <div className={styles.headerRight}>
           {/* The username. .who is the class that hides it below 820px, so
               wearing it means this row wraps on a phone exactly as the real

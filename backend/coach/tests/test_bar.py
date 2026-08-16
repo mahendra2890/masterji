@@ -28,7 +28,7 @@ class BarInThePromptTests(CoachTestCase):
     def system_for(self, phase=Phase.IDEA, **kwargs):
         goal = self.make_goal(phase=phase)
         return prompts.build_system_prompt(
-            goal, gates.gate_status(goal), 0, "no declaration yet", "ENGLISH", **kwargs
+            goal, gates.gate_status(goal), 0, "no declaration yet", **kwargs
         )
 
     def test_the_prompt_says_what_clears_the_bar(self):
@@ -93,7 +93,7 @@ class TheJudgeSeesTheBarTests(CoachTestCase):
         docstring gives: two copies drift, and only one of them is the one
         gates.py enforces."""
         coach = prompts.build_system_prompt(
-            self.goal, gates.gate_status(self.goal), 0, "state", "ENGLISH"
+            self.goal, gates.gate_status(self.goal), 0, "state"
         )
         judge = self.judge_prompt()
         hint = guidance.PROOF_HINT[Phase.VALIDATION]

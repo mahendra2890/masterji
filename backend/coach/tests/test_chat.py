@@ -336,7 +336,7 @@ class RunningNotesTests(CoachTestCase):
 
     def test_he_is_told_not_to_make_them_say_it_twice(self):
         system = prompts.build_system_prompt(
-            self.goal, gates.gate_status(self.goal), 0, "state", "ENGLISH"
+            self.goal, gates.gate_status(self.goal), 0, "state"
         )
         self.assertIn(prompts.NEVER_TWICE, system)
 
@@ -467,3 +467,53 @@ class ChatTurnQueryTests(CoachTestCase):
                 response = self.client.post("/api/coach/chat/", {"content": "hi"})
                 b"".join(response.streaming_content)
         self.assertEqual(spy.call_count, 1)
+
+
+class OneLanguageTests(CoachTestCase):
+    """#268: the app is English everywhere, and says so nowhere twice.
+
+    The defect this removal ends was not "Hinglish is missing". It was that
+    `HINGLISH_RULE` reached the workshop's ~9,000-character prompt and drowned
+    in the coach's ~32,000-character one, so the header switch changed the
+    room before the goal and not the daily chat. Half a language is worse than
+    none: a builder who presses a control and reads three English replies
+    learns the app is broken, not that it is monolingual.
+
+    These pin the two halves of "removed" that a grep cannot: nothing is left
+    in the assembled prompts to select a language with, and the preference is
+    no longer settable through the endpoint that used to set it.
+    """
+
+    def test_no_prompt_asks_for_a_language(self):
+        goal = self.make_goal()
+        prompt_texts = [
+            prompts.build_system_prompt(
+                goal, gates.gate_status(goal), 0, "nothing yet"
+            ),
+            prompts.build_workshop_prompt(
+                candidates=[], turns_used=0, turns_total=views.WORKSHOP_TURNS, maximum=3
+            ),
+            prompts.build_reopened_prompt(
+                title="Tiffin for Block C",
+                phase=Phase.VALIDATION,
+                days_in_phase=9,
+                accepted=2,
+                banked=None,
+                turns_used=0,
+                turns_total=views.REOPENED_TURNS,
+            ),
+        ]
+        for text in prompt_texts:
+            self.assertNotIn("Hinglish", text)
+
+    def test_the_preference_cannot_be_set_any_more(self):
+        """Not merely absent from the UI. A field the server still accepts is
+        a feature with no control, which is the state this issue was about
+        with the two sides swapped."""
+        response = self.client.patch(
+            "/api/auth/me/", {"tone": "HINGLISH"}, content_type="application/json"
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("tone", response.data)
+        self.alice.refresh_from_db()
+        self.assertFalse(hasattr(self.alice, "tone"))

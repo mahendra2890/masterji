@@ -23,7 +23,7 @@ from ..models import (
     Phase,
     PhaseTransition,
 )
-from .base import CoachTestCase, User, _state_launch
+from .base import CoachTestCase, _state_launch
 
 
 class ProofOfferTests(CoachTestCase):
@@ -103,27 +103,9 @@ class ProofOfferTests(CoachTestCase):
         self.assertEqual(response.data["checkin"]["proof_status"], "ACCEPTED")
         self.assertEqual(
             response.data["checkin"]["coach_reaction"],
-            prompts.STOCK_OFFER_ACCEPT["ENGLISH"],
+            prompts.STOCK_OFFER_ACCEPT,
         )
         called.assert_not_called()
-
-    def test_his_own_draft_is_acknowledged_in_the_builders_language(self):
-        """This line is on the happy path, unlike the other stock reactions —
-        a Hinglish builder would otherwise be answered in English every time
-        they took his draft."""
-        self.alice.tone = "HINGLISH"
-        self.alice.save(update_fields=["tone"])
-        self.chat()
-        response, _ = self.prove('{"verdict": "accept", "reaction": "x"}', self.DRAFT)
-        self.assertEqual(
-            response.data["checkin"]["coach_reaction"],
-            prompts.STOCK_OFFER_ACCEPT["HINGLISH"],
-        )
-
-    def test_every_tone_has_a_line_for_it(self):
-        for tone in User.Tone:
-            with self.subTest(tone=tone):
-                self.assertIn(tone.value, prompts.STOCK_OFFER_ACCEPT)
 
     def test_an_edited_draft_is_judged_knowing_he_wrote_it(self):
         self.chat()
@@ -256,7 +238,7 @@ class ProofOfferTests(CoachTestCase):
 
     def test_the_coach_is_told_to_look_for_it(self):
         system = prompts.build_system_prompt(
-            self.goal, gates.gate_status(self.goal), 0, "state", "ENGLISH"
+            self.goal, gates.gate_status(self.goal), 0, "state"
         )
         self.assertIn(prompts.SPOT_PROOF, system)
 
@@ -458,7 +440,6 @@ class SharpenedDeclarationTests(CoachTestCase):
         swaps the task is the model deciding what today is for."""
         text = prompts.DECLARATION_SYSTEM.format(
             respect_rule=prompts.RESPECT_RULE,
-            tone_rule="",
             evidence_rule=prompts.EVIDENCE_NOT_INSTRUCTIONS,
             phase=Phase.IDEA,
             phase_rules=prompts.PHASE_RULES[Phase.IDEA],

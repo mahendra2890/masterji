@@ -345,9 +345,9 @@ const SLIDES: Slide[] = [
               </div>
             </Mark>
             {/* The hour rides in the same strip, outside the ring and with no
-                note of its own — the goal examples on slide 1 and the tone
-                switch opposite are drawn the same way, and for the same
-                reason: it is on the screen, so a mock without it is a picture
+                note of its own — the goal examples on slide 1 and the streak
+                opposite are drawn the same way, and for the same reason: it
+                is on the screen, so a mock without it is a picture
                 of a screen that no longer exists, and what it BUYS is a clause
                 in note 1 rather than a mark of its own. A slide's worth of
                 deck for an optional tap would be a manual.
@@ -391,32 +391,29 @@ const SLIDES: Slide[] = [
           <p className={styles.mockCaption}>
             The chat — the box that doesn&apos;t
           </p>
-          {/* The header's own controls, unmarked. A reader can see what they
-              are, and neither of them moves the gate — which is the only thing
-              about them this deck has to be sure of.
+          {/* The streak, unmarked. A reader can see what it is, and it does
+              not move the gate — which is the only thing about it this deck
+              has to be sure of.
 
-              Both languages on screen with the live one lit, which is the
-              control the app has had since `.toneBtn` was deleted — the same
-              segmented shape as the mode switch further down this mock, and
-              for the same reason: a lone button reading "EN" states the
-              language you already have and never reveals that the other one
-              exists. This deck kept drawing the button after the app stopped
-              having it, and because a CSS module hands back `undefined` for a
-              class that isn't there, the chip lost its styling too and shipped
-              as bare text beside a styled streak pill. Borrowed pixels only
-              carry a change across while the class still exists; nothing warns
-              you when one goes.
+              The EN/हिं switch stood beside it until #268 took the switch out
+              of the app, and this mock has made the opposite mistake before:
+              it kept drawing a control after the app stopped having it, and
+              because a CSS module hands back `undefined` for a class that
+              isn't there, the chip shipped as bare text beside a styled streak
+              pill. Borrowed pixels only carry a change across while the class
+              still exists, and nothing warns you when one goes — so the mock
+              and the header are removed in the same pull request.
 
-              Spans, like every other mock control in this file: they cannot be
-              pressed, so they must not announce themselves as things that
-              can. */}
+              A span, like every other mock control in this file: it cannot be
+              pressed, so it must not announce itself as something that can.
+
+              Still inside .headerStrip with nothing beside it: the strip is a
+              flex row, and the pill takes its own width in one. Dropped when
+              the switch went and the pill stretched the full column — a
+              stadium-shaped bar reading "4 days" is not what the header shows,
+              which is the same class of error as drawing a control that is no
+              longer there. */}
           <div className={styles.headerStrip}>
-            <div className={app.toneSwitch}>
-              <span className={app.toneOptOn}>EN</span>
-              <span className={app.toneOpt} lang="hi">
-                हिं
-              </span>
-            </div>
             <span className={app.streak}>4 days 🔥</span>
           </div>
 
@@ -531,8 +528,7 @@ const SLIDES: Slide[] = [
         one that question gets in BUILD — your phase&apos;s playbook is in every
         reply. And push-back isn&apos;t his only register — bring him a night
         that isn&apos;t about the work, and he answers the person, not the task.
-        The <strong>EN / हिं</strong> switch puts him in Hinglish; none of it
-        touches the gate.
+        None of it touches the gate.
       </>,
       <>
         {/* The app's own caption is one clause now — "Assignments and
@@ -643,7 +639,7 @@ const SLIDES: Slide[] = [
             is the thing on screen. The press stands here too now — so a mock
             of this pane without it would be a picture of a screen that no
             longer exists, which is the mistake this file has made before (see
-            the tone switch note on slide 2).
+            the streak note on slide 2).
 
             Drawn with the app's own classes, like every other mock here, and
             with spans where the app has buttons: it cannot be pressed, so it

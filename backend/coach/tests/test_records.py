@@ -1008,22 +1008,17 @@ class WeeklyDigestTests(CoachTestCase):
         self.client.get("/api/coach/state/")
         self.assertFalse(goal.messages.filter(role=Message.Role.SYSTEM).exists())
 
-    def test_the_named_week_is_said_in_both_tones(self):
-        """Owed in Hinglish for the reason STOCK_OFFER_ACCEPT is: this is on
-        the happy path and it recurs, so an English-only clause would meet a
-        builder who asked for Hinglish on the one morning they came back."""
+    def test_a_returning_builder_is_told_which_week_is_being_counted(self):
+        """The one thing this message must not let anybody misread. The same
+        counts under the ordinary head would be read as last week's."""
         summary = {"filed": 6, "days": 6, "accepted": 2, "people": 0, "advanced_to": ""}
         week_of = date(2026, 8, 3)
         self.assertIn(
             "Picking up from the week of 3 Aug",
-            weekly.digest(summary, "ENGLISH", week_of),
-        )
-        self.assertIn(
-            "3 Aug wale hafte se", weekly.digest(summary, "HINGLISH", week_of)
+            weekly.digest(summary, week_of),
         )
         # The ordinary week is still the ordinary sentence, and still undated.
-        self.assertIn("Last week", weekly.digest(summary, "ENGLISH"))
-        self.assertIn("Pichhle hafte", weekly.digest(summary, "HINGLISH"))
+        self.assertIn("Last week", weekly.digest(summary))
 
     def test_the_prompt_names_the_week_it_was_handed(self):
         """The digest is a SYSTEM row and SYSTEM rows are excluded from the

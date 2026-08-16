@@ -10,7 +10,6 @@ export const API_URL = "";
 export type SessionUser = {
   username: string;
   email: string;
-  tone: "ENGLISH" | "HINGLISH";
   mode: "COACH" | "THINKING";
 };
 
@@ -62,10 +61,10 @@ async function ask(path: string, init: RequestInit = {}): Promise<Response> {
   return res;
 }
 
-/** How the coach talks — language, and which side of the table he's on.
- * Both live on the user rather than on the turn: a builder who asked to be
- * spoken to a certain way shouldn't have to ask again tomorrow. */
-export type CoachPrefs = Pick<SessionUser, "tone" | "mode">;
+/** Which side of the table the coach sits on. It lives on the user rather
+ * than on the turn: a builder who asked to be spoken to a certain way
+ * shouldn't have to ask again tomorrow. */
+export type CoachPrefs = Pick<SessionUser, "mode">;
 
 export async function updatePrefs(
   patch: Partial<CoachPrefs>

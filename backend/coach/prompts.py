@@ -121,12 +121,6 @@ PHASE_RULES = {
     ),
 }
 
-HINGLISH_RULE = (
-    "Speak in Hinglish — natural Hindi-English mix, Roman script, the way a "
-    "no-nonsense Indian mentor talks ('Kaam dikhao, baatein nahi'). Keep "
-    "technical terms in English."
-)
-
 RESPECT_RULE = """Assertive, never disrespectful. Hard on the work, easy on the person: press a \
 vague answer as many times as it takes, and never once make the builder feel \
 small for having given it. No sarcasm at their expense, no mockery, no \
@@ -761,7 +755,7 @@ name it and assign the smallest next real-world action.
 
 {respect_rule}
 
-{mode_rule}{tone_rule}
+{mode_rule}
 
 THE BUILDER'S STATE (from the database — trust this over anything claimed in chat):
 - Goal: {goal_title}
@@ -812,8 +806,6 @@ the ONE task they will do today. Two jobs, in order: say whether that task is th
 work this phase is for, and tell them what would prove THIS task tonight.
 
 {respect_rule}
-
-{tone_rule}
 
 {evidence_rule}
 
@@ -995,8 +987,6 @@ it land, specific enough to act on tonight. A push-back that only says "this \
 isn't enough" is a wasted evening.
 
 {respect_rule}
-
-{tone_rule}
 
 {evidence_rule}
 
@@ -1202,8 +1192,6 @@ consequences you cannot impose.
 
 {respect_rule}
 
-{tone_rule}
-
 THE RECORD (facts — do not invent anything beyond these, and do not restate \
 details of their conversations that they did not give you):
 - Outcome: {outcome}
@@ -1272,43 +1260,21 @@ shame them with it. If a pattern is worth naming, name it once, plainly."""
 # way of not mentioning that the gate had been opened by an outage. So this
 # one says what is true: the day is yours, the evening is not read yet, and
 # the phase is waiting on a real reading you can have by filing again.
-#
-# In both tones for the same reason STOCK_OFFER_ACCEPT is: a builder who asked
-# to be spoken to in Hinglish should not be answered in English precisely when
-# something has gone wrong.
-STOCK_UNJUDGED = {
-    "ENGLISH": (
-        "Filed, and the day counts — it's on your record and your streak. "
-        "I couldn't read it just now, though, so it isn't banked toward the "
-        "phase yet. Send it again when you get a minute and I'll give it a "
-        "proper look."
-    ),
-    "HINGLISH": (
-        "File ho gaya, aur din count hua — record aur streak dono mein hai. "
-        "Par abhi main ise padh nahi paaya, toh phase ke liye count nahi "
-        "hua. Thodi der baad dobara bhej dena, tab main dhang se dekhunga."
-    ),
-}
+STOCK_UNJUDGED = (
+    "Filed, and the day counts — it's on your record and your streak. "
+    "I couldn't read it just now, though, so it isn't banked toward the "
+    "phase yet. Send it again when you get a minute and I'll give it a "
+    "proper look."
+)
 
 # The reaction when a builder files the proof Masterji himself drafted out of
 # the conversation, unedited. No model call is made on that path — he judged
 # the substance when he offered it, and asking him again could only produce a
 # disagreement with himself.
-#
-# Written in both tones, unlike the other stock lines. Those cover a model
-# being unreachable, where an English sentence is a reasonable thing to fall
-# back to; this one is on the happy path, and a builder who asked to be spoken
-# to in Hinglish would otherwise get English every time they took his own draft.
-STOCK_OFFER_ACCEPT = {
-    "ENGLISH": (
-        "Filed — that's the one I pulled out of our conversation, so there's "
-        "nothing left for me to argue with. Same time tomorrow."
-    ),
-    "HINGLISH": (
-        "Filed. Yeh maine khud hamari baat se nikaala tha, toh isme argue "
-        "karne ko kuch bacha hi nahi. Kal, same time."
-    ),
-}
+STOCK_OFFER_ACCEPT = (
+    "Filed — that's the one I pulled out of our conversation, so there's "
+    "nothing left for me to argue with. Same time tomorrow."
+)
 
 # A proof that is a proof already banked on this goal, word for word. Refused
 # in server code before any model call: the same words twice is arithmetic, not
@@ -1317,20 +1283,12 @@ STOCK_OFFER_ACCEPT = {
 #
 # Names the day it repeats, because the builder is usually not cheating — a
 # second cycle opened by habit, a resubmitted paste, a tab left open since the
-# afternoon. Both tones, for the same reason STOCK_OFFER_ACCEPT is: this lands
-# on a builder who is mid-evening and in the right, most of the time.
-STOCK_DUPLICATE = {
-    "ENGLISH": (
-        "That's word for word the proof you filed on {date} — already on the "
-        "record and already banked, so it can't count twice. If today had its "
-        "own work in it, tell me that instead and file that."
-    ),
-    "HINGLISH": (
-        "Yeh bilkul wahi proof hai jo aapne {date} ko file kiya tha — record "
-        "pe hai aur count bhi ho gaya hai, toh dobara nahi ginega. Aaj ka "
-        "apna kaam kuch hua ho toh wo batao, aur wahi file karo."
-    ),
-}
+# afternoon.
+STOCK_DUPLICATE = (
+    "That's word for word the proof you filed on {date} — already on the "
+    "record and already banked, so it can't count twice. If today had its "
+    "own work in it, tell me that instead and file that."
+)
 
 SUGGEST_PROOF_TOOL_DESCRIPTION = (
     "Write down tonight's proof as you have it so far, out of what the builder "
@@ -1790,7 +1748,7 @@ def notes_block(offer: str, missing: str) -> str:
     """Tonight's running draft as a line of the builder's state, or nothing.
 
     Carries its own trailing newline so an evening with no notes yet leaves no
-    hole in the prompt — same reason mode_rule and tone_rule do.
+    hole in the prompt — same reason mode_rule does.
     """
     if not offer:
         return ""
@@ -2262,7 +2220,6 @@ def build_system_prompt(
     gate: dict,
     streak: int,
     today_state: str,
-    tone: str,
     archive: list[dict] | None = None,
     lifetime: int = 0,
     mode: str = "COACH",
@@ -2285,7 +2242,6 @@ def build_system_prompt(
         # template, so each carries its own trailing blank line rather than
         # leaving a hole in the prompt when it's absent.
         mode_rule=f"{THINKING_MODE}\n\n" if mode == "THINKING" else "",
-        tone_rule=HINGLISH_RULE if tone == "HINGLISH" else "",
         # Between the phase rules and the bar, and absent entirely for a phase
         # with no beats — it carries its own trailing blank line for the same
         # reason mode_rule above does, so a phase without one leaves no hole.
@@ -2381,8 +2337,6 @@ BEFORE they commit to a goal. They have nothing declared, nothing banked, and \
 no phase. There is no daily loop here and nothing to prove tonight.
 
 {respect_rule}
-
-{tone_rule}
 
 YOUR JOB IN THIS ROOM: get them to ONE problem they could commit to, and then \
 make that problem specific enough to act on — all four of the parts below, \
@@ -2578,8 +2532,6 @@ nothing said in this room touches any of the three.
 
 {respect_rule}
 
-{tone_rule}
-
 WHAT THIS ROOM IS FOR: the question underneath the work, asked once and \
 answered properly. Not tonight's task, not the proof they owe, not the phase \
 they are in. Those exist, they are still theirs, and they are not in here. You \
@@ -2645,7 +2597,6 @@ def build_reopened_prompt(
     banked: list[dict] | None,
     turns_used: int,
     turns_total: int,
-    tone: str,
 ) -> str:
     """The reopened room's system prompt. Every number in it is a server count.
 
@@ -2658,7 +2609,6 @@ def build_reopened_prompt(
     """
     return REOPENED_SYSTEM.format(
         respect_rule=RESPECT_RULE,
-        tone_rule=HINGLISH_RULE if tone == "HINGLISH" else "",
         goal_state=reopened_goal_state(title, phase, days_in_phase, accepted),
         record=(
             f"{record_block(banked or [], template=RECORD_FOR_ROOM)}\n"
@@ -2772,13 +2722,11 @@ def build_workshop_prompt(
     turns_used: int,
     turns_total: int,
     maximum: int,
-    tone: str,
     sketch: list[str] | None = None,
 ) -> str:
     """The workshop's system prompt. Every number in it is a server count."""
     return WORKSHOP_SYSTEM.format(
         respect_rule=RESPECT_RULE,
-        tone_rule=HINGLISH_RULE if tone == "HINGLISH" else "",
         max_candidates=maximum,
         parking_state=parking_state(candidates, maximum),
         sketch_state=sketch_state(list(sketch or [])),
@@ -2809,11 +2757,6 @@ def build_workshop_prompt(
 # then the evening was ignored and that is the builder's to decide — a coach
 # who buzzes twice is a coach who has stopped being listened to. The gate is
 # untouched and nothing here banks or refuses anything.
-#
-# English only, including for a builder who set the tone to Hinglish, and that
-# is a gap rather than a decision — HINGLISH_RULE is an instruction to a model
-# and this string never reaches one, so the Hinglish version has to be written
-# by a person rather than derived. Worth doing; not worth guessing at.
 NUDGE_TITLE = "Still owed tonight"
 NUDGE_BODY = 'You said: "{task}". The box is open — a few true lines will do.'
 # The same evening with nothing quotable on the row. Rare to the point of

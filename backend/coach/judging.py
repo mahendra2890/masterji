@@ -155,13 +155,12 @@ def _already_banked(goal: Goal, checkin: CheckIn, text: str) -> CheckIn | None:
     return None
 
 
-def _react_to_retirement(retirement, verdict: str, tone: str) -> str:
+def _react_to_retirement(retirement, verdict: str) -> str:
     """LLM garnish over a deterministic floor, same as _react_to_proof: if the
     model is down the goal still retires, with a stock line."""
     try:
         system = prompts.RETIREMENT_SYSTEM.format(
             respect_rule=prompts.RESPECT_RULE,
-            tone_rule=prompts.HINGLISH_RULE if tone == "HINGLISH" else "",
             outcome=retirement.outcome,
             verdict=verdict,
             phase=retirement.phase_reached,
@@ -190,9 +189,7 @@ def _react_to_retirement(retirement, verdict: str, tone: str) -> str:
         return stock[verdict]
 
 
-def _react_to_declaration(
-    goal: Goal, text: str, tone: str
-) -> tuple[str, str, str, str]:
+def _react_to_declaration(goal: Goal, text: str) -> tuple[str, str, str, str]:
     """Read this morning's task: does it belong to the phase, what would make it
     sharper, and what would prove it tonight? Returns (fit, reaction, sharpened,
     proof_ask).
@@ -220,7 +217,6 @@ def _react_to_declaration(
     try:
         system = prompts.DECLARATION_SYSTEM.format(
             respect_rule=prompts.RESPECT_RULE,
-            tone_rule=prompts.HINGLISH_RULE if tone == "HINGLISH" else "",
             evidence_rule=prompts.EVIDENCE_NOT_INSTRUCTIONS,
             phase=goal.phase,
             phase_rules=prompts.PHASE_RULES[Phase(goal.phase)],
@@ -397,7 +393,6 @@ def _labels_from_verdict(phase: str, payload: dict) -> bar.Labels | None:
 def _react_to_proof(
     goal: Goal,
     checkin: CheckIn,
-    tone: str,
     image: bytes | None = None,
     content_type: str = "",
     pending_try: ProofAttempt | None = None,
@@ -443,7 +438,7 @@ def _react_to_proof(
         logger.info(
             f"Proof on checkin {checkin.id} repeats accepted checkin {repeat.id}"
         )
-        line = prompts.STOCK_DUPLICATE.get(tone, prompts.STOCK_DUPLICATE["ENGLISH"])
+        line = prompts.STOCK_DUPLICATE
         # "5 Aug", the same shape the record card shows (Masterji.tsx's
         # formatDate). Built rather than strftime'd because the format that
         # drops the leading zero is a platform extension, not a guarantee.
@@ -464,7 +459,7 @@ def _react_to_proof(
         # arguments this very text was composed from (ChatView).
         return (
             "accept",
-            prompts.STOCK_OFFER_ACCEPT.get(tone, prompts.STOCK_OFFER_ACCEPT["ENGLISH"]),
+            prompts.STOCK_OFFER_ACCEPT,
             None,
         )
 
@@ -491,7 +486,6 @@ def _react_to_proof(
             substance_rule=prompts.SUBSTANCE_RULE,
             respect_rule=prompts.RESPECT_RULE,
             label_rule=prompts.label_rule_for(Phase(goal.phase)),
-            tone_rule=prompts.HINGLISH_RULE if tone == "HINGLISH" else "",
             phase=goal.phase,
             declared=checkin.am_declaration,
             asked_for=prompts.PROOF_ASKED_FOR.format(proof_ask=checkin.proof_ask)
@@ -540,15 +534,8 @@ def _react_to_proof(
             # exists to forbid — so an unexplained verdict is treated as no
             # verdict rather than imposed in silence.
             logger.warning(f"Unreadable verdict {verdict!r} on checkin {checkin.id}")
-            return "unjudged", _unjudged_reaction(tone), None
+            return "unjudged", prompts.STOCK_UNJUDGED, None
         return verdict, reaction, _labels_from_verdict(goal.phase, payload)
     except Exception as e:
         logger.error(f"Proof reaction failed: {e}")
-        return "unjudged", _unjudged_reaction(tone), None
-
-
-def _unjudged_reaction(tone: str) -> str:
-    """What he says about an evening he never read. In both tones, like
-    STOCK_OFFER_ACCEPT and for the same reason: an outage is not a good moment
-    to also stop speaking a builder's language."""
-    return prompts.STOCK_UNJUDGED.get(tone, prompts.STOCK_UNJUDGED["ENGLISH"])
+        return "unjudged", prompts.STOCK_UNJUDGED, None
