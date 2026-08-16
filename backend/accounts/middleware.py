@@ -42,11 +42,12 @@ import hmac
 
 from django.conf import settings
 from django.core.cache import cache
-from django.http import HttpResponse
+from django.http import HttpResponse, JsonResponse
 from django.urls import NoReverseMatch, reverse
 from loguru import logger
 from rest_framework.throttling import BaseThrottle
 
+from .impersonation import SAFE_METHODS, impersonator_in
 from .throttling import trusted_ident
 
 KEY_PREFIX = "admin-login-failures"
@@ -56,6 +57,10 @@ REFUSAL = "Too many sign-in attempts. Try again later.\n"
 EDGE_HEADER = "X-Masterji-Edge"
 
 EDGE_REFUSAL = "No.\n"
+
+IMPERSONATION_REFUSAL = (
+    "This session is read-only: you are viewing another account as an operator."
+)
 
 
 class AdminLoginThrottleMiddleware:
@@ -250,6 +255,79 @@ class EdgeSecretMiddleware:
         if not hmac.compare_digest(sent, expected):
             return HttpResponse(EDGE_REFUSAL, status=403, content_type="text/plain")
         return self.get_response(request)
+
+
+class ImpersonationReadOnlyMiddleware:
+    """Refuse every unsafe method made with an impersonation token.
+
+    THE RULE IS HERE, IN ONE PLACE, ON PURPOSE. The alternative was a DRF
+    permission class, and it would have been wrong in the way that only shows
+    up months later: a permission has to be added to each view, so the first
+    endpoint somebody writes without remembering this is a writable hole in a
+    read-only feature, and nothing fails to tell them. Middleware sees every
+    request there is, so a view added tomorrow is covered by having been
+    written at all.
+
+    Fail closed in the same sense `EdgeSecretMiddleware` means it: the default
+    for an unknown path is refusal, and the exemptions are named.
+
+    THE EXEMPTIONS
+
+    - **The admin's own tree.** The access cookie is scoped to "/" so the
+      browser attaches it to `/admin/` too, but nothing there reads it — the
+      admin is session-authenticated and staff-only, and this token grants
+      exactly nothing in it. Guarding those POSTs would only stop an operator
+      from using the admin in the tab they started the session from, which
+      protects no builder's row from anything.
+    - **`logout` and `refresh`.** Both are POSTs, and both are the way out.
+      Refusing logout would leave an operator holding a session they had asked
+      to drop; refusing refresh would answer the app's own recovery call with a
+      403 it has no branch for, where the 401 it does get (there is no refresh
+      cookie in an impersonated session — see `impersonation.issue`) is already
+      the graceful path back to the landing page.
+
+    Both are named rather than written down, for the reason `_login_path` gives.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        if request.method in SAFE_METHODS:
+            return self.get_response(request)
+        if request.path.startswith(_admin_root()):
+            return self.get_response(request)
+        if request.path in _impersonation_exempt_paths():
+            return self.get_response(request)
+        if impersonator_in(request) is None:
+            return self.get_response(request)
+        # JSON because everything under /api/ answers JSON, 401s included, and
+        # lib/auth-client.ts reads a non-JSON reply as "the instance is still
+        # booting" and retries forever on a screen with no way out.
+        return JsonResponse(
+            {"detail": IMPERSONATION_REFUSAL},
+            status=403,
+        )
+
+
+def _impersonation_exempt_paths() -> frozenset[str]:
+    """The two POSTs an impersonated session may still make: the ways out."""
+    paths = set()
+    for name in ("logout", "cookie_refresh"):
+        try:
+            paths.add(reverse(name))
+        except NoReverseMatch:  # pragma: no cover — both are always mounted
+            pass
+    return frozenset(paths)
+
+
+def _admin_root() -> str:
+    """Where the admin is mounted, asked for rather than written down, so
+    moving it cannot silently start guarding it."""
+    try:
+        return reverse("admin:index")
+    except NoReverseMatch:  # pragma: no cover — the admin is always mounted
+        return "/admin/"
 
 
 def _edge_exempt_paths() -> frozenset[str]:
