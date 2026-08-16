@@ -1658,6 +1658,48 @@
   color: var(--text);
 }
 
+/* The commit moment, drawn where the draft was written (#326). The same block
+   the Today card shows — same marigold rail, same label, same words — with the
+   press in place of the fill button.
+
+   Indented to the width of the coach's bubble, exactly as `.openers` is and for
+   the same reason: it belongs to his column, so it reads as the thing his last
+   message just handed over rather than as another thing he said. Stretched to
+   the log's width instead of the bubbles' 85%, because it is a panel of
+   controls and not a turn — that difference in shape is what keeps it from
+   being read as speech.
+
+   At ≥821px the Today card is on screen at the same time, which is the width
+   this whole feature is unnecessary at. It does not have to look different
+   there: it IS the same draft and the same press. What keeps it from reading
+   as a duplicate is where it sits — inside the transcript, under the sentence
+   that wrote it, in his column.
+
+   Block flow rather than a flex column: everything inside is borrowed from the
+   Today form, which already carries its own bottom margins, and a gap on top of
+   those would double every step. */
+.inlineCommit {
+  align-self: stretch;
+  margin-left: 38px;
+  padding: 10px 12px;
+  border-left: 2px solid var(--accent);
+  background: var(--surface-2);
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+
+/* The link box, one surface darker than the panel it now sits inside. On the
+   Today card `.input` is `--surface-2` against the card's `--surface`; in here
+   that is the panel's own colour, and a field the same shade as its background
+   is a field nobody can see is a field. */
+.inlineCommit .input {
+  background: var(--bg);
+}
+
+/* Last in the panel, so it keeps the padding rather than adding to it. */
+.inlineCommit .primaryBtn {
+  display: block;
+}
+
 /* The composer band is now two rows: how Masterji is talking, then the box
    you talk back in. One border-top for the pair — the mode belongs to the
    composer, not to the log above it. */
