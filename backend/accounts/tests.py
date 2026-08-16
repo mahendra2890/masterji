@@ -39,9 +39,9 @@ from coach.models import (
 )
 from config import settings as config_settings
 
-from . import erasure, middleware, oauth, throttling
+from . import erasure, impersonation, middleware, oauth, throttling
 from .middleware import EDGE_HEADER, KEY_PREFIX, ForwardedHeaderLogMiddleware
-from .models import PushSubscription, User
+from .models import Impersonation, PushSubscription, User
 from .views import ThrottledTokenObtainPairView
 
 
@@ -1370,3 +1370,217 @@ class EdgeSecretWhitespaceTests(SimpleTestCase):
         string — which would refuse every request forever, since no caller
         sends an empty header that compares equal."""
         self.assertEqual(self._from_env("   \n"), "")
+
+
+class ImpersonationTests(APITestCase):
+    """Viewing a builder's account from the admin, and the read-only rule that
+    is the whole reason it is allowed to exist.
+
+    What replaced: pulling the production signing key onto a laptop and pasting
+    a hand-minted token into a cookie, which produced a full read/write session
+    with nothing recording that it was the operator. Each test below pins one
+    of the properties that makes the supported route better than that one.
+    """
+
+    def setUp(self):
+        self.operator = User.objects.create_superuser(
+            username="operator", email="op@example.com", password="c0rrect-horse"
+        )
+        self.builder = User.objects.create_user(
+            username="builder", email="builder@example.com"
+        )
+        self.builder.set_unusable_password()
+        self.builder.save(update_fields=["password"])
+        self.url = reverse("admin:accounts_user_impersonate", args=[self.builder.pk])
+
+    def _start(self):
+        """Start a session the way an operator does, and hand the cookies to
+        the API client — which is what the browser does on the redirect."""
+        self.client.force_login(self.operator)
+        response = self.client.post(self.url)
+        self.client.logout()
+        for name, morsel in response.cookies.items():
+            if morsel.value:
+                self.client.cookies[name] = morsel.value
+            else:
+                self.client.cookies.pop(name, None)
+        return response
+
+    # --- the gate ---------------------------------------------------------
+
+    def test_a_stranger_is_sent_to_the_admin_login(self):
+        """`admin_view` is the whole gate, so this is really a test that the
+        route was mounted through it rather than beside it."""
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(reverse("admin:login"), response["Location"])
+
+    def test_a_signed_in_builder_cannot_reach_it(self):
+        self.client.force_login(self.builder)
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(reverse("admin:login"), response["Location"])
+
+    def test_an_operator_account_cannot_be_worn(self):
+        """The read-only rule guards the API, not the admin site — so a
+        session as another superuser would be a way to borrow admin access
+        that nothing here refuses."""
+        other = User.objects.create_superuser(
+            username="other-op", email="other@example.com", password="x"
+        )
+        self.client.force_login(self.operator)
+        response = self.client.post(
+            reverse("admin:accounts_user_impersonate", args=[other.pk])
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertNotIn(settings.AUTH_ACCESS_COOKIE, response.cookies)
+        self.assertFalse(Impersonation.objects.exists())
+
+    def test_an_erased_account_is_refused(self):
+        erasure.erase(self.builder)
+        self.client.force_login(self.operator)
+        response = self.client.post(self.url)
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(Impersonation.objects.exists())
+
+    # Whitenoise's manifest storage refuses to name a file it has no hash for,
+    # and nothing has run collectstatic in a test run — so rendering any admin
+    # page raises on its first {% static %}. Swapped for the plain backend
+    # rather than skipping the render: the page is the confirmation step, and a
+    # test that never draws it would not notice it stopped existing.
+    @override_settings(
+        STORAGES={
+            "staticfiles": {
+                "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"
+            }
+        }
+    )
+    def test_the_refusal_is_re_checked_on_the_post(self):
+        """The confirm page and the action are two requests. A target promoted
+        to staff in between must be refused by the one that acts."""
+        self.client.force_login(self.operator)
+        self.assertEqual(self.client.get(self.url).status_code, 200)
+        self.builder.is_staff = True
+        self.builder.save(update_fields=["is_staff"])
+        self.client.post(self.url)
+        self.assertFalse(Impersonation.objects.exists())
+
+    # --- what the session is ---------------------------------------------
+
+    def test_it_signs_this_browser_in_as_the_builder(self):
+        self._start()
+        response = self.client.get(reverse("me"))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["username"], "builder")
+        self.assertEqual(response.data["impersonated_by"], "operator")
+
+    def test_a_real_session_says_nothing_about_impersonation(self):
+        """The field is absent, not null: a builder's own session must not
+        carry a key whose whole meaning is that somebody else is looking."""
+        self.client.cookies[settings.AUTH_ACCESS_COOKIE] = str(
+            RefreshToken.for_user(self.builder).access_token
+        )
+        response = self.client.get(reverse("me"))
+        self.assertNotIn("impersonated_by", response.data)
+
+    def test_no_refresh_cookie_is_left_behind(self):
+        """Access only. A refresh token would rotate this into a week-long
+        full session, which is the one thing it must not become."""
+        response = self._start()
+        self.assertTrue(response.cookies[settings.AUTH_ACCESS_COOKIE].value)
+        self.assertEqual(response.cookies[settings.AUTH_REFRESH_COOKIE].value, "")
+        self.assertEqual(
+            self.client.post(reverse("cookie_refresh")).status_code, 401
+        )
+
+    def test_an_operators_own_refresh_cookie_is_cleared(self):
+        """Otherwise the first 401 after expiry rotates them back into their
+        OWN account on the same screen, with nothing saying so."""
+        self.client.cookies[settings.AUTH_REFRESH_COOKIE] = str(
+            RefreshToken.for_user(self.operator)
+        )
+        self._start()
+        self.assertNotIn(settings.AUTH_REFRESH_COOKIE, self.client.cookies)
+
+    def test_the_session_expires_on_its_own_shorter_clock(self):
+        """Nothing can end one early — there is no blacklist here — so the
+        lifetime is the revocation story and it is not the ordinary one."""
+        token = impersonation.issue(self.operator, self.builder)
+        lived = token["exp"] - token["iat"]
+        self.assertEqual(lived, settings.IMPERSONATION_LIFETIME_S)
+        self.assertLess(
+            lived, settings.SIMPLE_JWT["REFRESH_TOKEN_LIFETIME"].total_seconds()
+        )
+
+    def test_it_is_recorded(self):
+        self._start()
+        row = Impersonation.objects.get()
+        self.assertEqual(row.operator, self.operator)
+        self.assertEqual(row.target, self.builder)
+
+    def test_erasing_the_account_does_not_erase_the_record_of_who_read_it(self):
+        """`erasure._descend` walks the model graph, so a new model with a user
+        FK is swept up by default. This one must not be: it records what the
+        operator did, and the builder leaving is not a reason for that to go."""
+        self._start()
+        erasure.erase(self.builder)
+        self.assertEqual(Impersonation.objects.count(), 1)
+
+    # --- read-only --------------------------------------------------------
+
+    def test_writes_to_the_builders_own_account_are_refused(self):
+        self._start()
+        response = self.client.patch(reverse("me"), {"mode": "THINKING"}, format="json")
+        self.assertEqual(response.status_code, 403)
+        self.builder.refresh_from_db()
+        self.assertEqual(self.builder.mode, User.Mode.COACH)
+
+    def test_the_coach_cannot_be_made_to_speak(self):
+        """The expensive one and the one that would be indistinguishable from
+        the builder afterwards: a message in their transcript, a ModelCall
+        billed to them, and possibly their gate moved."""
+        self._start()
+        response = self.client.post(
+            reverse("coach_chat"), {"message": "hello"}, format="json"
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_an_endpoint_nobody_thought_about_is_refused_too(self):
+        """The reason the rule is middleware and not a permission class: this
+        route was never named anywhere in the impersonation code."""
+        self._start()
+        self.assertEqual(
+            self.client.post(reverse("coach_declare"), {}, format="json").status_code,
+            403,
+        )
+
+    def test_reads_still_work(self):
+        self._start()
+        self.assertEqual(self.client.get(reverse("coach_state")).status_code, 200)
+
+    def test_the_way_out_is_not_blocked(self):
+        """Logout and refresh are POSTs and both are exits. Refusing logout
+        would leave an operator holding a session they asked to drop."""
+        self._start()
+        self.assertEqual(self.client.post(reverse("logout")).status_code, 200)
+
+    def test_an_ordinary_builder_can_still_write(self):
+        """The middleware sits in front of every request in the product, so
+        the case worth pinning is the one where it must do nothing at all."""
+        self.client.cookies[settings.AUTH_ACCESS_COOKIE] = str(
+            RefreshToken.for_user(self.builder).access_token
+        )
+        response = self.client.patch(reverse("me"), {"mode": "THINKING"}, format="json")
+        self.assertEqual(response.status_code, 200)
+
+    def test_the_admin_stays_usable_while_a_session_is_live(self):
+        """The access cookie is scoped to "/" so the browser attaches it to
+        /admin/ too, where nothing reads it. Guarding those POSTs would only
+        stop an operator using the admin in the tab they started from."""
+        self._start()
+        self.client.force_login(self.operator)
+        response = self.client.post(
+            reverse("admin:accounts_user_changelist"),
+            {"action": "", "index": "0", "_selected_action": []},
+        )
+        self.assertNotEqual(response.status_code, 403)

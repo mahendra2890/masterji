@@ -48,6 +48,51 @@ class User(AbstractUser):
         return self.username
 
 
+class Impersonation(models.Model):
+    """One time an operator looked at a builder's account through the app.
+
+    Written by `accounts.admin.MasterjiUserAdmin.impersonate_view` before the
+    cookie is handed over, so the record exists whether or not the session is
+    ever used. There is no "ended" column and there could not be an honest
+    one: the token is stateless, nothing reports its use back here, and a
+    field that only ever said "expires_at" while pretending to say "ended"
+    would be worse than the gap. What can be known is written down — who,
+    whom, when it started, and when it stops working.
+
+    NOT a `SoftDeleteModel`, and that is the difference that matters rather
+    than an oversight. Every soft-deleting model in this codebase holds
+    something the builder did, so `erasure._descend` stamps it when they ask
+    to be gone. This holds something the OPERATOR did, and an account erasure
+    is not a reason for the record of who read it to disappear. It survives,
+    pointing at a user row whose identity `erase` has already scrubbed — so
+    what is left says an operator viewed account 41 on a date, and nothing
+    about who account 41 was, which is the correct amount to keep.
+    """
+
+    operator = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="impersonations_started",
+    )
+    target = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="impersonations_received",
+    )
+    started_at = models.DateTimeField(auto_now_add=True)
+    # Stamped from the token's own lifetime rather than recomputed on read, so
+    # this row keeps saying what that session's expiry actually was even after
+    # IMPERSONATION_LIFETIME_S is changed.
+    expires_at = models.DateTimeField()
+
+    class Meta:
+        verbose_name = "impersonation"
+        ordering = ["-started_at"]
+
+    def __str__(self):
+        return f"{self.operator} as {self.target} at {self.started_at:%Y-%m-%d %H:%M}"
+
+
 class PushSubscription(models.Model):
     """One browser that has agreed to be nudged when tonight's proof is owed.
 

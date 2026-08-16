@@ -9,7 +9,7 @@ from rest_framework_simplejwt.serializers import TokenRefreshSerializer
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
 
-from . import erasure
+from . import erasure, impersonation
 from .cookies import clear_auth_cookies, set_auth_cookies
 from .models import User
 from .serializers import UserSerializer
@@ -23,7 +23,16 @@ class MeView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        return Response(UserSerializer(request.user).data)
+        data = UserSerializer(request.user).data
+        # Reported here rather than on the serializer, because it is not a
+        # property of the user — it is a property of the token this particular
+        # request arrived with. On the serializer it would be a field that is
+        # null for every builder forever, and the frontend would still have to
+        # be told what it means.
+        operator = (request.auth or {}).get(impersonation.IMPERSONATOR_CLAIM)
+        if operator:
+            data["impersonated_by"] = operator
+        return Response(data)
 
     def patch(self, request):
         serializer = UserSerializer(request.user, data=request.data, partial=True)

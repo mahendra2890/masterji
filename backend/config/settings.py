@@ -83,6 +83,11 @@ MIDDLEWARE = [
     # reached the admin's login view — a request rejected for a missing CSRF
     # token never checked a password and is not a guess.
     "accounts.middleware.AdminLoginThrottleMiddleware",
+    # In front of every view rather than on each one, because the hole a
+    # read-only rule can develop is an endpoint written later by somebody who
+    # did not know about it. Above the budget below so a refused write never
+    # opens an LLM budget it is not going to spend.
+    "accounts.middleware.ImpersonationReadOnlyMiddleware",
     # Innermost, so the budget starts as close to the view as possible: the
     # seconds this bounds are the ones spent talking to a provider, not the
     # ones Django spends on sessions and CSRF.
@@ -485,6 +490,12 @@ ADMIN_LOGIN_MAX_FAILURES = int(os.environ.get("ADMIN_LOGIN_MAX_FAILURES", "10"))
 ADMIN_LOGIN_FAILURE_WINDOW_S = int(
     os.environ.get("ADMIN_LOGIN_FAILURE_WINDOW_S", "3600")
 )
+
+# How long an operator's read-only view of a builder's account lasts. Nothing
+# can end one early — there is no token blacklist in this deployment — so this
+# number is the whole of the revocation story, which is why it is half an hour
+# and not a working day. accounts/impersonation.py carries the argument.
+IMPERSONATION_LIFETIME_S = int(os.environ.get("IMPERSONATION_LIFETIME_S", "1800"))
 
 SIMPLE_JWT = {
     # Short-lived access token: if one leaks, the damage window is minutes.

@@ -1,0 +1,42 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+  <h1>View as {{ target.username }}</h1>
+
+  {% if refusal %}
+    <p class="errornote">{{ refusal }}</p>
+    <p><a href="{% url 'admin:accounts_user_changelist' %}">Back to users</a></p>
+  {% else %}
+    <p>
+      This browser will be signed in as <strong>{{ target.username }}</strong>
+      ({{ target.email }}) for {{ minutes }} minutes, and the app will show
+      you what they see.
+    </p>
+    <ul>
+      <li>
+        <strong>The session is read-only.</strong> Every write is refused —
+        you cannot send a message, submit proof, advance a phase, or change a
+        setting on this account.
+      </li>
+      <li>
+        <strong>It cannot be ended early.</strong> There is no way to revoke a
+        token in this deployment, so signing out drops it from this browser
+        but the token itself stays valid until it expires.
+      </li>
+      <li>
+        <strong>Your own session goes.</strong> This replaces the sign-in
+        cookies in this browser, so you will be signed out of your own
+        account here.
+      </li>
+      <li>
+        It is recorded: your username, this account, and the time.
+      </li>
+    </ul>
+
+    <form method="post">
+      {% csrf_token %}
+      <input type="submit" value="View as {{ target.username }}" class="default">
+      <a href="{% url 'admin:accounts_user_changelist' %}" class="button cancel-link">Cancel</a>
+    </form>
+  {% endif %}
+{% endblock %}

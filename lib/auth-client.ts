@@ -11,6 +11,11 @@ export type SessionUser = {
   username: string;
   email: string;
   mode: "COACH" | "THINKING";
+  /** Set only when an operator is viewing this account read-only from the
+   * admin — the operator's username. Absent on every session a builder will
+   * ever have, because it comes from a claim on a token only
+   * accounts/admin.py mints. AuthGate is what draws the banner. */
+  impersonated_by?: string;
 };
 
 /** The backend hasn't answered anything Django wrote — Render's free

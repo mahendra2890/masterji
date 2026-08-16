@@ -8,6 +8,7 @@ import {
   logout as apiLogout,
   type SessionUser,
 } from "@/lib/auth-client";
+import ImpersonationBanner from "@/components/ImpersonationBanner";
 import WakingNote from "@/components/WakingNote";
 import noteStyles from "@/components/waking-note.module.css";
 
@@ -133,7 +134,21 @@ export default function AuthGate({
     // before the answer arrives, and nothing this effect does reads it.
   }, [pathname, hasSignedOutPage]);
 
-  if (user) return <>{children(user)}</>;
+  // Here rather than on each screen, because the question the banner answers —
+  // "whose account is this?" — is the gate's own question, and a screen added
+  // later would have to remember to ask it again.
+  if (user)
+    return (
+      <>
+        {user.impersonated_by && (
+          <ImpersonationBanner
+            username={user.username}
+            operator={user.impersonated_by}
+          />
+        )}
+        {children(user)}
+      </>
+    );
 
   // A visitor who was given a signed-out page gets it instead of the
   // cold-start note: the landing needs no backend, and a stranger meeting

@@ -1,0 +1,30 @@
+/* Sticky rather than fixed, and that is the whole reason this needs no
+   accompanying spacer: sticky stays in flow, so it takes its own height at the
+   top of the page instead of covering the first line of whatever is under it,
+   and still follows the operator down the screen. Fixed would have meant every
+   route making room for a banner it does not know about. */
+.banner {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: center;
+  gap: 4px 12px;
+  padding: 8px 16px;
+  /* Deliberately not a token from the app's palette. Every colour in
+     globals.css belongs to the product, and this is the one element on screen
+     that is not the product — reusing --accent would make it read as part of
+     the page it is warning about. */
+  background: #7a1f1f;
+  color: #fff;
+  font-family: var(--font-mono), monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.banner span {
+  opacity: 0.85;
+}
