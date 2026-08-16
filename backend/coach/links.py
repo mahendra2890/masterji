@@ -106,7 +106,8 @@ def _fetch(url: str, method: str) -> int:
         # `check` vetted the first hop and only the first hop. A read body brings
         # that address's contents back to a stranger. Either change turns #136
         # from a decision into a bug, so pin the connection to the vetted address
-        # in the same commit. `coach.tests.LinkCheckTests` fails until you do.
+        # in the same commit. `coach.tests.test_proofs.LinkCheckTests` fails
+        # until you do.
         allow_redirects=False,
         stream=True,
         headers={"User-Agent": settings.LINK_CHECK_USER_AGENT},

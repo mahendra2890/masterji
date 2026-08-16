@@ -181,9 +181,9 @@ and a `CAPPED_ACCEPT`: after N refusals, let the proof through. Clean code,
 sound reasoning, wrong product — a coaching tool where persistence eventually
 beats the gate has no product left. Neither constant exists in this codebase.
 What exists instead is `test_the_verdict_is_never_worn_down` in
-[backend/coach/tests.py](backend/coach/tests.py), which submits four times and
-asserts four push-backs and zero banked proofs, so that no future session — mine
-or the model's — can quietly reintroduce it.
+[backend/coach/tests/test_proofs.py](backend/coach/tests/test_proofs.py), which
+submits four times and asserts four push-backs and zero banked proofs, so that
+no future session — mine or the model's — can quietly reintroduce it.
 
 The general shape: an agent optimises for the user not being stuck. Sometimes
 being stuck is the product.
