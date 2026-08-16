@@ -14,7 +14,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from . import bar, gates, guidance, weekly
-from .models import METRIC_PHASE, Goal, Phase
+from .models import METRIC_PHASE, Goal, LaunchCommitment, Phase
 
 PLAYBOOKS_DIR = Path(__file__).resolve().parent / "playbooks"
 
@@ -1530,6 +1530,78 @@ SUGGEST_PHASE_INTENT_TOOL = {
                 }
             },
             "required": ["intent"],
+        },
+    },
+}
+
+# The launch date's version of the three above, and the one where the offer /
+# record distance is widest. What a press writes here is a LaunchCommitment,
+# which is APPEND-ONLY — moving the date writes a second row and the visible
+# slip trail is the entire consequence of having named one. So a drafted date
+# that reached the table would put a slip on the record that never happened,
+# which is worse than useless: it is the commitment device lying about the
+# commitment. This tool writes NO ROW, ever. LaunchDateView is the only writer
+# there has ever been, and it is reached by a press on the card.
+#
+# The server decides whether it is on the table at all — handed to the model
+# only in LAUNCH_PHASES, which is the same question LaunchDateView asks before
+# it will accept one ("A date needs something to launch"). Before BUILD the tool
+# simply does not exist rather than existing under a rule the model has to
+# remember: a date with no artifact is a wish, and wrong-window silence is a
+# schema fact here rather than a prompt sentence a later edit can soften.
+#
+# The hardest sentence in the description is the second guard. The box has no
+# default day and no placeholder on purpose — a date the app chose is not one
+# anybody committed to — and a model that suggests a Friday and writes it down
+# in the same breath has quietly given the app back the default. Coaching
+# toward a date is chat, and there is a lot of it worth having; choosing the
+# date is not this tool's to do.
+SUGGEST_LAUNCH_DATE_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "suggest_launch_date",
+        "description": (
+            "Write down the day the builder has just said they will launch, "
+            "and the room they said they'll launch into. Call this only when "
+            "they have named a day THEMSELVES in this conversation, or agreed "
+            "to one you asked about — never a date you picked for them, never "
+            "a date inferred from 'a couple of weeks', and never a date they "
+            "named in some earlier conversation. This COMMITS NOTHING: it "
+            "fills the launch box on their card and they press Set "
+            "themselves. Call it again if they change the day or the room; "
+            "each call replaces the last. Talking a 'someday' down to an "
+            "actual Friday is worth doing and is just conversation — the tool "
+            "is for after they say the Friday. Say what you have to say to "
+            "them in the same turn; a turn that only calls this is a turn "
+            "they spent getting no answer."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "date": {
+                    "type": "string",
+                    "description": (
+                        "The day they named, as YYYY-MM-DD. Today or later, "
+                        "and inside the next three months — past that it "
+                        "stops being a date and starts being a way of not "
+                        "picking one."
+                    ),
+                },
+                "pond": {
+                    "type": "string",
+                    "enum": [p.value for p in LaunchCommitment.Pond],
+                    "description": (
+                        "Which room they said they're launching into, from "
+                        "the ladder: "
+                        + "; ".join(
+                            f"{p.value} — {p.label}" for p in LaunchCommitment.Pond
+                        )
+                        + ". The room they named, not the rung you think they "
+                        "should be on."
+                    ),
+                },
+            },
+            "required": ["date", "pond"],
         },
     },
 }

@@ -182,6 +182,30 @@ class Goal(SoftDeleteModel):
     # "is this still today" is the client's, and it arrives on the request that
     # reads the offer (views._client_day). NULL whenever the offer is empty.
     declaration_offer_date = models.DateField(null=True, blank=True)
+    # The day and the room as Masterji heard the builder name them in chat,
+    # waiting to fill the launch box. An OFFER, never a record — and here that
+    # rule is stronger than anywhere else it is written, because the record it
+    # is not is `LaunchCommitment`, which is APPEND-ONLY. A drafted date that
+    # wrote a row would put a slip on the trail that never happened, and the
+    # trail is the entire consequence of naming a date at all. So nothing in
+    # the chat path creates one: LaunchDateView is the only writer there has
+    # ever been, and it is reached by a press.
+    #
+    # ON THE GOAL rather than on a LaunchCommitment for exactly that reason —
+    # there is no row to hang this on, and opening one would be the app
+    # committing on the builder's behalf. gates.py reads neither field, the
+    # same as it reads neither the date nor the pond they become.
+    #
+    # A PAIR, always written and always cleared together: half a draft — a day
+    # with no room, or a room with no day — cannot be pressed, since the Set
+    # button needs both. Blank and NULL are the ordinary state.
+    #
+    # No `_date` stamp beside it, unlike the declaration above. A morning's
+    # task goes stale at midnight; a launch date is about one specific future
+    # day and stays exactly as good until that day has been. The staleness
+    # check is therefore the date itself — see views._launch_offer_payload.
+    launch_date_offer = models.DateField(null=True, blank=True)
+    launch_pond_offer = models.CharField(max_length=8, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
