@@ -12,6 +12,7 @@ from unittest import mock
 from django.core.cache import cache
 from django.core.management import call_command
 from django.core.management.base import CommandError
+from django.db import IntegrityError
 from django.test import TestCase
 from django.utils import timezone
 from rest_framework.test import APITestCase
@@ -941,6 +942,215 @@ class LoopReportTests(CoachTestCase):
         self.assertEqual(before, after)
         goal.refresh_from_db()
         self.assertEqual(goal.phase, Phase.IDEA)
+
+
+class OpenedAndNeverDeclaredTests(CoachTestCase):
+    """The one number this repo could not count off rows that already existed.
+
+    `loop_report`'s docstring says every number it prints is a count over rows
+    the product wrote for its own reasons, and it was right until this one: a
+    builder who opens the dashboard and leaves writes nothing, so they are
+    indistinguishable from a builder who never opened the app. `DashboardOpen`
+    is the exception, and what is pinned here is that it stayed the smallest
+    exception it could be — one row per builder per local day, unable to cost
+    the dashboard, and gone with the account.
+    """
+
+    def report(self):
+        out = StringIO()
+        call_command("loop_report", stdout=out)
+        return out.getvalue()
+
+    def open_dashboard(self, **params):
+        return self.client.get("/api/coach/state/", params)
+
+    def test_opening_the_dashboard_with_a_live_goal_writes_one_row(self):
+        """The whole mechanism. Without this row the question has no source at
+        all — `StateView` is otherwise a pure read."""
+        self.make_goal()
+        self.assertEqual(self.open_dashboard().status_code, 200)
+        row = views.DashboardOpen.objects.get()
+        self.assertEqual(row.user_id, self.alice.id)
+        self.assertEqual(row.day, timezone.localdate())
+
+    def test_a_second_visit_on_the_same_day_is_the_same_day(self):
+        """`StateView` is a GET and has to stay idempotent. The client refetches
+        at turn end, on focus and after every press, so a row per request would
+        count POLLING rather than opening — and the number would then rise with
+        how chatty the client is instead of with how many builders showed up."""
+        self.make_goal()
+        for _ in range(5):
+            self.assertEqual(self.open_dashboard().status_code, 200)
+        self.assertEqual(views.DashboardOpen.objects.count(), 1)
+
+    def test_the_day_is_the_clients_own(self):
+        """`_client_day` takes the date off the query string, and this count
+        inherits exactly that — including the fallback, and including the fact
+        that nothing verifies it. Two calendar days for a builder whose clock
+        is a day ahead of the server's are two days here, which is the point:
+        the alternative files a 01:00 IST visit under yesterday."""
+        self.make_goal()
+        tomorrow = timezone.localdate() + timedelta(days=1)
+        self.open_dashboard()
+        self.open_dashboard(date=tomorrow.isoformat())
+        self.assertEqual(
+            sorted(views.DashboardOpen.objects.values_list("day", flat=True)),
+            [timezone.localdate(), tomorrow],
+        )
+
+    def test_a_garbled_date_still_records_a_day(self):
+        """Same asymmetry `_client_day` already applies: a bad query string
+        falls back to the server's date rather than 400ing, so the visit is
+        counted under the server's day instead of being lost."""
+        self.make_goal()
+        self.assertEqual(self.open_dashboard(date="the fourteenth").status_code, 200)
+        self.assertEqual(
+            views.DashboardOpen.objects.get().day, timezone.localdate()
+        )
+
+    def test_the_no_goal_screen_records_nothing(self):
+        """A dashboard with no goal on it is a different screen asking a
+        different question. Counting it would put days into the denominator on
+        which nobody could have declared anything."""
+        self.assertEqual(self.open_dashboard().status_code, 200)
+        self.assertFalse(views.DashboardOpen.objects.exists())
+
+    def test_a_failed_write_does_not_cost_the_builder_their_dashboard(self):
+        """The payload is the product; the count is a readout. A readout that
+        can 500 the screen a builder came to use has its priorities inverted —
+        and every exception is swallowed, not only the one anybody anticipated,
+        because a guarantee that holds for the expected failure is not one."""
+        goal = self.make_goal()
+        with mock.patch.object(
+            views.DashboardOpen.objects,
+            "get_or_create",
+            side_effect=RuntimeError("the table is on fire"),
+        ):
+            response = self.open_dashboard()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["goal"]["title"], goal.title)
+        self.assertFalse(views.DashboardOpen.objects.exists())
+
+    def test_a_failed_write_leaves_the_request_able_to_query(self):
+        """The subtler half of the guard. Swallowing an `IntegrityError` inside
+        an atomic block without a savepoint marks the transaction for rollback,
+        so the dashboard dies one query later instead of here — which looks
+        like the write cost nothing right up until it costs everything. The
+        payload below is read AFTER the failure, so it could not be served at
+        all if the connection were poisoned."""
+        goal = self.make_goal()
+        self._days(goal, 3)
+        with mock.patch.object(
+            views.DashboardOpen.objects,
+            "get_or_create",
+            side_effect=IntegrityError("duplicate key"),
+        ):
+            response = self.open_dashboard()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data["checkins"]), 3)
+
+    def test_deleting_the_account_takes_the_visits_with_it(self):
+        """Free, and only because `accounts.erasure._descend` walks the model
+        graph rather than a hand-written list of models. Pinned here for the
+        reason the cohort one is: the day somebody replaces that walk with a
+        list, this is what breaks and nothing else would say so. A table of
+        "which days this person opened the app" surviving an erasure request
+        would be the worst row in the database to leave behind."""
+        from accounts import erasure
+
+        views.DashboardOpen.objects.create(user=self.alice, day=date(2026, 8, 14))
+        views.DashboardOpen.objects.create(user=self.bob, day=date(2026, 8, 14))
+
+        counts = erasure.erase(self.bob)
+
+        self.assertEqual(counts.get("coach.DashboardOpen"), 1)
+        self.assertEqual(
+            list(views.DashboardOpen.objects.values_list("user_id", flat=True)),
+            [self.alice.id],
+        )
+        # Soft, like every other row erasure touches — hidden from `objects`,
+        # still there for admin.
+        self.assertEqual(views.DashboardOpen.all_objects.count(), 2)
+
+    # --- what the readout makes of it ------------------------------------
+
+    def opened(self, user, day, *, declared=False):
+        views.DashboardOpen.objects.create(user=user, day=day)
+        if declared:
+            goal = Goal.objects.filter(user=user).first() or self.make_goal(user=user)
+            CheckIn.objects.create(
+                goal=goal, date=day, phase=goal.phase, am_declaration="ship the form"
+            )
+
+    def test_a_day_in_progress_is_not_a_miss(self):
+        """`_pct`'s convention, applied to the one denominator that most needs
+        it: "nobody came back" and "nobody could have come back yet" are
+        different findings. A goal opened this morning with no declaration yet
+        is a day in progress, and counting it would drag the number down every
+        time somebody opened the app before breakfast."""
+        today = timezone.localdate()
+        self.opened(self.alice, today)
+        self.assertEqual(loop_report.opened_without_declaring(today), (1, 0, 0))
+        text = self.report()
+        self.assertIn("days a builder opened a live goal            1", text)
+        self.assertIn("…days that are over                          0", text)
+        self.assertIn("…and nothing was declared on them            0  (—)", text)
+
+    def test_a_day_that_is_over_with_nothing_declared_is_the_number(self):
+        """What #277's remaining decision is actually waiting to read."""
+        today = timezone.localdate()
+        self.opened(self.alice, today - timedelta(days=1))
+        self.opened(self.bob, today - timedelta(days=1), declared=True)
+        self.assertEqual(loop_report.opened_without_declaring(today), (2, 2, 1))
+        self.assertIn(
+            "…and nothing was declared on them            1  (50%)", self.report()
+        )
+
+    def test_it_counts_days_rather_than_rows_on_both_sides(self):
+        """Two declarations on one day are one day, and a builder who declared
+        on a day they are not recorded as opening does not subtract a day they
+        never had. Both sides are (user, day) pairs and the answer is a set
+        difference, which is the only shape that makes the two counts
+        comparable — a builder who retired one goal and started another has
+        two check-ins on the same date, and that is still one day."""
+        today = timezone.localdate()
+        yesterday = today - timedelta(days=1)
+        retired = self.make_goal(status=Goal.Status.COMPLETED)
+        current = self.make_goal()
+        self.opened(self.alice, yesterday)
+        for goal in (retired, current):
+            CheckIn.objects.create(
+                goal=goal, date=yesterday, phase=goal.phase, am_declaration="one"
+            )
+        # bob declared on a day he has no recorded open — nothing to subtract.
+        bobs = self.make_goal(user=self.bob)
+        CheckIn.objects.create(
+            goal=bobs, date=yesterday, phase=bobs.phase, am_declaration="his"
+        )
+        self.assertEqual(loop_report.opened_without_declaring(today), (1, 1, 0))
+
+    def test_an_empty_declaration_does_not_count_as_declaring(self):
+        """A `CheckIn` row can exist with no declaration on it — the evening
+        path writes one — and "there is a row" is not the question. The
+        question is whether they said what they were doing that day."""
+        today = timezone.localdate()
+        yesterday = today - timedelta(days=1)
+        goal = self.make_goal()
+        self.opened(self.alice, yesterday)
+        CheckIn.objects.create(
+            goal=goal, date=yesterday, phase=goal.phase, am_declaration=""
+        )
+        self.assertEqual(loop_report.opened_without_declaring(today), (1, 1, 1))
+
+    def test_the_readout_still_writes_nothing(self):
+        """The exception is a table the product writes on a page load. It is
+        NOT a licence for the report to write, and the property that made this
+        readout safe to trust — it adds no authority and can contradict
+        nothing — has to survive the one table added for its sake."""
+        self.opened(self.alice, timezone.localdate() - timedelta(days=1))
+        before = views.DashboardOpen.all_objects.count()
+        self.report()
+        self.assertEqual(views.DashboardOpen.all_objects.count(), before)
 
 
 class WeeklyDigestTests(CoachTestCase):

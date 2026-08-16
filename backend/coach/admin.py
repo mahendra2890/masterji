@@ -9,6 +9,7 @@ from .models import (
     CheckIn,
     Cohort,
     CohortMember,
+    DashboardOpen,
     Goal,
     GoalRetirement,
     LaunchCommitment,
@@ -311,4 +312,36 @@ class ModelCallAdmin(SoftDeleteAdmin):
         # The FK is followed on every row of the list display; without this the
         # page is one query per row, which is the exact shape #150 was filed
         # about on the dashboard.
+        return super().get_queryset(request).select_related("user")
+
+
+@admin.register(DashboardOpen)
+class DashboardOpenAdmin(SoftDeleteAdmin):
+    """A day a builder opened a live dashboard. Read-only, like the ledger.
+
+    Registered because `AdminReachTests` requires every table in this app to
+    have a reader, and this one needs it more than most: it is the only table
+    here that is not a record of something the builder did, so the only way to
+    see what is being kept about somebody is to look at it. `loop_report` reads
+    it in aggregate; this is where you read a row.
+
+    No add and no change, for `ModelCall`'s reason — a hand-written row would
+    be a visit nobody made, and `loop_report` would print it as evidence.
+    """
+
+    list_display = ["day", "user", "created_at"]
+    list_filter = ["day"]
+    search_fields = ["user__username", "user__email"]
+    date_hierarchy = "day"
+    # Named here rather than as Meta.ordering — see the comment on the model
+    # for why this table deliberately has no default ordering.
+    ordering = ["-day", "user"]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def get_queryset(self, request):
         return super().get_queryset(request).select_related("user")

@@ -1,4 +1,4 @@
-"""Does the loop work? Seven counts over rows the server already holds.
+"""Does the loop work? Eight counts over rows the server holds.
 
 Nothing in this repo counted whether the product does what it claims. The only
 analytics are `@vercel/analytics` and `@vercel/speed-insights` — pageviews and
@@ -6,10 +6,24 @@ web vitals — and `coach/admin.py` registers list displays with no aggregate in
 it at all. So the questions the product is built to answer about itself had no
 answer, and the backlog was being ranked on argument.
 
-Every number here is a COUNT over rows that already exist. No new tracking, no
-events, no third-party pipeline, nothing builder-facing. It reads `gates.py`
-and `streaks.py` helpers unchanged and never writes: this readout adds no
-authority and can contradict nothing, which is what makes it safe to trust.
+Every number here is a COUNT over rows the product wrote for its own reasons —
+declarations, proofs, transitions, retirements — with **one exception, named
+below**. No events, no third-party pipeline, nothing builder-facing. It reads
+`gates.py` and `streaks.py` helpers unchanged and never writes: this readout
+adds no authority and can contradict nothing, which is what makes it safe to
+trust.
+
+THE EXCEPTION, because a rule broken quietly is a rule that is gone. One
+section, "Opening without declaring", counts `coach.DashboardOpen` — a table
+that exists only to be counted here. It had to be added because a builder who
+opens the dashboard and leaves writes nothing else: no check-in, no message, no
+`ModelCall`, so they are indistinguishable from a builder who never opened the
+app, and #277's remaining decision is gated on telling those two apart.
+Everything else on this page still obeys the rule, so the exception is kept to
+the smallest shape that answers the question — one row per builder per local
+day, no path, no referrer, no session — and it is written here, next to the
+claim it breaks, rather than discovered by the next reader. See
+`DashboardOpen`'s own docstring for the argument in full.
 
 Deliberately a command that prints, not a page with charts. With a handful of
 real builders every number below is small enough to read out of Django admin,
@@ -32,6 +46,7 @@ from django.utils import timezone
 from coach import gates, streaks
 from coach.models import (
     CheckIn,
+    DashboardOpen,
     Goal,
     GoalRetirement,
     Phase,
@@ -113,6 +128,44 @@ def return_windows(first_days: dict[int, object], all_days: dict[int, set]) -> l
     return rows
 
 
+def opened_without_declaring(today) -> tuple[int, int, int]:
+    """Days shown, days over, and days over with nothing declared on them.
+
+    The number #277's layout decision waits on. A builder who lands on the
+    dashboard and leaves is invisible in every other table here, which is why
+    `DashboardOpen` exists at all — see this module's docstring for why that
+    is an exception and why it is this small.
+
+    **The denominator needs the day to be over.** A goal opened this morning
+    with no declaration yet is not a miss; it is a day in progress, and
+    counting it would drag the number down every time somebody opened the app
+    before breakfast. So the share is taken over days strictly before `today`,
+    and the raw total is printed beside it rather than folded into it — the
+    same convention `_pct` keeps for a denominator that has not arrived.
+
+    Both sides are read as (user, day) pairs and subtracted as sets, which is
+    what makes the answer a count of DAYS rather than of rows: two check-ins
+    on one day are one day, and the unique constraint already makes one open
+    per day one row. `.order_by()` on both, because a model's `Meta.ordering`
+    joins the GROUP BY and would quietly return something else.
+
+    Both dates are the CLIENT's — `_client_day` for the open, `_parse_date`
+    for the declaration — so the two sides agree on which day a builder was
+    on. What neither can do is verify it: the day comes off the query string
+    and falls back to the server's date. The readout says so.
+    """
+    shown = set(
+        DashboardOpen.objects.values_list("user_id", "day").order_by()
+    )
+    over = {(user_id, day) for user_id, day in shown if day < today}
+    declared = set(
+        CheckIn.objects.exclude(am_declaration="")
+        .values_list("goal__user_id", "date")
+        .order_by()
+    )
+    return len(shown), len(over), len(over - declared)
+
+
 class Command(BaseCommand):
     help = "Print what the database knows about whether the loop works."
 
@@ -174,6 +227,21 @@ class Command(BaseCommand):
         for status_value, _ in CheckIn.ProofStatus.choices:
             n = CheckIn.objects.filter(proof_status=status_value).count()
             self.line(f"  {status_value}", f"{n}  ({_pct(n, proved)} of proved)")
+
+        # --- opening without declaring ---------------------------------------
+        # The one section on this page that is not a count over rows the
+        # product wrote for its own reasons. See the module docstring: the
+        # table under it exists only to be counted here, because a builder who
+        # opens the dashboard and leaves writes nothing at all.
+        self.head("Opening without declaring")
+        shown, over, silent = opened_without_declaring(today)
+        self.line("days a builder opened a live goal", shown)
+        self.line("…days that are over", over)
+        self.line(
+            "…and nothing was declared on them",
+            f"{silent}  ({_pct(silent, over)})",
+        )
+        self.line("(the day is the client's, unverified)", "")
 
         # --- what a push-back is actually for --------------------------------
         # The question the product's whole argument rests on: does a refusal
