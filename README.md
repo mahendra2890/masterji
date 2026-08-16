@@ -231,15 +231,19 @@ The product's spine is a **server-enforced state machine**, not a prompt:
   test holds both. How a method earns its way in — and why scraped tweets
   never will — is written down in the
   [curation policy](backend/coach/playbooks/README.md).
-- **Two ways of talking, both the builder's to set.** *Hinglish* — Masterji
-  speaks natural Hindi-English if you want him to ("Kaam dikhao, baatein
-  nahi"). *Thinking partner* — for the work that comes before there's
-  anything to declare, he switches to questions and options instead of
-  assignments. Both live on the user, not the turn. The mode sits over the
-  composer as two options with the live one lit, rather than as one button
-  naming the mode you already have — a control that states its own state
-  tells nobody that the other one exists. Neither is a way past the gate:
-  `gates.py` doesn't read either field, and a test pins it.
+- **Thinking-partner mode, the builder's to set.** For the work that comes
+  before there's anything to declare, Masterji switches to questions and
+  options instead of assignments. It lives on the user, not the turn, and
+  sits over the composer as two options with the live one lit, rather than as
+  one button naming the mode you already have — a control that states its own
+  state tells nobody that the other one exists. It is not a way past the
+  gate: `gates.py` doesn't read the field, and a test pins it.
+
+  He speaks English, and only English. There was a Hinglish setting; it
+  reached the workshop's prompt and never survived the coach's, so the switch
+  in the header offered a language the daily chat did not speak. It has been
+  removed rather than half-kept (#268). If Hinglish returns it returns voiced
+  in both rooms and tested at both prompt sizes.
 - **Some nights are not about the work.** A tough-love coach whose only move is
   "name what you're avoiding and do the smallest real thing next" gives that
   answer to *"my parents want me to stop wasting time on this"* too, and it is
@@ -361,7 +365,7 @@ Deployment (Vercel + Render + Neon + Namecheap DNS): see
 ## What exists vs. what's next
 
 **Today:** the full coaching loop — goal, phases, gates, daily check-ins,
-streaks, grounded chat, Hinglish, thinking-partner mode, screenshot proofs
+streaks, grounded chat, thinking-partner mode, screenshot proofs
 graded by a vision model in the same call as the text (`LLM_VISION_MODEL`,
 inlined as a data URL so a private record never gets a fetchable link), a
 turn-metered workshop under the commit box for a builder who does not have an

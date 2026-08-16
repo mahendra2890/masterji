@@ -486,7 +486,10 @@
 }
 
 /* The app header's right-hand controls, on their own for the slide that
-   teaches them. */
+   teaches them. Down to one since the EN/हिं switch went (#268), and kept a
+   row rather than unwrapped: the streak pill is a stretchy block on its own,
+   and a full-width "4 days" bar is not the header this slide is a picture
+   of. */
 .headerStrip {
   display: flex;
   align-items: center;

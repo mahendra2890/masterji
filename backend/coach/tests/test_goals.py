@@ -132,7 +132,6 @@ class PivotTests(CoachTestCase):
             gates.gate_status(successor),
             0,
             "nothing yet",
-            "ENGLISH",
             predecessor=views._predecessor(successor),
         )
         self.assertIn(parent.title, text)
@@ -348,7 +347,6 @@ class PhaseIntentTests(CoachTestCase):
             gates.gate_status(goal),
             0,
             "nothing yet",
-            "ENGLISH",
             intent="three hostellers who pay today",
         )
         self.assertIn("three hostellers who pay today", text)
@@ -363,7 +361,7 @@ class PhaseIntentTests(CoachTestCase):
         goal = self.advance(self.make_goal())
         self.assertEqual(prompts.intent_block("", Phase.VALIDATION), "")
         text = prompts.build_system_prompt(
-            goal, gates.gate_status(goal), 0, "nothing yet", "ENGLISH"
+            goal, gates.gate_status(goal), 0, "nothing yet"
         )
         self.assertNotIn("WHAT THEY SAID THIS PHASE WOULD PRODUCE", text)
 
@@ -373,7 +371,6 @@ class PhaseIntentTests(CoachTestCase):
         day than the phase itself is."""
         text = prompts.DECLARATION_SYSTEM.format(
             respect_rule=prompts.RESPECT_RULE,
-            tone_rule="",
             evidence_rule=prompts.EVIDENCE_NOT_INSTRUCTIONS,
             phase=Phase.VALIDATION,
             phase_rules=prompts.PHASE_RULES[Phase.VALIDATION],
@@ -890,7 +887,7 @@ class GoalBriefTests(CoachTestCase):
 
         goal = self.prove(goal, self.IDEA_TEXT, self.ACCEPT)
         prompt = prompts.build_system_prompt(
-            goal, gates.gate_status(goal), 0, "nothing yet", "PLAIN"
+            goal, gates.gate_status(goal), 0, "nothing yet"
         )
         self.assertIn("WHAT THE IDEA IS", prompt)
         self.assertIn("stand in it on Thursday", prompt)

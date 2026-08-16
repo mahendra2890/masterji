@@ -834,7 +834,7 @@ def _read_the_week_back(goal: Goal, user, today: date) -> None:
         role=Message.Role.SYSTEM,
         kind=Message.Kind.DIGEST,
         phase=goal.phase,
-        content=weekly.digest(summary, user.tone, week_of),
+        content=weekly.digest(summary, week_of),
     )
 
 
@@ -857,7 +857,6 @@ class StateView(APIView):
                     "goal": None,
                     "archive": archive,
                     "lifetime_days": lifetime,
-                    "tone": request.user.tone,
                     "mode": request.user.mode,
                     # The room before the goal, if they have started one. Read
                     # without creating: opening a workshop is something a
@@ -983,7 +982,6 @@ class StateView(APIView):
                 "at_finish_line": gates.at_finish_line(goal),
                 "archive": archive,
                 "lifetime_days": lifetime,
-                "tone": request.user.tone,
                 "mode": request.user.mode,
             }
         )
@@ -1670,7 +1668,7 @@ class RetireView(APIView):
             )
             goal.save(update_fields=["status", "updated_at"])
 
-        reaction = judging._react_to_retirement(retirement, verdict, request.user.tone)
+        reaction = judging._react_to_retirement(retirement, verdict)
         retirement.coach_reaction = reaction
         retirement.save(update_fields=["coach_reaction"])
         Message.objects.create(
@@ -1882,9 +1880,7 @@ class JudgeDeclarationView(throttles.VoicedThrottleMixin, APIView):
                 checkin.declaration_reaction,
                 checkin.sharpened,
                 checkin.proof_ask,
-            ) = judging._react_to_declaration(
-                checkin.goal, checkin.am_declaration, request.user.tone
-            )
+            ) = judging._react_to_declaration(checkin.goal, checkin.am_declaration)
         checkin.save(
             update_fields=[
                 "declaration_fit",
@@ -2028,7 +2024,6 @@ class ProveView(throttles.VoicedThrottleMixin, APIView):
         verdict, reaction, labels = judging._react_to_proof(
             goal,
             checkin,
-            request.user.tone,
             image_bytes,
             content_type or "",
             pending_try=archived_try,
@@ -2208,7 +2203,6 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
             gates.gate_status(goal),
             streaks.current_streak(goal, today),
             _today_state(checkin),
-            request.user.tone,
             archive=_archive(request.user),
             lifetime=streaks.lifetime_days(request.user),
             mode=request.user.mode,
@@ -2979,7 +2973,6 @@ class WorkshopChatView(throttles.VoicedThrottleMixin, APIView):
                 banked=judging._banked(goal),
                 turns_used=_turns_used(workshop),
                 turns_total=total,
-                tone=request.user.tone,
             )
         else:
             system = prompts.build_workshop_prompt(
@@ -2987,7 +2980,6 @@ class WorkshopChatView(throttles.VoicedThrottleMixin, APIView):
                 turns_used=_turns_used(workshop),
                 turns_total=total,
                 maximum=Workshop.MAX_CANDIDATES,
-                tone=request.user.tone,
                 sketch=list(workshop.sketch_parts or []),
             )
         history = _history(

@@ -18,7 +18,7 @@ from .throttling import TrustedIdentThrottle
 
 class MeView(APIView):
     """Who am I? The frontend calls this after login to get the profile;
-    PATCH updates the coach tone preference."""
+    PATCH updates the coach preferences."""
 
     permission_classes = [IsAuthenticated]
 

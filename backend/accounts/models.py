@@ -10,11 +10,15 @@ class User(AbstractUser):
 
     Declared before any real user data exists so AUTH_USER_MODEL never has
     to change mid-project (Django makes that switch very painful later).
-    """
 
-    class Tone(models.TextChoices):
-        ENGLISH = "ENGLISH", "English"
-        HINGLISH = "HINGLISH", "Hinglish"
+    There used to be a `tone` here, ENGLISH or HINGLISH, and it is gone rather
+    than left nullable on purpose. Its only other value was HINGLISH, so a
+    dead column would have kept the language in the schema, the admin filter
+    and the enum — advertising a choice the product had stopped offering, which
+    is the defect #268 was about, one layer down. English-only is the policy;
+    if Hinglish returns it returns voiced across both rooms and tested at both
+    prompt sizes, and it can bring its own column with it.
+    """
 
     class Mode(models.TextChoices):
         """Which side of the table Masterji sits on — the builder's setting,
@@ -32,7 +36,6 @@ class User(AbstractUser):
         THINKING = "THINKING", "Thinking partner"
 
     email = models.EmailField(unique=True)
-    tone = models.CharField(max_length=10, choices=Tone.choices, default=Tone.ENGLISH)
     mode = models.CharField(max_length=10, choices=Mode.choices, default=Mode.COACH)
 
     # createsuperuser prompts for these in addition to username/password

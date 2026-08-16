@@ -944,10 +944,8 @@ class RepeatProofTests(CoachTestCase):
             )
         self.assertEqual(gates.accepted_proofs(self.goal), 1)
 
-    def test_every_tone_has_a_line_for_a_repeat(self):
-        for tone in ("ENGLISH", "HINGLISH"):
-            with self.subTest(tone=tone):
-                self.assertIn("{date}", prompts.STOCK_DUPLICATE[tone])
+    def test_the_repeat_line_names_the_day(self):
+        self.assertIn("{date}", prompts.STOCK_DUPLICATE)
 
 
 # --- what the days before produced --------------------------------------------
@@ -981,7 +979,6 @@ class BankedRecordTests(CoachTestCase):
             gates.gate_status(self.goal),
             0,
             "state",
-            "ENGLISH",
             banked=judging._banked(self.goal),
         )
 

@@ -87,20 +87,6 @@ export default function Masterji({ user }: { user: SessionUser }) {
     }
   };
 
-  // Sets a named language rather than flipping the current one — same shape as
-  // onSetMode on the dashboard, and for the same reason: the control is two
-  // options with one lit, so "the one I pressed" is all a press can mean.
-  //
-  // Above the branch because both screens carry the switch: the workshop's
-  // system prompt reads user.tone too, so the first conversation a builder
-  // ever has with him is one they must be able to switch.
-  const onSetTone = (next: CoachState["tone"]) =>
-    run(async () => {
-      if (state?.tone === next) return;
-      await updatePrefs({ tone: next });
-      setState((s) => (s ? { ...s, tone: next } : s));
-    });
-
   // The same frame AuthGate was already painting, so the handover from "we are
   // asking who you are" to "we are fetching your goal" changes nothing on
   // screen. This used to be a centred line of text in a full-width <main>,
@@ -149,7 +135,6 @@ export default function Masterji({ user }: { user: SessionUser }) {
         justRetired={justRetired}
         pivotFrom={pivotFrom}
         setPivotFrom={setPivotFrom}
-        onSetTone={onSetTone}
         room={roomProps}
       />
     );
@@ -168,7 +153,6 @@ export default function Masterji({ user }: { user: SessionUser }) {
       pane={pane}
       setPane={setPane}
       room={roomProps}
-      onSetTone={onSetTone}
       onRetired={(retirement, pivot) => {
         setPivotFrom(pivot);
         setJustRetired(retirement);

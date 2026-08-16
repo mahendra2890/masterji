@@ -351,7 +351,6 @@ export type CoachState = {
   /** Days declared-and-proved across every goal, so retiring an idea doesn't
    * erase the fact that the work happened. */
   lifetimeDays: number;
-  tone: "ENGLISH" | "HINGLISH";
   /** Which side of the table the coach sits on. THINKING makes him a thinking
    * partner in chat — questions and options instead of assignments — and
    * changes nothing about the gate. */
@@ -842,7 +841,6 @@ export async function getState(): Promise<CoachState> {
     at_finish_line?: boolean;
     archive?: ServerRetirement[];
     lifetime_days?: number;
-    tone: CoachState["tone"];
     mode?: CoachState["mode"];
     launch?: {
       date: string;
@@ -904,7 +902,6 @@ export async function getState(): Promise<CoachState> {
     atFinishLine: data.at_finish_line ?? false,
     archive: (data.archive ?? []).map(fromServerRetirement),
     lifetimeDays: data.lifetime_days ?? 0,
-    tone: data.tone,
     mode: data.mode ?? "COACH",
     workshop: data.workshop ? fromServerWorkshop(data.workshop) : null,
     workshopOpeners: data.workshop_openers ?? [],

@@ -219,7 +219,7 @@ class IntraPhaseBeatTests(CoachTestCase):
         goal = self.make_goal(phase=Phase.VALIDATION)
         for have in (0, 1, 2):
             system = prompts.build_system_prompt(
-                goal, gates.gate_status(goal), 0, "state", "ENGLISH"
+                goal, gates.gate_status(goal), 0, "state"
             )
             self.assertIn(prompts.bar_for(Phase.VALIDATION), system)
             self.bank(goal, 1, subject=f"person{have}", start=have)
@@ -234,7 +234,7 @@ class IntraPhaseBeatTests(CoachTestCase):
         presses = set()
         for have in (0, 1, 2):
             system = prompts.build_system_prompt(
-                goal, gates.gate_status(goal), 0, "state", "ENGLISH"
+                goal, gates.gate_status(goal), 0, "state"
             )
             press = guidance.beat(Phase.VALIDATION, have).press
             self.assertIn(press, system)
@@ -725,7 +725,7 @@ class TractionTests(CoachTestCase):
         on the ladder. It reads PHASE_ORDER now."""
         goal = self.make_goal(phase=Phase.TRACTION)
         system = prompts.build_system_prompt(
-            goal, gates.gate_status(goal), 0, "nothing yet", "ENGLISH"
+            goal, gates.gate_status(goal), 0, "nothing yet"
         )
         self.assertIn(" → ".join(str(p) for p in gates.PHASE_ORDER), system)
         self.assertIn("TRACTION", system)
@@ -1053,7 +1053,6 @@ class TheOneNumberTests(CoachTestCase):
             gates.gate_status(self.goal),
             0,
             "nothing yet",
-            "ENGLISH",
             metric=views._metric_payload(self.goal),
         )
         self.assertIn('Watching: "paid deposits"', system)

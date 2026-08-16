@@ -286,25 +286,17 @@
   flex-direction: column;
 }
 
-/* Row gap 12px, column gap 14px. The column half is not a new taste: the
-   language switch used to live inside .headerRight, whose gap is 14px, and it
-   is a direct child of the header now — see the note beside it in Masterji.tsx.
-   14px here is what keeps the desktop header pixel-identical to the version
-   where the switch was one level down. */
+/* Row gap 12px, column gap 14px. The column half is not a new taste: it dates
+   from the EN/हिं switch (removed in #268), which sat here as a direct child
+   and had come out of .headerRight, whose gap is 14px. Kept rather than
+   retuned — the value is what the desktop header has always measured, and
+   nothing is left in this row for a smaller gap to buy back. */
 .header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px 14px;
   padding-bottom: 14px;
-}
-
-/* Desktop: the switch belongs to the control group on the right, so it takes
-   the free space rather than sitting beside the wordmark. Scoped to the header
-   deliberately — the same control renders on the no-goal screen and in the
-   tour's mock, and neither wants a margin. */
-.header > .toneSwitch {
-  margin-left: auto;
 }
 
 .brand {
@@ -432,53 +424,6 @@
   font-variant-numeric: tabular-nums;
   color: var(--muted);
   white-space: nowrap;
-}
-
-/* EN ⇄ हिं, as a segmented control — both options on screen with the live one
-   filled, the same shape as the mode switch over the composer. Sized to sit
-   in the header next to the streak without becoming the loudest thing in it:
-   the language is picked once, so it should be findable rather than shouted. */
-.toneSwitch {
-  display: inline-flex;
-  gap: 2px;
-  padding: 2px;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-}
-
-/* 3px of padding on a 12.5px word came to a 23.5px option — a rounding error
-   away from WCAG 2.2's 24px floor, on the pair of buttons a builder uses to
-   find out that Hinglish exists. 6px puts both comfortably past it (29px tall,
-   34 and 28 wide) and brings them into line with the 29px targets the rest of
-   the account chrome now uses. */
-.toneOpt,
-.toneOptOn {
-  background: none;
-  border: none;
-  border-radius: 999px;
-  padding: 6px 10px;
-  font: inherit;
-  font-size: 12.5px;
-  line-height: 1.4;
-  color: var(--muted);
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.toneOpt:hover:not(:disabled) {
-  color: var(--text);
-}
-
-.toneOptOn {
-  background: var(--accent);
-  color: var(--accent-ink);
-  font-weight: 700;
-}
-
-.toneOpt:disabled,
-.toneOptOn:disabled {
-  cursor: default;
 }
 
 /* 44px of thumb on a 13px word, at every width rather than in the mobile block

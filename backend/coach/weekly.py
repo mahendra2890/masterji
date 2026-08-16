@@ -184,73 +184,34 @@ def on(day: date) -> str:
 
 # What the builder reads on the first morning of a new week.
 #
-# In both tones, for the reason STOCK_OFFER_ACCEPT is: this one is on the happy
-# path and it recurs, so a builder who asked to be spoken to in Hinglish would
-# otherwise get an English wall every Monday for as long as they use the
-# product.
-#
 # App voice, not Masterji's — it is written as a SYSTEM row (see Message.Role)
 # because it is the product stating what the record holds, and stored as COACH
 # it would come back to the model on the next turn as its own remembered words.
 COPY = {
-    "ENGLISH": {
-        "head": "Last week, by the record: {facts}.",
-        # Said instead when the window is not the week that just ended. Naming
-        # the date is the whole of what makes this safe: the same counts under
-        # the ordinary head would be read as last week's, and a builder back
-        # from two weeks away would be told they had worked six days while they
-        # were gone.
-        "head_gap": "Picking up from the week of {week_of} — {facts}.",
-        "days": "{days} of {total} days complete",
-        "accepted": "{n} accepted toward the phase",
-        "accepted_one": "1 accepted toward the phase",
-        "none": "nothing accepted toward the phase",
-        "people": "{people} spoken to",
-        "moved": "and you opened {phase}",
-        # Said only in the week this feature exists for: days on the record and
-        # a gate that did not move. Not a scolding — the days were real and are
-        # named first. It points at the aim of the proof, which is the thing
-        # that was actually off.
-        "flat": (
-            " Days on the record and nothing banked yet — worth a look at what "
-            "tonight's proof is pointed at."
-        ),
-    },
-    "HINGLISH": {
-        "head": "Pichhle hafte ka record: {facts}.",
-        # The date is left in the same "4 Aug" that STOCK_DUPLICATE puts into
-        # its Hinglish line, for the same reason: it is the shape on the record
-        # card the builder is looking at.
-        "head_gap": "{week_of} wale hafte se aage badhte hain — {facts}.",
-        "days": "{total} mein se {days} din poore",
-        "accepted": "{n} phase ke liye count hue",
-        "accepted_one": "1 phase ke liye count hua",
-        "none": "phase ke liye kuch count nahi hua",
-        "people": "{people} se baat hui",
-        "moved": "aur aapne {phase} khola",
-        "flat": (
-            " Din record par hain, par phase ke liye abhi kuch bank nahi hua — "
-            "ek baar dekh lena ki aaj raat ka proof kis taraf ja raha hai."
-        ),
-    },
+    "head": "Last week, by the record: {facts}.",
+    # Said instead when the window is not the week that just ended. Naming
+    # the date is the whole of what makes this safe: the same counts under
+    # the ordinary head would be read as last week's, and a builder back
+    # from two weeks away would be told they had worked six days while they
+    # were gone.
+    "head_gap": "Picking up from the week of {week_of} — {facts}.",
+    "days": "{days} of {total} days complete",
+    "accepted": "{n} accepted toward the phase",
+    "none": "nothing accepted toward the phase",
+    "people": "{people} spoken to",
+    "moved": "and you opened {phase}",
+    # Said only in the week this feature exists for: days on the record and
+    # a gate that did not move. Not a scolding — the days were real and are
+    # named first. It points at the aim of the proof, which is the thing
+    # that was actually off.
+    "flat": (
+        " Days on the record and nothing banked yet — worth a look at what "
+        "tonight's proof is pointed at."
+    ),
 }
 
 
-def _people(n: int, tone: str) -> str:
-    """A person count, in the tone the builder asked to be spoken to in.
-
-    English defers to `guidance.people`, which is the product's one English
-    phrasing for this and is already quoted in two other places. Hinglish has
-    no such helper because nothing else in the product counts people in it, so
-    it is spelled here rather than by handing an English noun to a Hinglish
-    sentence — which is what "2 people se baat hui" was.
-    """
-    if tone == "HINGLISH":
-        return "1 aadmi" if n == 1 else f"{n} log"
-    return guidance.people(n)
-
-
-def digest(summary: dict, tone: str = "ENGLISH", week_of: date | None = None) -> str:
+def digest(summary: dict, week_of: date | None = None) -> str:
     """The week as the builder reads it.
 
     One short paragraph, and the shape is the constraint rather than a
@@ -269,19 +230,14 @@ def digest(summary: dict, tone: str = "ENGLISH", week_of: date | None = None) ->
     changes, because the one thing a returning builder must not be able to
     misread is which week is being counted.
     """
-    copy = COPY.get(tone, COPY["ENGLISH"])
+    copy = COPY
     facts = [copy["days"].format(days=summary["days"], total=DAYS)]
     if not summary["accepted"]:
         facts.append(copy["none"])
-    elif summary["accepted"] == 1:
-        # Spelled out rather than formatted, because Hinglish inflects the verb
-        # on the count ("count hua" against "count hue") and a template with a
-        # slot in it cannot say that.
-        facts.append(copy["accepted_one"])
     else:
         facts.append(copy["accepted"].format(n=summary["accepted"]))
     if summary["people"]:
-        facts.append(copy["people"].format(people=_people(summary["people"], tone)))
+        facts.append(copy["people"].format(people=guidance.people(summary["people"])))
     if summary["advanced_to"]:
         facts.append(copy["moved"].format(phase=summary["advanced_to"]))
     if week_of is None:

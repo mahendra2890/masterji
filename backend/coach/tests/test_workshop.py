@@ -501,7 +501,6 @@ class WorkshopTests(CoachTestCase):
             ],
             turns_used=1,
             turns_total=views.REOPENED_TURNS,
-            tone="ENGLISH",
         )
         self.assertIn(prompts.WHEN_THEY_DOUBT_THE_IDEA, text)
         # The goal it is doubting, by name and by how far in they are.
@@ -571,7 +570,6 @@ class WorkshopTests(CoachTestCase):
             turns_used=13,
             turns_total=views.WORKSHOP_TURNS,
             maximum=Workshop.MAX_CANDIDATES,
-            tone="ENGLISH",
         )
         # The authority is the credited corpus, not the model's pretraining —
         # the reason a choosing-an-idea playbook was written at all (#74).
@@ -591,7 +589,6 @@ class WorkshopTests(CoachTestCase):
             turns_used=0,
             turns_total=views.WORKSHOP_TURNS,
             maximum=Workshop.MAX_CANDIDATES,
-            tone="ENGLISH",
         )
         self.assertIn("WHEN THEY ARRIVE EMPTY-HANDED", text)
         self.assertIn("gets their actual question answered first", text)
@@ -603,19 +600,8 @@ class WorkshopTests(CoachTestCase):
             turns_used=0,
             turns_total=views.WORKSHOP_TURNS,
             maximum=Workshop.MAX_CANDIDATES,
-            tone="ENGLISH",
         )
         self.assertIn("Never ask for proof", text)
-
-    def test_the_prompt_speaks_the_builders_language(self):
-        hinglish = prompts.build_workshop_prompt(
-            candidates=[],
-            turns_used=0,
-            turns_total=views.WORKSHOP_TURNS,
-            maximum=Workshop.MAX_CANDIDATES,
-            tone="HINGLISH",
-        )
-        self.assertIn(prompts.HINGLISH_RULE, hinglish)
 
     def test_the_openers_are_the_four_actual_freezes(self):
         """Four, not a growing list of prompts: no idea at all, too many ideas,
@@ -642,7 +628,6 @@ class WorkshopTests(CoachTestCase):
             turns_used=0,
             turns_total=views.WORKSHOP_TURNS,
             maximum=Workshop.MAX_CANDIDATES,
-            tone="ENGLISH",
         )
         self.assertIn("SOMEBODY HAS ALREADY BUILT IT", text)
         # The distinction the fourth opener exists for: not a restatement of
@@ -1023,7 +1008,6 @@ class WorkshopRefinesTheIdeaTests(CoachTestCase):
             turns_used=turns_used,
             turns_total=views.WORKSHOP_TURNS,
             maximum=Workshop.MAX_CANDIDATES,
-            tone="ENGLISH",
             sketch=sketch,
         )
 

@@ -13,7 +13,7 @@ import { useRef, useState } from "react";
 import Changelog from "@/components/Changelog";
 import ClosedIdea from "./ClosedIdea";
 import Workshop, { type RoomProps } from "./Workshop";
-import { CLOSED_CHIP, SignOutButton, ToneSwitch, TourLink } from "./chrome";
+import { CLOSED_CHIP, SignOutButton, TourLink } from "./chrome";
 import { commitIsLoud } from "@/lib/gate";
 import { createGoal, type CoachState, type Retirement } from "@/lib/coach-api";
 import styles from "./masterji.module.css";
@@ -50,7 +50,6 @@ export default function Onboarding({
   justRetired,
   pivotFrom,
   setPivotFrom,
-  onSetTone,
   room,
 }: {
   state: CoachState;
@@ -68,7 +67,6 @@ export default function Onboarding({
    * in the same direction, for the same reason. */
   pivotFrom: number | null;
   setPivotFrom: (id: number | null) => void;
-  onSetTone: (next: CoachState["tone"]) => void;
   room: RoomProps;
 }) {
   const [goalTitle, setGoalTitle] = useState("");
@@ -492,21 +490,15 @@ export default function Onboarding({
           on it yet to explain itself, and this row stays quiet rather than
           becoming a full control strip.
 
-          The language switch is the fourth thing in it, and that is a real
-          charge against the sentence above — paid because the workshop this
-          row sits under has been speaking whichever language it sets all
-          along, with no way to say which. It goes LAST so nothing already
-          here moves: sign out is deliberately leftmost (see .signOut)
+          The language switch was the fourth thing in it and is gone with #268;
+          the row is back to three. Sign out stays leftmost (see .signOut)
           because its label grows to "sign out?" on the first press, and a
           control that shifts under the thumb mid-confirmation is the one
-          thing this row must not do. If the row ever does read as clutter,
-          the next place to try is the workshop head beside the turn meter —
-          not a caption or a disclosure explaining what the languages are. */}
+          thing this row must not do. */}
       <div className={styles.onboardFooter}>
         <SignOutButton />
         <TourLink />
         <Changelog />
-        <ToneSwitch tone={state.tone} busy={busy} onSet={onSetTone} />
       </div>
 
       {viewClosed && (
