@@ -1223,3 +1223,76 @@ class ModelCall(SoftDeleteModel):
 
     def __str__(self):
         return f"{self.model} {self.total_tokens}t {self.kind}"
+
+
+class DashboardOpen(SoftDeleteModel):
+    """A day a builder with a live goal opened the dashboard. One row, one day.
+
+    **This is the only row in this file that is not a record of something the
+    builder did.** Every other table here exists because somebody declared,
+    proved, advanced, retired or said something; this one exists because a
+    screen was served. `loop_report`'s module docstring says every number it
+    prints is a count over rows that already exist — *"No new tracking, no
+    events, no third-party pipeline, nothing builder-facing"* — and this table
+    is the first thing in the repo that cannot honour it. The rule is right
+    everywhere else, so the exception is written down beside it rather than
+    taken quietly, and it is kept as small as an exception can be.
+
+    Why it has to exist at all: a builder who opens the dashboard and leaves
+    writes nothing. `StateView` is a pure read, and no check-in, message or
+    `ModelCall` distinguishes them from a builder who never opened the app.
+    Which makes **opened-and-never-declared** — the number #277's remaining
+    layout decision is gated on — underivable from the rows that exist.
+    `@vercel/analytics` cannot answer it either: pageviews with no user
+    identity cannot be joined to *this* builder on *this* day.
+
+    What is deliberately NOT here, because each one would be a different
+    product with a different cost: no path, no referrer, no session, no
+    user-agent, no event kind, no second row per day. One boolean fact with a
+    date on it. Anything a later question wants is a later decision, made on
+    the evidence this produces.
+
+    `day` is the CLIENT's local date — whatever `_client_day` resolved for the
+    request that wrote the row, which falls back to the server's date when the
+    query string is missing or garbled. That is a real trust boundary and the
+    readout says so rather than implying a precision this does not have.
+
+    Deleting the account takes this with it: `accounts.erasure._descend` walks
+    the model graph soft-deleting every `SoftDeleteModel` hanging off the user,
+    and this is one. Pinned by a test, because the thing that makes it true is
+    a graph walk somebody could one day replace with a hand-written list.
+    """
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="dashboard_opens",
+    )
+    day = models.DateField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta(SoftDeleteModel.Meta):
+        # DELIBERATELY NO `ordering`, for ModelCall's reason: this table exists
+        # to be aggregated, and a default ordering joins the GROUP BY on
+        # `.values()` — which would split a per-builder count into one row per
+        # day and sort every bulk read on the way. The house has been bitten by
+        # exactly that. `loop_report` says its own order.
+        constraints = [
+            # The whole meaning of the number. `StateView` is a GET and the
+            # client refetches at turn end, on focus and after every press, so
+            # a row per request would count polling rather than opening. Keyed
+            # on (user, day) with a `get_or_create` behind it, the count reads
+            # "a day someone showed up" and nothing else.
+            #
+            # Conditional on the soft-delete predicate like every other
+            # constraint in this file, so an erased account's tombstone does
+            # not occupy the slot.
+            models.UniqueConstraint(
+                fields=["user", "day"],
+                condition=models.Q(deleted_at__isnull=True),
+                name="one_dashboard_open_per_user_per_day",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.user_id} opened on {self.day}"

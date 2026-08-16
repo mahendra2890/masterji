@@ -51,6 +51,7 @@ from .models import (
     CheckIn,
     Cohort,
     CohortMember,
+    DashboardOpen,
     Goal,
     GoalRetirement,
     LaunchCommitment,
@@ -840,6 +841,43 @@ def _read_the_week_back(goal: Goal, user, today: date) -> None:
     )
 
 
+def _record_dashboard_open(user, day) -> None:
+    """Note that this builder's dashboard was served today. Never costs it.
+
+    The one write in the repo that is not the builder's record — see
+    `DashboardOpen`, which carries the argument for why the exception exists
+    and why it is this small. What matters here is the asymmetry: the payload
+    is the product and this count is a readout, so a failure to record a visit
+    must never 500 the screen the builder came to use. That is the same call
+    `_client_day` makes one function up when a garbled date falls back to the
+    server's rather than 400ing — a readout must not cost the builder their
+    whole dashboard.
+
+    So every exception is swallowed and logged, not just the expected one. The
+    likely failure is the race — two devices, or a refetch landing on the same
+    millisecond — which `get_or_create` turns into an `IntegrityError` against
+    the unique constraint and which means the row already exists, i.e. nothing
+    is wrong at all. But the guarantee this function offers is about the
+    dashboard, not about which errors were anticipated, and a bare `except
+    IntegrityError` would be a guarantee that holds only for the failure
+    somebody thought of.
+
+    Wrapped in its own savepoint so a broken statement cannot poison the
+    surrounding transaction: swallowing an `IntegrityError` inside an atomic
+    block without one leaves every later query in the request failing on a
+    transaction Django has already marked for rollback — the dashboard dies
+    anyway, one query later, which is exactly what this is here to prevent.
+    """
+    try:
+        with transaction.atomic():
+            DashboardOpen.objects.get_or_create(user=user, day=day)
+    except IntegrityError:
+        # The race, and it means the row is there. Nothing to say.
+        pass
+    except Exception as exc:  # noqa: BLE001 — see the docstring
+        logger.warning(f"Could not record dashboard open for {user.id}: {exc}")
+
+
 class StateView(APIView):
     """Everything the dashboard needs in one payload."""
 
@@ -873,6 +911,17 @@ class StateView(APIView):
                 }
             )
         today = _client_day(request)
+        # The one number `loop_report` cannot count off rows that already
+        # exist: a builder who opens this screen and declares nothing writes
+        # nothing at all, so opened-and-never-declared has no source. One row
+        # per builder per local day, keyed so this GET stays idempotent under
+        # the client's refetching, and unable to cost the payload below.
+        #
+        # Only on this branch, which is the branch that already has a live
+        # goal — a dashboard with no goal open on it is a different screen
+        # asking a different question, and counting it would put days nobody
+        # could have declared on into the denominator.
+        _record_dashboard_open(request.user, today)
         # Before the messages are read, so the digest is in the payload that
         # triggered it rather than appearing on the next refetch.
         _read_the_week_back(goal, request.user, today)
