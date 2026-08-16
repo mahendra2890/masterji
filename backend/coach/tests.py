@@ -11927,3 +11927,301 @@ class LaunchDateOfferTests(CoachTestCase):
             "pond"
         ]
         self.assertEqual(pond["enum"], list(LaunchCommitment.Pond.values))
+
+
+class GoalWordingOfferTests(CoachTestCase):
+    """Masterji hearing the sharper sentence, and writing it at the reword box.
+
+    Row 7 of #277's inventory, and the last one. Its offer and its record look
+    more alike than any of the others' — a string on the goal, one press from a
+    string on the goal — so the tests that matter here are the ones keeping them
+    apart:
+
+    - test_the_press_is_what_renames_the_goal and its transcript row: the chat
+      is a route to the control, and GoalUpdateView is still the only writer.
+    - test_a_draft_made_before_the_bank_cannot_outrun_the_record: the sharpest
+      edge in the issue. A draft written at zero proofs and pressed after the
+      first acceptance meets the 409 like any other rename would.
+    - test_the_tool_is_gone_once_a_proof_banks: the moment the record points at
+      the sentence the tool leaves the list, on the same count the view checks.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.goal = self.make_goal()
+        self.sharper = "Tiffin app for Pune hostel students who miss home food"
+
+    def chat(self, events=None, title=None):
+        title = self.sharper if title is None else title
+        events = events or [
+            ("delta", "That's the one."),
+            (
+                "tool_call",
+                {"name": "suggest_goal_wording", "arguments": {"title": title}},
+            ),
+        ]
+        with mock.patch("coach.views.llm.stream_chat", return_value=iter(events)) as m:
+            response = self.client.post(
+                "/api/coach/chat/", {"content": "it's really the hostel kids"}
+            )
+            b"".join(response.streaming_content)
+        return m
+
+    def tools(self, called):
+        return [t["function"]["name"] for t in called.call_args.kwargs["tools"]]
+
+    def row(self) -> Goal:
+        self.goal.refresh_from_db()
+        return self.goal
+
+    def press(self, title=None):
+        return self.client.patch(
+            f"/api/coach/goals/{self.goal.id}/",
+            {"title": self.sharper if title is None else title},
+        )
+
+    def state_goal(self) -> dict:
+        return self.client.get("/api/coach/state/").json()["goal"]
+
+    # --- the window the tool exists in --------------------------------------
+
+    def test_the_tool_is_there_while_nothing_is_banked(self):
+        self.assertIn("suggest_goal_wording", self.tools(self.chat()))
+
+    def test_the_tool_is_gone_once_a_proof_banks(self):
+        """The view's own lock, mirrored as a schema fact. Past the first
+        accepted proof the record points at this sentence, GoalUpdateView 409s,
+        and the tool is simply not on the table rather than being on it under a
+        prompt rule a later edit could soften."""
+        self.accept_proofs(self.goal, 1)
+        self.assertNotIn("suggest_goal_wording", self.tools(self.chat()))
+
+    def test_the_lock_is_the_total_and_not_this_phase(self):
+        """`accepted_proofs_total`, the same count the view reads: a proof
+        banked in IDEA still holds the wording after the goal reaches
+        VALIDATION."""
+        self.accept_proofs(self.goal, 1)
+        Goal.objects.filter(pk=self.goal.pk).update(phase=Phase.VALIDATION)
+        self.assertNotIn("suggest_goal_wording", self.tools(self.chat()))
+
+    def test_a_call_past_the_lock_drafts_nothing(self):
+        """The branch that writes guards itself. The tool being absent is sixty
+        lines from the code that trusts it, and a turn that arrives here anyway
+        must not put a draft on a goal the view would refuse a rename for."""
+        self.accept_proofs(self.goal, 1)
+        self.chat()
+        self.assertEqual(self.row().title_offer, "")
+
+    # --- an offer, never a record -------------------------------------------
+
+    def test_a_draft_renames_nothing_ever(self):
+        """THE guard. Draft, redraft, redraft again — the title on the record is
+        still the one the builder committed to, and no transcript row claims
+        otherwise."""
+        self.chat()
+        self.chat(title="Tiffin for hostellers")
+        self.chat(title="Home food for Pune hostellers, delivered")
+        self.assertEqual(self.row().title, "Tiffin app")
+        self.assertFalse(
+            Message.objects.filter(content__startswith="Reworded:").exists()
+        )
+
+    def test_the_draft_lands_on_the_goal_as_an_offer(self):
+        self.chat()
+        self.assertEqual(self.row().title_offer, self.sharper)
+
+    def test_the_card_is_handed_the_offer_beside_the_unchanged_title(self):
+        self.chat()
+        payload = self.state_goal()
+        self.assertEqual(payload["title_offer"], self.sharper)
+        self.assertEqual(payload["title"], "Tiffin app")
+        self.assertFalse(payload["title_locked"])
+
+    def test_a_later_draft_replaces_the_offer(self):
+        self.chat()
+        self.chat(title="Home food for Pune hostellers, delivered")
+        self.assertEqual(
+            self.row().title_offer, "Home food for Pune hostellers, delivered"
+        )
+
+    def test_a_draft_the_server_will_not_take_clears_the_earlier_one(self):
+        """The tri-state, and why `wording_called` sits beside the draft. An
+        empty title is not the same event as a turn that mentioned no wording at
+        all, and leaving the first sentence in the box under a conversation that
+        has moved past it is the stale draft #342 spent a field to avoid."""
+        self.chat()
+        self.chat(title="   ")
+        self.assertEqual(self.row().title_offer, "")
+
+    def test_the_words_already_on_the_card_are_not_an_offer(self):
+        """A draft identical to the title is a "Use this" that changes nothing
+        and a Save the view declines to log — an affordance offering the
+        sentence already above it, which reads as a rename that did not take."""
+        self.chat(title="Tiffin app")
+        self.assertEqual(self.row().title_offer, "")
+
+    def test_a_long_draft_is_cut_to_what_the_column_holds(self):
+        """Trimmed rather than dropped, as the declaration is: an over-long
+        sentence is one the builder can see and cut, and the box must never open
+        holding something the column would truncate on the way back in."""
+        self.chat(title="x" * 400)
+        self.assertEqual(len(self.row().title_offer), 200)
+
+    def test_the_offer_stops_being_served_once_a_proof_banks(self):
+        """A draft with nowhere to land. The control is gone at the same count
+        and the press 409s, so an offer sent past it would be a suggestion
+        beside no way to take it."""
+        self.chat()
+        self.accept_proofs(self.goal, 1)
+        payload = self.state_goal()
+        self.assertTrue(payload["title_locked"])
+        self.assertEqual(payload["title_offer"], "")
+
+    def test_the_offer_is_not_a_clients_to_assert(self):
+        """Read-only on the serializer. A PATCH that could set it would let the
+        box fill itself, which is the one thing "the builder still presses"
+        rules out."""
+        self.client.patch(
+            f"/api/coach/goals/{self.goal.id}/", {"title_offer": "mine now"}
+        )
+        self.assertEqual(self.row().title_offer, "")
+
+    # --- the press, which is still the only writer --------------------------
+
+    def test_the_press_is_what_renames_the_goal(self):
+        self.chat()
+        response = self.press()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.row().title, self.sharper)
+
+    def test_the_press_still_writes_the_transcript_row(self):
+        """The row a real rename earns, written by GoalUpdateView and nowhere
+        else — so a rename that came through the chat path is recorded exactly
+        like one typed into the box."""
+        self.chat()
+        self.press()
+        row = Message.objects.filter(content__startswith="Reworded:").get()
+        self.assertEqual(
+            row.content,
+            guidance.TITLE_SHARPENED.format(before="Tiffin app", after=self.sharper),
+        )
+
+    def test_pressing_spends_the_draft(self):
+        """What they pressed is the goal now. A draft left beside it is an
+        alternative to a decision already made, and it would come back up the
+        next time they tapped reword."""
+        self.chat()
+        self.press()
+        self.assertEqual(self.row().title_offer, "")
+
+    def test_pressing_with_their_own_edit_still_spends_the_draft(self):
+        """The box is an editable control, so what it posts need not be what the
+        coach drafted — and the offer has been answered either way."""
+        self.chat()
+        self.press(title="Home food, for hostellers in Pune")
+        self.assertEqual(self.row().title, "Home food, for hostellers in Pune")
+        self.assertEqual(self.row().title_offer, "")
+
+    def test_a_draft_made_before_the_bank_cannot_outrun_the_record(self):
+        """The sharpest edge in #325, and the reason the press re-checks.
+
+        The draft was written when nothing was banked and the control was on
+        screen. Then an evening happened. The press meets the same 409 a typed
+        rename would, because the lock is read at the press against the record —
+        never against when the sentence was drafted.
+        """
+        self.chat()
+        self.assertEqual(self.row().title_offer, self.sharper)
+        self.accept_proofs(self.goal, 1)
+        response = self.press()
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["detail"], guidance.TITLE_LOCKED)
+        self.assertEqual(self.row().title, "Tiffin app")
+        self.assertFalse(
+            Message.objects.filter(content__startswith="Reworded:").exists()
+        )
+
+    def test_the_offer_buys_no_bypass_of_the_phase_or_the_status(self):
+        """Not a road around the gate, and it cannot become one: the serializer
+        holds both read-only, so a PATCH may reword a goal and may never advance
+        one — offer or no offer."""
+        self.chat()
+        self.client.patch(
+            f"/api/coach/goals/{self.goal.id}/",
+            {"title": self.sharper, "phase": Phase.BUILD, "status": "COMPLETED"},
+        )
+        self.assertEqual(self.row().phase, Phase.IDEA)
+        self.assertEqual(self.row().status, Goal.Status.ACTIVE)
+
+    def test_the_typed_route_still_works_with_no_chat_at_all(self):
+        """#277's Availability rule: a conversational path is an ADDITIONAL
+        route to a write, never the only one. The suite stubs every model call
+        to raise, so this is the day the provider is down."""
+        self.assertEqual(self.press().status_code, 200)
+        self.assertEqual(self.row().title, self.sharper)
+
+    def test_nothing_about_the_gate_reads_any_of_it(self):
+        before = gates.gate_status(self.goal)
+        self.chat()
+        self.assertEqual(gates.gate_status(self.row()), before)
+        self.press()
+        self.assertEqual(gates.gate_status(self.row()), before)
+
+    # --- not a wordless turn ------------------------------------------------
+
+    def test_a_turn_that_only_wrote_it_down_still_says_something(self):
+        """#270 / #310: the draft arrives alongside an answer, never instead of
+        one. A builder who just said the sharper sentence out loud and got a
+        blank screen back has been answered by a control on the other pane."""
+        self.chat(
+            events=[
+                (
+                    "tool_call",
+                    {
+                        "name": "suggest_goal_wording",
+                        "arguments": {"title": self.sharper},
+                    },
+                )
+            ]
+        )
+        row = Message.objects.filter(role=Message.Role.COACH).get()
+        self.assertEqual(row.content, guidance.GOAL_WORDING_LANDED)
+
+    def test_the_receipt_says_nothing_is_renamed_and_names_the_window(self):
+        self.assertIn("Nothing's changed until you do", guidance.GOAL_WORDING_LANDED)
+        self.assertIn("Save wording", guidance.GOAL_WORDING_LANDED)
+        self.assertIn("first proof banks", guidance.GOAL_WORDING_LANDED)
+
+    def test_a_dropped_draft_gets_no_receipt(self):
+        """A receipt for a draft that was never written is the app telling the
+        builder to go and press something that is not on the card."""
+        self.chat(
+            events=[
+                (
+                    "tool_call",
+                    {
+                        "name": "suggest_goal_wording",
+                        "arguments": {"title": "Tiffin app"},
+                    },
+                )
+            ]
+        )
+        self.assertNotIn(
+            guidance.GOAL_WORDING_LANDED,
+            [m.content for m in Message.objects.all()],
+        )
+
+    # --- what the model is told ---------------------------------------------
+
+    def test_the_tool_says_it_renames_nothing(self):
+        description = prompts.SUGGEST_GOAL_WORDING_TOOL["function"]["description"]
+        self.assertIn("RENAMES NOTHING", description)
+        self.assertIn("they press Save wording", description)
+
+    def test_the_tool_forbids_the_models_own_phrasing(self):
+        """The workshop's rule with the constraint already live: one tap from
+        "his suggestion" to a database constraint is how a builder ends up
+        coached on somebody else's idea."""
+        description = prompts.SUGGEST_GOAL_WORDING_TOOL["function"]["description"]
+        self.assertIn("said the sharper sentence THEMSELVES", description)
+        self.assertIn("never your own preferred phrasing", description)

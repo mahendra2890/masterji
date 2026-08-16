@@ -29,6 +29,13 @@ class GoalSerializer(serializers.ModelSerializer):
     # affordance that appears and then 409s is worse than one that was never
     # there.
     title_locked = serializers.SerializerMethodField()
+    # The sharpened wording as Masterji heard it in chat, waiting to fill the
+    # reword box. Read-only here and served through a method for one reason: it
+    # is served only while the wording is still the builder's to change. Past
+    # the first accepted proof the control is gone and the press 409s, so an
+    # offer sent past it would be a draft with nowhere to land — and the lock,
+    # not a clock, is the only thing that makes this draft stale.
+    title_offer = serializers.SerializerMethodField()
 
     class Meta:
         model = Goal
@@ -42,6 +49,7 @@ class GoalSerializer(serializers.ModelSerializer):
             "phase_entered_at",
             "created_at",
             "title_locked",
+            "title_offer",
             # The goal this one came out of, read-only here and set by the view:
             # it is a claim about another row, and whose row it is and whether
             # it is closed are not a client's to assert.
@@ -62,11 +70,30 @@ class GoalSerializer(serializers.ModelSerializer):
             "phase_entered_at",
             "created_at",
             "title_locked",
+            # An offer is the server's to write and never a client's to assert:
+            # a PATCH that could set it would let the box fill itself, which is
+            # the one thing "the builder still presses" rules out.
+            "title_offer",
             "pivoted_from",
         ]
 
+    def _locked(self, obj: Goal) -> bool:
+        """The one count, read once per serialized goal.
+
+        Two fields below need it and it is a query. Cached on the instance
+        rather than counted twice: a payload where `title_locked` and
+        `title_offer` disagreed would offer a draft beside a control that is
+        not there.
+        """
+        if not hasattr(obj, "_locked_cache"):
+            obj._locked_cache = gates.accepted_proofs_total(obj) > 0
+        return obj._locked_cache
+
     def get_title_locked(self, obj: Goal) -> bool:
-        return gates.accepted_proofs_total(obj) > 0
+        return self._locked(obj)
+
+    def get_title_offer(self, obj: Goal) -> str:
+        return "" if self._locked(obj) else obj.title_offer
 
     def validate_brief(self, value):
         """The brief as the four documented keys, never as arbitrary JSON.
