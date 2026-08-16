@@ -636,6 +636,42 @@ const SLIDES: Slide[] = [
             </p>
           </Mark>
         </section>
+
+        {/* The same evening from the other pane, and the reason this panel is
+            in the deck at all: on a phone the two take turns, so the card
+            above is behind a tab while the conversation that wrote the draft
+            is the thing on screen. The press stands here too now — so a mock
+            of this pane without it would be a picture of a screen that no
+            longer exists, which is the mistake this file has made before (see
+            the tone switch note on slide 2).
+
+            Drawn with the app's own classes, like every other mock here, and
+            with spans where the app has buttons: it cannot be pressed, so it
+            must not announce itself as something that can. */}
+        <p className={styles.mockCaption}>
+          The chat — the same evening, on a phone
+        </p>
+        <div className={styles.chatPanel}>
+          <div className={app.messages}>
+            <Line who="COACH">
+              Wrote tonight&apos;s proof up from what you just told me —
+              it&apos;s under Today, yours to edit before you file it.
+            </Line>
+            <Mark n={3}>
+              <div className={app.inlineCommit}>
+                <p className={app.proofOfferLabel}>Tonight&apos;s proof</p>
+                <p className={app.proofOfferText}>
+                  Ramesh, mess contractor. Says 40–50 plates go to waste most
+                  nights. Already tried a WhatsApp group for counts; it died in
+                  a week because nobody replied by 18:00.
+                </p>
+                <div className={`${app.input} ${styles.ph}`}>Link (optional)</div>
+                <div className={styles.fakeAttach}>📎 Attach a screenshot</div>
+                <span className={app.primaryBtn}>Submit proof</span>
+              </div>
+            </Mark>
+          </div>
+        </div>
       </>
     ),
     notes: [
@@ -651,6 +687,18 @@ const SLIDES: Slide[] = [
         new try against every refused one{" "}
         <em>and the words he refused it with</em>, so the second look can&apos;t
         invent a reason the first didn&apos;t give.
+      </>,
+      <>
+        {/* The one thing this note must not become is an explanation of the
+            control. The card is a control and the coach's words above it carry
+            the meaning; what a visitor needs before signing up is that the
+            press exists where the draft does, and that nothing files itself. */}
+        Where he drafted it is where you file it. The same{" "}
+        <strong>Declare it</strong> and <strong>Submit proof</strong> stand in
+        the conversation, under the words they came from — no switching panes
+        to go and find them. It is still your press: nothing is ever recorded
+        until you make it, and the day still lands under <strong>Today</strong>,
+        which is the only box the gate has ever counted.
       </>,
     ],
     samples: [

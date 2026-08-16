@@ -35,7 +35,13 @@ import styles from "./landing.module.css";
 const LOOP = [
   {
     when: "Morning",
-    what: "Declare one task under Today. Ten seconds. He tells you if it's the wrong week's work.",
+    // "or where he drafted it" is the whole of what #326 changed here. The
+    // press did not move — it is the same Declare it, writing the same row —
+    // but it now also stands in the conversation, under the words that drafted
+    // the task, so a builder on a phone is not sent to the other pane for a
+    // sentence they are already looking at. Today is still named first: it is
+    // the box the gate counts, and this page's job is to say that.
+    what: "Declare one task under Today, or where he drafted it in the chat. Ten seconds. He tells you if it's the wrong week's work.",
   },
   {
     when: "During",
@@ -50,7 +56,11 @@ const LOOP = [
   },
   {
     when: "Evening",
-    what: "File the proof under Today. If he drafted it from your conversation, that's one tap.",
+    // Same amendment as the Morning line. The old sentence promised "one tap"
+    // and then charged for a pane switch on the screen most of this is read on
+    // — the draft finished in the chat and landed in the pane you were not
+    // looking at. The tap is now where the draft is, and the sentence says so.
+    what: "File the proof under Today — or right there in the chat, where he drafted it from what you told him. That's one tap.",
   },
   {
     when: "When the proofs are in",

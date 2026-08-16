@@ -10,6 +10,7 @@
 // because the parent branches to <Onboarding /> and unmounts this whole tree.
 
 import {
+  Fragment,
   useCallback,
   useEffect,
   useRef,
@@ -38,6 +39,14 @@ import {
   notesRunning as isNotesRunning,
 } from "@/lib/day";
 import { gateKey, isEarned } from "@/lib/gate";
+import {
+  cardIndex,
+  liveAnchor,
+  liveOffer,
+  nextAnchor,
+  type LiveOffer,
+  type OfferAnchor,
+} from "@/lib/inline-offer";
 import { pinLog } from "@/lib/log-pin";
 import { saidBefore } from "@/lib/messages";
 import { isSendKey } from "@/lib/send-key";
@@ -248,6 +257,124 @@ function ProofAsk({
   );
 }
 
+/** The commit moment, rendered a second time where the draft was written.
+ *
+ * The same draft the Today card is showing, with the press in place: `Declare
+ * it` under a drafted task, `Submit proof` — link and screenshot included —
+ * under tonight's. On a laptop both panes are on screen and this costs nothing;
+ * on a phone the panes take turns, and a finished draft used to land in the one
+ * the builder was not looking at. Switch, hunt, press.
+ *
+ * What it is NOT:
+ *
+ * - **Not a second writer.** Its buttons call the same `onDeclare` / `onProve`
+ *   this screen's own controls call, so `DeclareView` and `ProveView` stay the
+ *   only things that write, and the client's refetch-at-turn-end stays the
+ *   single source of the offer. Nothing auto-banks; the press survives, it
+ *   moved.
+ * - **Not a second form.** The link and the attachment are the SAME state the
+ *   Today form holds, so the two renderings cannot come to hold different
+ *   evidence for one evening. The draft itself is text here, exactly as it is
+ *   text on the card: editing it is what Today's box is for.
+ * - **Not part of the message it sits beside.** It renders from the live offer,
+ *   at a position — see lib/inline-offer, which is where that rule is made
+ *   structural, and #219 is why it has to be.
+ *
+ * A control, only a control. Masterji's own words above it carry the
+ * explanation — the card rides beside them, never instead of them.
+ */
+function CommitCard({
+  offer,
+  metricName,
+  busy,
+  uploadsEnabled,
+  url,
+  setUrl,
+  image,
+  setImage,
+  onCommit,
+}: {
+  offer: LiveOffer;
+  /** The one number they watch, or null when they have not named one — the
+   * same gate the evening form's box is behind. "Today's <name>" is the only
+   * thing that says what the figure is a count of. */
+  metricName: string | null;
+  busy: boolean;
+  uploadsEnabled: boolean;
+  url: string;
+  setUrl: (next: string) => void;
+  image: File | null;
+  setImage: (next: File | null) => void;
+  onCommit: () => void;
+}) {
+  if (offer.kind === "declare") {
+    return (
+      <div className={styles.inlineCommit}>
+        <p className={styles.proofOfferLabel}>Today&apos;s task</p>
+        <p className={styles.proofOfferText}>{offer.text}</p>
+        <button className={styles.primaryBtn} disabled={busy} onClick={onCommit}>
+          Declare it
+        </button>
+      </div>
+    );
+  }
+  const owed = offer.missing ? missingPieces(offer.missing) : [];
+  return (
+    <div className={styles.inlineCommit}>
+      {/* Shorter than the Today card's labels, and deliberately not a
+          near-copy of them. At ≥821px both are on screen at once, and two
+          blocks headed by strings that differ in one word read as a rendering
+          bug rather than as one draft shown twice. Where each one sits already
+          says which conversation it came out of; the label's job here is only
+          to name the state, and the button below is what tells them apart —
+          Today's fills a box, this one files. */}
+      <p className={styles.proofOfferLabel}>
+        {offer.missing ? "What Masterji has so far" : "Tonight's proof"}
+      </p>
+      <p className={styles.proofOfferText}>{offer.text}</p>
+      {/* Shown on an incomplete draft rather than hiding the card, because an
+          incomplete draft is filed on its merits today and that does not
+          change. What must never happen is offering the press without the gap
+          beside it — that is a builder pushed back for a piece nobody told
+          them was missing. */}
+      {owed.length > 0 && (
+        <div className={styles.proofGap}>
+          <p className={styles.proofGapLabel}>Still needed tonight</p>
+          <ul className={styles.proofGapList}>
+            {owed.map((piece, i) => (
+              <li key={i}>{piece}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {metricName !== null && offer.metric !== null && (
+        <p className={styles.proofOfferMetric}>
+          Today&apos;s {metricName}: <strong>{offer.metric}</strong>
+        </p>
+      )}
+      <input
+        className={styles.input}
+        placeholder="Link (optional)"
+        value={url}
+        onChange={(e) => setUrl(e.target.value)}
+      />
+      {uploadsEnabled && (
+        <label className={styles.attach}>
+          <input
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            onChange={(e) => setImage(e.target.files?.[0] ?? null)}
+          />
+          <span>{image ? `📎 ${image.name}` : "📎 Attach a screenshot"}</span>
+        </label>
+      )}
+      <button className={styles.primaryBtn} disabled={busy} onClick={onCommit}>
+        {busy && image ? "Masterji is looking…" : "Submit proof"}
+      </button>
+    </div>
+  );
+}
+
 /* --- drafts that survive the tab ------------------------------------------ */
 
 /** Keeps one box's contents across a tab the phone decided to discard.
@@ -368,6 +495,11 @@ export default function Dashboard({
   const [draft, setDraft] = useState("");
   const [streamingText, setStreamingText] = useState<string | null>(null);
   const [pendingUserMsg, setPendingUserMsg] = useState<string | null>(null);
+  // Where in the transcript the commit card is drawn, and which draft it was
+  // drawn against. A place and a day, with no draft in it — see
+  // lib/inline-offer for why that is the whole safety property, and #219 for
+  // what it is protecting against.
+  const [offerAnchor, setOfferAnchor] = useState<OfferAnchor | null>(null);
   const messagesRef = useRef<HTMLDivElement>(null);
   // The box you talk back in, so it can be measured against what's in it.
   const composerRef = useRef<HTMLTextAreaElement>(null);
@@ -689,18 +821,36 @@ export default function Dashboard({
       await refresh();
     });
 
-  const onDeclare = () =>
+  /** Declare today's task.
+   *
+   * `text` is for the surface that holds its own copy of the draft — the
+   * inline commit card in the log, which has no box of its own and presses the
+   * words it is showing. Absent, this reads the morning's box, which is every
+   * other caller. One handler either way: the inline card is an additional
+   * surface for the same press, never a second path to DeclareView.
+   *
+   * Every call site passes its own arguments rather than being handed to
+   * `onClick` bare — a React MouseEvent arriving as `text` would be a truthy
+   * object, and `.trim()` on it would throw at the one moment a builder is
+   * trying to declare.
+   */
+  const onDeclare = (text?: string) =>
     run(async () => {
       // `disabled={busy}` can't guard this alone — setBusy is async, so two
       // clicks in one tick both get through. The DB constraint keeps that
       // idempotent, but declaring also CLEARS the judgement fields, so a
       // second write landing after the judge response would erase Masterji's
       // read of the task. A ref flips synchronously; state doesn't.
-      if (!amText.trim() || declaring.current) return;
+      const task = (text ?? amText).trim();
+      if (!task || declaring.current) return;
       declaring.current = true;
       try {
+        // The hour comes from the select either way: naming one is an optional
+        // tap on the Today card, and the log is not where that choice lives.
+        // An inline declaration with no hour named is a promise about the task
+        // and not about the clock, which is the ordinary case anyway.
         const checkin = await declare(
-          amText.trim(),
+          task,
           amHour === "" ? null : Number(amHour)
         );
         setAmText("");
@@ -732,16 +882,26 @@ export default function Dashboard({
       }
     });
 
-  const onProve = () =>
+  /** File tonight's proof. `text` and `metric` are the inline commit card's,
+   * on the same terms `onDeclare` states — the card presses the draft it is
+   * showing, and the link and the screenshot are the same state this form
+   * holds, so there is one set of evidence for one evening whichever surface
+   * files it. */
+  const onProve = (text?: string, metric?: number | null) =>
     run(async () => {
-      if (!pmText.trim()) return;
+      const proof = (text ?? pmText).trim();
+      if (!proof) return;
       const filed = await prove(
-        pmText.trim(),
+        proof,
         pmUrl.trim(),
         pmImage,
         // "" is no reading, "0" is a reading of zero. Number("") is 0, so the
         // emptiness has to be checked before the conversion rather than after.
-        pmMetric.trim() === "" ? null : Number(pmMetric.trim())
+        metric === undefined
+          ? pmMetric.trim() === ""
+            ? null
+            : Number(pmMetric.trim())
+          : metric
       );
       // Emptying the box is right when the evening is settled — accepted, or
       // pushed back and owed a different answer. An unread proof is neither:
@@ -962,6 +1122,111 @@ export default function Dashboard({
   // again, and a rule that fetched its own hour would be untestable on both
   // sides of EVENING_FROM.
   const eveningOpen = isEveningOpen(today, new Date().getHours(), filingNow);
+
+  // The draft the Today card is showing with its fill control, read off the
+  // same state that card branches on — so the conversation and the card cannot
+  // disagree about whether a control exists.
+  const offer = liveOffer({ declarationOffer: state.declarationOffer, today });
+  const offerKey = offer?.key ?? null;
+  const newestMessageId = messages.length ? messages[messages.length - 1].id : null;
+  // The date is read here, at render, for the reason the hour above it is:
+  // this decides whether a tab left open since yesterday may still press a
+  // draft into today's row, and a rule that fetched its own date would be
+  // untestable on both sides of midnight.
+  const localToday = localDate();
+  // Lay the anchor down when a new draft arrives, and only then. Same key on a
+  // later turn returns the identical object, so React bails out of the set and
+  // the card keeps its place in the transcript rather than following the
+  // conversation down.
+  useEffect(() => {
+    setOfferAnchor((cur) => nextAnchor(cur, offerKey, newestMessageId, localToday));
+  }, [offerKey, newestMessageId, localToday]);
+  // And the anchor a card may actually be drawn against. Null is a card that is
+  // not there, never a disabled one: a greyed-out `Declare it` in last
+  // Tuesday's scrollback is still an offer of a door.
+  const cardAt = cardIndex(liveAnchor(offerAnchor, offerKey, localToday), messages.map((m) => m.id));
+  /** The press, built here because only this screen knows what the other
+   * boxes hold. The card supplies the words; everything else is the same
+   * state, and the same handler, as the Today form's own controls. */
+  const onCommit = () => {
+    if (!offer) return;
+    if (offer.kind === "declare") {
+      onDeclare(offer.text);
+      return;
+    }
+    // A reading the builder typed beats the one Masterji heard, which is the
+    // precedence every restore in this file already uses: what is in the box
+    // is newer than what came with the draft. Nothing at all when no metric is
+    // named — the server offers no reading until one is, and a number with no
+    // noun beside it is the app inventing the metric.
+    onProve(
+      offer.text,
+      state.metric === null
+        ? null
+        : pmMetric.trim() !== ""
+          ? Number(pmMetric.trim())
+          : offer.metric
+    );
+  };
+
+  /** One row of the log. Lifted out of the map it used to be written inside so
+   * the map can put something beside a turn without the two getting tangled —
+   * see the fragment below. Not a component: it closes over `send` and the
+   * transcript, and a component would need both as props for no gain. */
+  const renderTurn = (m: CoachState["messages"][number], i: number) => {
+    // A turn the model dropped before its first word. It is in the
+    // log because the refetch that ends every turn would otherwise
+    // erase the bubble the builder was watching — but it is the app
+    // reporting a failure, not Masterji saying something, and drawn
+    // as a bubble with his avatar that is exactly what it became: a
+    // sentence attributable to him, sitting in the record a week
+    // later next to real coaching. So: no avatar, no bubble, and the
+    // way out of it right there, because the thing a builder wants
+    // at that moment is the turn they already typed, not the job of
+    // typing it again.
+    // The week read back — the second thing a SYSTEM row can be. It
+    // gets a block rather than the notice's pill below: that pill is
+    // a centred oval sized for one short line, and this is three or
+    // four. No retry either, and that is the point of telling them
+    // apart — this arrives on a Monday with an unrelated conversation
+    // above it, so a button built from "the last thing they said"
+    // would offer to send a sentence from last week.
+    if (m.role === "SYSTEM" && m.kind === "DIGEST") {
+      return (
+        <div data-turn className={styles.digestMsg}>
+          <p className={styles.systemText}>{m.content}</p>
+        </div>
+      );
+    }
+    if (m.role === "SYSTEM") {
+      const said = saidBefore(messages, i);
+      return (
+        <div data-turn className={styles.systemMsg}>
+          <p className={styles.systemText}>{m.content}</p>
+          {said && (
+            <button
+              className={styles.retryBtn}
+              // Same guard the composer's Send has: one turn in
+              // flight at a time, whichever button started it.
+              disabled={streamingText !== null}
+              onClick={() => send(said)}
+            >
+              Send it again
+            </button>
+          )}
+        </div>
+      );
+    }
+    return (
+      <div
+        data-turn
+        className={m.role === "COACH" ? styles.coachMsg : styles.userMsg}
+      >
+        {m.role === "COACH" && <span className={styles.avatar}>म</span>}
+        <p className={styles.msgBody}>{m.content}</p>
+      </div>
+    );
+  };
 
   const showPane = (next: "today" | "chat") => {
     setPane(next);
@@ -1971,7 +2236,7 @@ export default function Dashboard({
                   <button
                     className={styles.primaryBtn}
                     disabled={busy}
-                    onClick={onDeclare}
+                    onClick={() => onDeclare()}
                   >
                     Declare it
                   </button>
@@ -2098,7 +2363,7 @@ export default function Dashboard({
                       <button
                         className={styles.primaryBtn}
                         disabled={busy || !amText.trim()}
-                        onClick={onDeclare}
+                        onClick={() => onDeclare()}
                       >
                         Declare it
                       </button>
@@ -2330,7 +2595,7 @@ export default function Dashboard({
                     <button
                       className={styles.primaryBtn}
                       disabled={busy}
-                      onClick={onProve}
+                      onClick={() => onProve()}
                     >
                       {busy && pmImage ? "Masterji is looking…" : "Submit proof"}
                     </button>
@@ -2387,7 +2652,7 @@ export default function Dashboard({
                       <button
                         className={styles.primaryBtn}
                         disabled={busy}
-                        onClick={onDeclare}
+                        onClick={() => onDeclare()}
                       >
                         Declare it
                       </button>
@@ -2566,61 +2831,46 @@ export default function Dashboard({
         {/* ------------------------------------------------ chat */}
         <section className={styles.chat}>
           <div className={styles.messages} ref={messagesRef}>
-            {messages.map((m, i) => {
-              // A turn the model dropped before its first word. It is in the
-              // log because the refetch that ends every turn would otherwise
-              // erase the bubble the builder was watching — but it is the app
-              // reporting a failure, not Masterji saying something, and drawn
-              // as a bubble with his avatar that is exactly what it became: a
-              // sentence attributable to him, sitting in the record a week
-              // later next to real coaching. So: no avatar, no bubble, and the
-              // way out of it right there, because the thing a builder wants
-              // at that moment is the turn they already typed, not the job of
-              // typing it again.
-              // The week read back — the second thing a SYSTEM row can be. It
-              // gets a block rather than the notice's pill below: that pill is
-              // a centred oval sized for one short line, and this is three or
-              // four. No retry either, and that is the point of telling them
-              // apart — this arrives on a Monday with an unrelated conversation
-              // above it, so a button built from "the last thing they said"
-              // would offer to send a sentence from last week.
-              if (m.role === "SYSTEM" && m.kind === "DIGEST") {
-                return (
-                  <div key={m.id} data-turn className={styles.digestMsg}>
-                    <p className={styles.systemText}>{m.content}</p>
-                  </div>
-                );
-              }
-              if (m.role === "SYSTEM") {
-                const said = saidBefore(messages, i);
-                return (
-                  <div key={m.id} data-turn className={styles.systemMsg}>
-                    <p className={styles.systemText}>{m.content}</p>
-                    {said && (
-                      <button
-                        className={styles.retryBtn}
-                        // Same guard the composer's Send has: one turn in
-                        // flight at a time, whichever button started it.
-                        disabled={streamingText !== null}
-                        onClick={() => send(said)}
-                      >
-                        Send it again
-                      </button>
-                    )}
-                  </div>
-                );
-              }
-              return (
-                <div
-                  key={m.id}
-                  data-turn
-                  className={m.role === "COACH" ? styles.coachMsg : styles.userMsg}
-                >
-                  {m.role === "COACH" && <span className={styles.avatar}>म</span>}
-                  <p className={styles.msgBody}>{m.content}</p>
-                </div>
-              );
-            })}
+            {/* The card, on a log with nothing in it yet. Rare — the welcome
+                message is written at goal creation — but a draft with no turn
+                to sit under still has to be pressable. */}
+            {cardAt === -1 && offer && (
+              <CommitCard
+                offer={offer}
+                metricName={state.metric?.name ?? null}
+                busy={busy}
+                uploadsEnabled={state.uploadsEnabled}
+                url={pmUrl}
+                setUrl={setPmUrl}
+                image={pmImage}
+                setImage={setPmImage}
+                onCommit={onCommit}
+              />
+            )}
+            {messages.map((m, i) => (
+              // A fragment rather than the bare turn, because the log now
+              // holds one thing that is not a turn. The card is a SIBLING of
+              // the message it sits under and never a child of it: it is not
+              // part of what Masterji said, it is drawn from live state at a
+              // position, and burying it inside the bubble is the first step
+              // to it being kept alive by one.
+              <Fragment key={m.id}>
+                {renderTurn(m, i)}
+                {i === cardAt && offer && (
+                  <CommitCard
+                    offer={offer}
+                    metricName={state.metric?.name ?? null}
+                    busy={busy}
+                    uploadsEnabled={state.uploadsEnabled}
+                    url={pmUrl}
+                    setUrl={setPmUrl}
+                    image={pmImage}
+                    setImage={setPmImage}
+                    onCommit={onCommit}
+                  />
+                )}
+              </Fragment>
+            ))}
             {pendingUserMsg && (
               <div data-turn className={styles.userMsg}>
                 <p className={styles.msgBody}>{pendingUserMsg}</p>
@@ -2814,7 +3064,18 @@ export default function Dashboard({
               }
             >
               {draftWaiting
-                ? "Masterji drafted tonight's proof — file it under Today."
+                ? /* The one line in the product that narrated the errand this
+                     card removes. It said "file it under Today" while the
+                     draft, and the press, are now in the log a few inches
+                     above — a sentence sending the builder to the other pane
+                     for something already in front of them.
+
+                     Today is still named, and named FIRST: it is where the day
+                     is recorded and the only box the gate has ever counted, so
+                     a builder who reads this line and never scrolls loses
+                     nothing. What changes is that the errand stopped being the
+                     only route. */
+                  "Masterji drafted tonight's proof — file it under Today, or from the card above."
                 : notesRunning
                   ? /* The standing rule is still true and still said — what
                        changes is that it stops being the whole truth. He is

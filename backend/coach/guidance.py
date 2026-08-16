@@ -655,12 +655,20 @@ OFFER_DAY_CLOSED = (
 )
 
 # Said when Masterji spends a whole turn writing tonight's proof and adding
-# nothing to it. The draft itself is deliberately NOT repeated here: it is on
-# the check-in, where one tap files it, and two copies of one offer means one
-# of them does nothing. This is the receipt for the other copy. Without it the
-# turn was silent — the work landed on the Today card and the chat, the screen
-# the builder was actually watching, showed their message with no answer under
-# it. A tool call is not a reason to say nothing to someone who just spoke.
+# nothing to it. The draft itself is deliberately NOT repeated here IN WORDS:
+# it is on the check-in, and two copies of one offer in prose means one of them
+# does nothing. This is the receipt for the other copy. Without it the turn was
+# silent — the work landed on the Today card and the chat, the screen the
+# builder was actually watching, showed their message with no answer under it.
+# A tool call is not a reason to say nothing to someone who just spoke.
+#
+# Since #326 the client DOES draw the draft again, directly under this line, as
+# a card with the press on it. That does not put back what this rule forbids:
+# the card is a control rendered from the live offer, not a second copy of the
+# offer in the coach's mouth, and it stops existing the moment the offer does.
+# The sentence stays as it is because it stays true — the draft is under Today,
+# it is theirs to edit, and nothing has been recorded — and it is what tells a
+# builder what the card beneath it is for.
 OFFER_LANDED = (
     "Wrote tonight's proof up from what you just told me — it's under "
     f"{WHERE_TO_FILE}, yours to edit before you file it."
@@ -678,9 +686,16 @@ NOTES_LANDED = (
 # The morning's version of OFFER_LANDED: the receipt for a turn that wrote
 # today's task down and said nothing around it. Same argument as its neighbour
 # — a tool call is not a reason to say nothing to someone who just spoke — and
-# the draft is deliberately not repeated here, because it is in the box on the
-# card where one tap declares it, and a second copy in the chat is the one the
-# builder cannot press.
+# the draft is deliberately not repeated here in prose, because it is in the
+# box on the card where one tap declares it.
+#
+# This comment used to end "and a second copy in the chat is the one the
+# builder cannot press." That stopped being true in #326: the client draws the
+# draft under this line with `Declare it` on it, and that card presses the same
+# DeclareView the Today control does. Corrected rather than deleted, because
+# the reason the sentence itself does not repeat the draft is unchanged — one
+# offer said twice in the coach's own words is one of them doing nothing, and
+# the card is a control rather than a second telling.
 #
 # It has to say that nothing is declared yet. That is the whole difference
 # between this and OFFER_LANDED: filing a proof is the end of the day and a
