@@ -24,12 +24,29 @@
 // pixels, not redrawn ones — a guide drifts from its product the moment it
 // keeps a second copy of the styling.
 //
+// The conversation comes first in every mock, because it comes first in the
+// product. The presses live under the draft that produced them since the
+// inline commit cards (#326), the phase brief and the sharpened wording and
+// the metric are all said in chat (#342, #344, #341), and on a phone the app
+// now OPENS on the conversation rather than on Today (#353). A deck that led
+// with the cards was teaching the pane a builder meets second. The cards did
+// not move and slide 4 is still nothing but cards: a transcript cannot show a
+// server refusing, which is the one claim this product actually makes.
+//
 // Copy rule for this file: every number, refusal and worked example here is
 // quoted from the thing that produces it — gates.PROOFS_REQUIRED,
 // gates.try_advance, guidance.PHASE_HINT/PROOF_HINT/PROOF_EXAMPLES/GATE_NUDGE,
-// guidance.WELCOME, prompts.WHEN_IT_IS_NOT_ABOUT_THE_WORK. If one of those
-// changes and this file doesn't, the tour teaches a product that no longer
-// exists.
+// guidance.BEATS, guidance.WELCOME,
+// prompts.WHEN_IT_IS_NOT_ABOUT_THE_WORK. If one of those changes and this file
+// doesn't, the tour teaches a product that no longer exists.
+//
+// The gate's refusal is where that rule has teeth, because the tail of it is
+// not GATE_NUDGE[phase] at every count. gates.try_advance reads
+// guidance.gate_nudge(phase, have), and VALIDATION has a guidance.BEATS rung
+// for every count below its bar — so this file quoted the 0/3 errand under a
+// 2/3 heading from the day beats landed (#157), through five later edits that
+// never thought to re-read it. A refusal drawn here has to be read back at the
+// count it is drawn at, not looked up by phase.
 //
 // It also starts where the builder does. The deck used to open on a goal
 // already three-quarters through VALIDATION, which taught the one phase a
@@ -203,12 +220,38 @@ const SLIDES: Slide[] = [
         </p>
 
         <div className={styles.pairStack}>
+          {/* The conversation above the card, because that is the order the
+              product now puts them in: his first message is the brief, and on
+              a phone it is the whole of what a builder sees when the goal
+              locks (#353). The card is what the brief is about, so it reads
+              second. */}
+          <div className={styles.chatPanel}>
+            <div className={app.messages}>
+              <Mark n={2}>
+                <Line who="COACH">
+                  Goal locked: &quot;Tiffin-delivery app for my college&quot;.
+                  Rule one: one goal at a time, and this is yours now. What you
+                  picked is the problem you test first, not an idea you are stuck
+                  with. You start in IDEA — write a one-paragraph problem
+                  statement, then the
+                  route to these people: one place they already are, why you
+                  think they&apos;re there, and how you&apos;d get one
+                  conversation this week. No names needed, and you won&apos;t
+                  message anyone until VALIDATION. Declare today&apos;s task
+                  under Today and I&apos;ll write tonight&apos;s proof out of
+                  what you tell me here — but nothing counts until you file it
+                  there.
+                </Line>
+              </Mark>
+            </div>
+          </div>
+
           <section className={app.card}>
             <p className={app.cardLabel}>The goal</p>
             <h2 className={app.goalTitle}>
               Tiffin-delivery app for my college
             </h2>
-            <Mark n={2}>
+            <Mark n={3}>
               <ol className={app.stepper}>
                 <li className={app.stepNow}>IDEA</li>
                 <li className={app.stepTodo}>VALIDATION</li>
@@ -230,33 +273,21 @@ const SLIDES: Slide[] = [
               </div>
             </Mark>
           </section>
-
-          <div className={styles.chatPanel}>
-            <div className={app.messages}>
-              <Mark n={3}>
-                <Line who="COACH">
-                  Goal locked: &quot;Tiffin-delivery app for my college&quot;.
-                  Rule one: one goal at a time, and this is yours now. What you
-                  picked is the problem you test first, not an idea you are stuck
-                  with. You start in IDEA — write a one-paragraph problem
-                  statement, then the
-                  route to these people: one place they already are, why you
-                  think they&apos;re there, and how you&apos;d get one
-                  conversation this week. No names needed, and you won&apos;t
-                  message anyone until VALIDATION. Declare today&apos;s task
-                  under Today and I&apos;ll write tonight&apos;s proof out of
-                  what you tell me here — but nothing counts until you file it
-                  there.
-                </Line>
-              </Mark>
-            </div>
-          </div>
         </div>
       </div>
     ),
     notes: [
+      // Marked notes first, in the order the marks run down the mock, then the
+      // unmarked ones. A Mark's badge and its note carry the same number, so a
+      // note inserted in the middle of this list silently renumbers every mark
+      // below it — which is how the workshop note, added with no ring of its
+      // own, spent several releases wearing the stepper's badge.
       <>
-        <strong>One goal, and that&apos;s the whole setup.</strong> A second one
+        {/* Same eaten space as slide 4's note 2, and older: this one has read
+            "whole setup.A second one" in the built DOM for as long as the note
+            has existed. */}
+        <strong>One goal, and that&apos;s the whole setup.</strong>{" "}
+        A second one
         is refused by a database constraint, not by a nag. Closing this one is
         always available — it just goes on the record. The wording isn&apos;t
         final either: you can sharpen it from the dashboard right up until your
@@ -264,18 +295,18 @@ const SLIDES: Slide[] = [
         it.
       </>,
       <>
-        <strong>No idea yet? The workshop is under the box.</strong> Twenty
-        turns with him before you commit — he walks your own week for problems,
-        parks at most three, makes you choose, and then works the winner through
-        the four things IDEA will ask you for. Those four stand on the left the
-        whole time, filling in as you answer them. It banks nothing and refuses
-        nothing: Commit works from the first turn, and when the turns are gone
-        it is the only door left.
+        The surprising half is the last line of what he asks for:{" "}
+        <strong>you may not message anyone yet</strong>. IDEA is desk work — the
+        problem, and the route to the people who have it. Zero conversations
+        here isn&apos;t being behind; talking to people is VALIDATION&apos;s job
+        and it&apos;s the next thing he unlocks.
       </>,
       <>
         You start in <strong>IDEA</strong> at <strong>0/1</strong>, whatever
         stage you think you&apos;re at. The line under the stepper is what this
-        phase is for; the counter is what gets you out of it —{" "}
+        phase is for — and inside a phase it moves with your count, so the third
+        conversation is asked for differently from the first. The counter is
+        what gets you out of it —{" "}
         <strong>1</strong> accepted proof to leave IDEA, <strong>3</strong>{" "}
         conversations with <strong>3 different people</strong> to leave
         VALIDATION, <strong>2</strong> working artifacts to leave BUILD, one of
@@ -285,11 +316,13 @@ const SLIDES: Slide[] = [
         their own, or paying.
       </>,
       <>
-        The surprising half is the last line of what he asks for:{" "}
-        <strong>you may not message anyone yet</strong>. IDEA is desk work — the
-        problem, and the route to the people who have it. Zero conversations
-        here isn&apos;t being behind; talking to people is VALIDATION&apos;s job
-        and it&apos;s the next thing he unlocks.
+        <strong>No idea yet? The workshop is under the box.</strong> Twenty
+        turns with him before you commit — he walks your own week for problems,
+        parks at most three, makes you choose, and then works the winner through
+        the four things IDEA will ask you for. Those four stand on the left the
+        whole time, filling in as you answer them. It banks nothing and refuses
+        nothing: Commit works from the first turn, and when the turns are gone
+        it is the only door left.
       </>,
       <>
         Three things on that card are yours rather than earned. When a phase
@@ -327,69 +360,16 @@ const SLIDES: Slide[] = [
     eyebrow: "Every morning, and all day",
     title: "Two boxes take the same words. Only one counts.",
     kicker:
-      "Declare the day's one task under Today: ten seconds, and it's what " +
-      "tonight gets judged against. Then talk to him as much as you like — " +
-      "he writes tonight's proof out of that chat, and it lands when you " +
-      "file it under Today.",
+      "Talk to him as much as you like — he's phase-aware, he writes " +
+      "tonight's proof out of the conversation, and the presses stand in it. " +
+      "But the ten seconds under Today are what tonight gets judged against, " +
+      "and that box is the only one the gate has ever counted.",
     stage: "stack",
     mock: (
       <div className={styles.twoUp}>
         <div className={styles.twoUpCol}>
-          <p className={styles.mockCaption}>Today — the box that counts</p>
-          <section className={app.card}>
-            <p className={app.cardLabel}>Today</p>
-            <p className={app.todayPrompt}>Morning. One task, out loud:</p>
-            <Mark n={1}>
-              <div className={`${app.textarea} ${styles.field}`}>
-                Interview the mess aunty about what happens at the 9pm rush
-              </div>
-            </Mark>
-            {/* The hour rides in the same strip, outside the ring and with no
-                note of its own — the goal examples on slide 1 and the streak
-                opposite are drawn the same way, and for the same reason: it
-                is on the screen, so a mock without it is a picture
-                of a screen that no longer exists, and what it BUYS is a clause
-                in note 1 rather than a mark of its own. A slide's worth of
-                deck for an optional tap would be a manual.
-
-                A span, like every other mock control in this file, and the
-                one it borrows from is a <select>: it cannot be pressed, so it
-                must not announce itself as something that can. */}
-            <div className={app.declareRow}>
-              <span className={app.primaryBtn}>Declare it</span>
-              <span className={app.hourSelect}>by 21:00</span>
-            </div>
-          </section>
-
-          <section className={app.card}>
-            <p className={app.cardLabel}>Today — a minute later</p>
-            <p className={app.declared}>
-              Declared: <em>Set up the database schema for orders</em>
-            </p>
-            <Mark n={2}>
-              <p className={app.offPhase}>
-                That&apos;s BUILD&apos;s work and you&apos;re in VALIDATION with
-                one conversation left. Nothing stops you doing it — but it
-                won&apos;t count toward the gate, and the schema you write
-                tonight is a guess about a user you haven&apos;t met.
-              </p>
-            </Mark>
-            {/* Outside the ring and with no note of its own, like the goal
-                examples on slide 1. What the card does at this hour is the
-                point of the slide's own kicker — the morning is ten seconds
-                and then it lets you go — and a mock that still showed the
-                whole evening form here would be a picture of a screen that no
-                longer exists. */}
-            <p className={app.morningDone}>
-              That&apos;s the morning done. Nothing owed until tonight.
-            </p>
-            <span className={app.secondaryBtn}>File tonight&apos;s proof</span>
-          </section>
-        </div>
-
-        <div className={styles.twoUpCol}>
           <p className={styles.mockCaption}>
-            The chat — the box that doesn&apos;t
+            The chat — the box that doesn&apos;t count
           </p>
           {/* The streak, unmarked. A reader can see what it is, and it does
               not move the gate — which is the only thing about it this deck
@@ -423,7 +403,7 @@ const SLIDES: Slide[] = [
                 Quick one — should I build this in Next.js or Remix? And
                 Postgres or Mongo?
               </Line>
-              <Mark n={3}>
+              <Mark n={1}>
                 <Line who="COACH">
                   Fair question, wrong week. Both of those are BUILD&apos;s
                   problem, and neither answer survives a user you haven&apos;t
@@ -435,7 +415,7 @@ const SLIDES: Slide[] = [
               </Mark>
             </div>
             <div className={app.composer}>
-              <Mark n={4}>
+              <Mark n={2}>
                 <div className={app.modeBar}>
                   {/* No role and no aria-label, unlike the real control this
                       borrows its classes from: these are spans that cannot be
@@ -457,7 +437,7 @@ const SLIDES: Slide[] = [
                 <span className={app.primaryBtn}>Send</span>
               </div>
             </div>
-            <Mark n={5}>
+            <Mark n={3}>
               <p className={app.composerNote}>
                 Masterji writes tonight&apos;s proof from this conversation.
                 Nothing counts until you file it under Today.
@@ -465,31 +445,72 @@ const SLIDES: Slide[] = [
             </Mark>
           </div>
         </div>
+
+        {/* Second, and the slide's title is what it is second TO. The two are
+            still shown against each other rather than in sequence — that is
+            what .twoUp is for — but the conversation is the pane a builder is
+            in, and on a phone it is now the one they land on (#353), so the
+            column that reads first is the one they meet first. What has NOT
+            moved is which box the gate counts, which is why this column keeps
+            the last word on the slide and both notes under it say so. */}
+        <div className={styles.twoUpCol}>
+          <p className={styles.mockCaption}>Today — the box that counts</p>
+          <section className={app.card}>
+            <p className={app.cardLabel}>Today</p>
+            <p className={app.todayPrompt}>Morning. One task, out loud:</p>
+            <Mark n={4}>
+              <div className={`${app.textarea} ${styles.field}`}>
+                Interview the mess aunty about what happens at the 9pm rush
+              </div>
+            </Mark>
+            {/* The hour rides in the same strip, outside the ring and with no
+                note of its own — the goal examples on slide 1 and the streak
+                opposite are drawn the same way, and for the same reason: it
+                is on the screen, so a mock without it is a picture
+                of a screen that no longer exists, and what it BUYS is a clause
+                in its note rather than a mark of its own. A slide's worth of
+                deck for an optional tap would be a manual.
+
+                A span, like every other mock control in this file, and the
+                one it borrows from is a <select>: it cannot be pressed, so it
+                must not announce itself as something that can. */}
+            <div className={app.declareRow}>
+              <span className={app.primaryBtn}>Declare it</span>
+              <span className={app.hourSelect}>by 21:00</span>
+            </div>
+          </section>
+
+          <section className={app.card}>
+            <p className={app.cardLabel}>Today — a minute later</p>
+            <p className={app.declared}>
+              Declared: <em>Set up the database schema for orders</em>
+            </p>
+            <Mark n={5}>
+              <p className={app.offPhase}>
+                That&apos;s BUILD&apos;s work and you&apos;re in VALIDATION with
+                one conversation left. Nothing stops you doing it — but it
+                won&apos;t count toward the gate, and the schema you write
+                tonight is a guess about a user you haven&apos;t met.
+              </p>
+            </Mark>
+            {/* Outside the ring and with no note of its own, like the goal
+                examples on slide 1. What the card does at this hour is the
+                point of the slide's own kicker — the morning is ten seconds
+                and then it lets you go — and a mock that still showed the
+                whole evening form here would be a picture of a screen that no
+                longer exists. */}
+            <p className={app.morningDone}>
+              That&apos;s the morning done. Nothing owed until tonight.
+            </p>
+            <span className={app.secondaryBtn}>File tonight&apos;s proof</span>
+          </section>
+        </div>
       </div>
     ),
+    // In the order the marks run down the mock — the conversation's three,
+    // then Today's two. See the same note on slide 1: these numbers ARE the
+    // badges, so the list order is not a matter of taste.
     notes: [
-      <>
-        {/* The clause is the whole of what this deck says about the hour, and
-            it is a clause on purpose. The control is one optional tap and it
-            moves nothing; a slide would be promising more than it does.
-
-            Every word of it has to be true with no scheduler in the product,
-            because there isn't one — nothing here fires on a clock. So it says
-            what naming an hour DOES ("hold you to it"), which is true the
-            moment the coach can read it back, and not what it might one day
-            trigger. "He'll be waiting at nine" is the sentence this deck must
-            never learn to say. */}
-        <strong>One task</strong>, small enough to finish today and specific
-        enough to prove tonight. Filed the moment you press it — he reads it a
-        second later and says what he makes of it, but the day is on the record
-        either way. Name the hour you&apos;ll have proof by and he&apos;ll hold
-        you to it — optional, and a proof that lands later still counts in full.
-      </>,
-      <>
-        Off-phase work is <strong>flagged, never blocked</strong>. He&apos;ll
-        tell you it&apos;s the wrong week; the gate is what makes a day spent
-        sideways actually cost something.
-      </>,
       <>
         {/* The middle clause is the only thing this deck says about the register
             he answers a hard night in (prompts.WHEN_IT_IS_NOT_ABOUT_THE_WORK),
@@ -552,6 +573,28 @@ const SLIDES: Slide[] = [
         from what you say up there — and the day is still recorded under{" "}
         <strong>Today</strong>, which is the only box the gate has ever counted.
       </>,
+      <>
+        {/* The clause is the whole of what this deck says about the hour, and
+            it is a clause on purpose. The control is one optional tap and it
+            moves nothing; a slide would be promising more than it does.
+
+            Every word of it has to be true with no scheduler in the product,
+            because there isn't one — nothing here fires on a clock. So it says
+            what naming an hour DOES ("hold you to it"), which is true the
+            moment the coach can read it back, and not what it might one day
+            trigger. "He'll be waiting at nine" is the sentence this deck must
+            never learn to say. */}
+        <strong>One task</strong>, small enough to finish today and specific
+        enough to prove tonight. Filed the moment you press it — he reads it a
+        second later and says what he makes of it, but the day is on the record
+        either way. Name the hour you&apos;ll have proof by and he&apos;ll hold
+        you to it — optional, and a proof that lands later still counts in full.
+      </>,
+      <>
+        Off-phase work is <strong>flagged, never blocked</strong>. He&apos;ll
+        tell you it&apos;s the wrong week; the gate is what makes a day spent
+        sideways actually cost something.
+      </>,
     ],
     samples: [
       {
@@ -584,15 +627,54 @@ const SLIDES: Slide[] = [
       "Evidence, not a status update: what you'd show someone who doesn't " +
       "believe you. He's lenient about the writing and strict about whether " +
       "anything happened.",
-    caption: "Today — evening",
+    // No caption on the slide: the mock is two screens now rather than one
+    // with a pane bolted underneath, so each block names itself. A single
+    // "Today — evening" over the top would have labelled the conversation.
     mock: (
       <>
+        {/* The evening starts here. The draft is written in the conversation
+            and the press that files it stands under the words it came from
+            (#326), and on a phone this is the pane the app opens on (#353) —
+            so the deck stopped drawing the form first and the chat as an
+            afterthought, which was the app's layout two releases ago.
+
+            Drawn with the app's own classes, like every other mock here, and
+            with spans where the app has buttons: it cannot be pressed, so it
+            must not announce itself as something that can. */}
+        <p className={styles.mockCaption}>
+          The chat — where the evening gets written
+        </p>
+        <div className={styles.chatPanel}>
+          <div className={app.messages}>
+            <Line who="COACH">
+              Wrote tonight&apos;s proof up from what you just told me —
+              it&apos;s under Today, yours to edit before you file it.
+            </Line>
+            <Mark n={1}>
+              <div className={app.inlineCommit}>
+                <p className={app.proofOfferLabel}>Tonight&apos;s proof</p>
+                <p className={app.proofOfferText}>
+                  Ramesh, mess contractor. Says 40–50 plates go to waste most
+                  nights. Already tried a WhatsApp group for counts; it died in
+                  a week because nobody replied by 18:00.
+                </p>
+                <div className={`${app.input} ${styles.ph}`}>Link (optional)</div>
+                <div className={styles.fakeAttach}>📎 Attach a screenshot</div>
+                <span className={app.primaryBtn}>Submit proof</span>
+              </div>
+            </Mark>
+          </div>
+        </div>
+
+        {/* The same evening from the other pane — the box the gate reads, and
+            where a builder who wrote nothing in chat still files from. */}
+        <p className={styles.mockCaption}>Today — evening</p>
         <section className={app.card}>
           <p className={app.cardLabel}>Today</p>
           <p className={app.declared}>
             Declared: <em>Interview the mess aunty about the 9pm rush</em>
           </p>
-          <Mark n={1}>
+          <Mark n={2}>
             <div className={app.proofHint}>
               <p>
                 What to submit: notes from ONE real conversation — who you spoke
@@ -623,7 +705,7 @@ const SLIDES: Slide[] = [
 
         <section className={app.card}>
           <p className={app.cardLabel}>Today — pushed back</p>
-          <Mark n={2}>
+          <Mark n={3}>
             <p className={app.pushedBack}>
               &quot;Good response&quot; from who? You&apos;ve given me a
               feeling, not a conversation. Names, what they last did about it,
@@ -632,58 +714,10 @@ const SLIDES: Slide[] = [
             </p>
           </Mark>
         </section>
-
-        {/* The same evening from the other pane, and the reason this panel is
-            in the deck at all: on a phone the two take turns, so the card
-            above is behind a tab while the conversation that wrote the draft
-            is the thing on screen. The press stands here too now — so a mock
-            of this pane without it would be a picture of a screen that no
-            longer exists, which is the mistake this file has made before (see
-            the streak note on slide 2).
-
-            Drawn with the app's own classes, like every other mock here, and
-            with spans where the app has buttons: it cannot be pressed, so it
-            must not announce itself as something that can. */}
-        <p className={styles.mockCaption}>
-          The chat — the same evening, on a phone
-        </p>
-        <div className={styles.chatPanel}>
-          <div className={app.messages}>
-            <Line who="COACH">
-              Wrote tonight&apos;s proof up from what you just told me —
-              it&apos;s under Today, yours to edit before you file it.
-            </Line>
-            <Mark n={3}>
-              <div className={app.inlineCommit}>
-                <p className={app.proofOfferLabel}>Tonight&apos;s proof</p>
-                <p className={app.proofOfferText}>
-                  Ramesh, mess contractor. Says 40–50 plates go to waste most
-                  nights. Already tried a WhatsApp group for counts; it died in
-                  a week because nobody replied by 18:00.
-                </p>
-                <div className={`${app.input} ${styles.ph}`}>Link (optional)</div>
-                <div className={styles.fakeAttach}>📎 Attach a screenshot</div>
-                <span className={app.primaryBtn}>Submit proof</span>
-              </div>
-            </Mark>
-          </div>
-        </div>
       </>
     ),
+    // Marked notes in the order the marks run down the mock — see slide 1.
     notes: [
-      <>
-        What tonight needs, tailored to the task you declared this morning — and
-        the phase&apos;s standing ask when the model can&apos;t be reached.
-        Don&apos;t know the shape of an accepted answer? That second line
-        unfolds a real one. The link and the screenshot under it are optional;
-        the words are the proof.
-      </>,
-      <>
-        Pushed back is not a punishment and not a cap. Resubmit: he judges the
-        new try against every refused one{" "}
-        <em>and the words he refused it with</em>, so the second look can&apos;t
-        invent a reason the first didn&apos;t give.
-      </>,
       <>
         {/* The one thing this note must not become is an explanation of the
             control. The card is a control and the coach's words above it carry
@@ -692,9 +726,24 @@ const SLIDES: Slide[] = [
         Where he drafted it is where you file it. The same{" "}
         <strong>Declare it</strong> and <strong>Submit proof</strong> stand in
         the conversation, under the words they came from — no switching panes
-        to go and find them. It is still your press: nothing is ever recorded
-        until you make it, and the day still lands under <strong>Today</strong>,
-        which is the only box the gate has ever counted.
+        to go and find them, and on a phone this is the pane you land on. It is
+        still your press: nothing is ever recorded until you make it, and the
+        day still lands under <strong>Today</strong>, which is the only box the
+        gate has ever counted.
+      </>,
+      <>
+        What tonight needs, tailored to the task you declared this morning — and
+        the phase&apos;s standing ask when the model can&apos;t be reached.
+        Don&apos;t know the shape of an accepted answer? That second line
+        unfolds a real one. The link and the screenshot under it are optional;
+        the words are the proof. Nothing here depends on having talked to him:
+        the box takes what you type into it.
+      </>,
+      <>
+        Pushed back is not a punishment and not a cap. Resubmit: he judges the
+        new try against every refused one{" "}
+        <em>and the words he refused it with</em>, so the second look can&apos;t
+        invent a reason the first didn&apos;t give.
       </>,
     ],
     samples: [
@@ -741,12 +790,24 @@ const SLIDES: Slide[] = [
             </div>
           </Mark>
           <span className={app.secondaryBtn}>Request phase advance</span>
+          {/* Two sentences from gates.try_advance and then the errand, and the
+              errand is the rung's rather than the phase's: this card says 2/3,
+              so the tail is guidance.BEATS[VALIDATION][2].nudge and not
+              GATE_NUDGE[VALIDATION]. GATE_NUDGE stood here from the day beats
+              landed (#157) — which is the errand a builder gets at 0/3,
+              printed under a 2/3 heading, telling someone with two
+              conversations banked to go and have their first. */}
           <Mark n={2}>
             <p className={app.gateNote}>
               Not yet. 2/3 accepted proofs in VALIDATION — 1 more before BUILD
-              unlocks. One conversation. Ten minutes, someone who already has
-              the problem. Ask what they did the last time it happened — not
-              whether they&apos;d use your app. Notes tonight.
+              unlocks. The third one, and it turns on the ask. End it with
+              something that costs them — an hour, an introduction, a look at
+              their books, money — and write down what you asked for and whether
+              you got it. &quot;Sounds great, keep me posted&quot; is a
+              rejection wearing a smile. Then read all three notes together: if
+              nobody gave anything up, that is this week&apos;s finding, and it
+              means the ask was too big, too vague, or aimed at the wrong
+              person.
             </p>
           </Mark>
         </section>
@@ -779,9 +840,17 @@ const SLIDES: Slide[] = [
         A proof already spent on unlocking this phase can&apos;t be spent again.
       </>,
       <>
-        The refusal, then the errand. One conversation — not &quot;keep
-        validating&quot;. Press the button as often as you like: Django counts
-        the rows and answers, and clicking is not evidence.
+        The refusal, then the errand — and the errand knows how far in you are.
+        At <strong>0/3</strong> it is getting into one room at all; here at{" "}
+        {/* Load-bearing, both of them — see the header note in Landing.tsx.
+            The space after a closing tag is dropped when the sentence wraps to
+            the next source line, and this one shipped as "2/3it is the ask"
+            until the built DOM was read back. */}
+        <strong>2/3</strong>{" "}
+        it is the ask, because the thing a third
+        conversation is for is finding out whether anyone will give something
+        up. Never &quot;keep validating&quot;. Press the button as often as you
+        like: Django counts the rows and answers, and clicking is not evidence.
       </>,
       <>
         Below the bar the button asks and can be refused. At the bar it stops
