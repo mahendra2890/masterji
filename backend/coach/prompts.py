@@ -1606,6 +1606,63 @@ SUGGEST_LAUNCH_DATE_TOOL = {
     },
 }
 
+# The last of them, and the one whose offer and record look most alike: a string
+# on the goal, one press from the string on the goal. `suggest_goal` fills the
+# commit box before the goal exists; this is the same affordance after it, in the
+# window the product deliberately leaves open — "you can sharpen the wording once
+# you're in" (GoalUpdateView).
+#
+# The server decides whether it is on the table at all, and the question it asks
+# is the one GoalUpdateView asks: is `gates.accepted_proofs_total` still zero.
+# The moment the record points at the sentence the tool leaves the list, so the
+# lock has exactly one reason in it — the one already written in that view's
+# docstring — rather than a second copy in a prompt that a later edit could
+# soften. Wrong-window silence as a schema fact.
+#
+# The hardest sentence in the description is the second guard, and it is the
+# workshop's own. One tap from "his suggestion" to a database constraint is how a
+# builder ends up coached on somebody else's idea (Onboarding.tsx's goal-examples
+# bargain) — and here the constraint is ALREADY LIVE. Every accepted proof on
+# this goal was filed as evidence for this sentence, the coach quotes it back
+# every turn, and the gate's whole authority is that the builder chose what they
+# are being held to. So the draft is the sharpening they arrived at in
+# conversation. Helping them find the sharper sentence is chat, and there is a
+# lot of it worth having; preferring one is not this tool's to do.
+SUGGEST_GOAL_WORDING_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "suggest_goal_wording",
+        "description": (
+            "Write down the sharper wording of the goal the builder has just "
+            "arrived at in this conversation. Call this only when they have "
+            "said the sharper sentence THEMSELVES, or agreed to one you asked "
+            "them about — never your own preferred phrasing of their idea, "
+            "never a rewrite they did not ask for, and never a different goal "
+            "wearing the same words. This RENAMES NOTHING: it fills the reword "
+            "box on their goal card and they press Save wording themselves. "
+            "Call it again if they sharpen it further; each call replaces the "
+            "last. Pushing on a vague goal until they say the specific version "
+            "is worth doing and is just conversation — the tool is for after "
+            "they say it. Say what you have to say to them in the same turn; a "
+            "turn that only calls this is a turn they spent getting no answer."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": "string",
+                    "description": (
+                        "The goal in one line, as they sharpened it: specific "
+                        "enough to name who it is for. The same idea said "
+                        "better — not a new one, and not yours."
+                    ),
+                }
+            },
+            "required": ["title"],
+        },
+    },
+}
+
 # Its neighbour below can be PERFORMED, and this one cannot. That is a real
 # difference and not squeamishness, so it is written down here: somebody will
 # later read these two side by side and try to "finish" this one.

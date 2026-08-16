@@ -630,6 +630,29 @@ def _launch_draft(arguments: dict, today: date) -> tuple[date, str] | None:
     return when, pond
 
 
+def _title_draft(arguments: dict, goal: Goal) -> str:
+    """A sharpened wording, or "" — the reword box's own bounds, at draft time.
+
+    Whitespace-collapsed and cut to the column's width, so the box can never
+    open holding a sentence the server would truncate on the way back in.
+    Trimmed rather than dropped, the way `declaration_offer` and `intent_offer`
+    are: an over-long draft is one the builder can see and cut, and it is their
+    own sentence either way.
+
+    The same words back are dropped, and that is the interesting line. A draft
+    identical to the current title is a "Use this" that changes nothing and a
+    Save that GoalUpdateView deliberately declines to log — an affordance
+    offering the sentence already on the card, which reads as a rename that did
+    not take. That check is `goal.title` at the moment of the call, not the
+    press: what the press compares against is its own, one line of
+    GoalUpdateView, and this buys it no bypass.
+    """
+    title = " ".join(str(arguments.get("title") or "").split())[
+        : Goal._meta.get_field("title").max_length
+    ]
+    return "" if title == goal.title else title
+
+
 # How much of the series travels in the state payload. Thirty because TRACTION
 # is the end of the ladder and the series only exists there: a goal that has
 # recorded thirty readings has been in the terminal phase for a month, and the
@@ -1228,6 +1251,18 @@ class GoalUpdateView(APIView):
         serializer = GoalSerializer(goal, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         goal = serializer.save()
+        # And the draft is spent, whatever they pressed with. What is on the row
+        # now is what they sent, which may be the coach's sentence, an edit of
+        # it, or something typed over both — and in all three cases the offer
+        # has been answered. Left behind it would come back up the next time
+        # they tapped reword, as an alternative to a decision already made.
+        #
+        # A second UPDATE rather than a field on the serializer's save, because
+        # `title_offer` is read-only there on purpose — the offer is the
+        # server's to write and never a client's to assert.
+        if goal.title_offer:
+            goal.title_offer = ""
+            goal.save(update_fields=["title_offer", "updated_at"])
         # Only a real change is worth a row. A save that renamed nothing —
         # the same words back, or a PATCH carrying only fields this endpoint
         # ignores — would otherwise put "Reworded: X → X" in the transcript.
@@ -2257,6 +2292,13 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
                 # the tool is not in the schema, so a date with no artifact is
                 # not something the model can be talked into writing down.
                 may_name_launch=Phase(goal.phase) in LAUNCH_PHASES,
+                # Whether the wording is still the builder's to sharpen, decided
+                # here off the same count GoalUpdateView checks before it will
+                # take a PATCH. Past the first accepted proof the record points
+                # at the sentence, so the tool is simply not in the schema
+                # rather than being in it under a prompt rule — and the lock
+                # keeps the one reason it already has.
+                may_reword=gates.accepted_proofs_total(goal) == 0,
                 day=today,
                 turn_id=turn.id,
             )
@@ -2272,6 +2314,7 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
         may_declare: bool = False,
         intent_target: PhaseTransition | None = None,
         may_name_launch: bool = False,
+        may_reword: bool = False,
         day: date | None = None,
         turn_id: int | None = None,
     ):
@@ -2294,6 +2337,16 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
         # from a turn that mentioned no date at all.
         launch_draft: tuple[date, str] | None = None
         launch_called = False
+        # The sharper wording as the model heard them arrive at it, and — beside
+        # it, and deliberately not the same question — whether the tool was
+        # called at all. "" is both "nothing usable was said" and "no such call
+        # happened", and those two must not be one state: a turn that drafted
+        # the words already on the card, or an empty string, has to CLEAR
+        # whatever was in the box rather than leave an earlier draft sitting
+        # under a conversation that has moved past it. Only the flag can tell
+        # them apart.
+        wording_draft = ""
+        wording_called = False
         # Today's reading as the model heard it said, kept beside the draft it
         # arrived with. None means no number, which is the ordinary case and the
         # one the guard is built around — see _reading, and note that 0 is a
@@ -2349,6 +2402,13 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
                             if may_name_launch
                             else []
                         ),
+                        # And only while the wording is still theirs to change —
+                        # the same count GoalUpdateView checks before it will
+                        # take a PATCH. The moment the record points at the
+                        # sentence the tool leaves the list, so the lock's
+                        # reasoning stays in one place and there is no prompt
+                        # sentence about the window for a later edit to soften.
+                        *([prompts.SUGGEST_GOAL_WORDING_TOOL] if may_reword else []),
                         # Opens the retire box on the goal card, and that is the
                         # whole of it — see PROPOSE_GOAL_CLOSE_TOOL, which says
                         # at length why this one has no server half. Nothing
@@ -2447,6 +2507,28 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
                             launch_draft = _launch_draft(
                                 payload.get("arguments", {}),
                                 day or timezone.now().date(),
+                            )
+                        elif name == "suggest_goal_wording" and may_reword:
+                            # One string, replaced by a later call in the same
+                            # turn the way every draft above is — a builder who
+                            # kept sharpening should find the last version in
+                            # the box, not the first.
+                            #
+                            # Assigned unconditionally beside its flag, so a
+                            # redraft that came back with nothing usable — the
+                            # words already on the card, or an empty title —
+                            # clears the earlier one rather than leaving it
+                            # under a conversation that has moved on.
+                            #
+                            # The `and may_reword` is belt and braces for its
+                            # neighbours' reason: the tool is not in the list
+                            # above when it is false, so a call cannot arrive —
+                            # but this is the branch that leads to a write, and
+                            # a guard true only because of something sixty lines
+                            # away is a guard the next edit can move.
+                            wording_called = True
+                            wording_draft = _title_draft(
+                                payload.get("arguments", {}), goal
                             )
                         elif name == "suggest_proof":
                             # The model sends the parts; bar.read does the
@@ -2587,6 +2669,40 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
                 what = "drafted" if launch_draft else "cleared"
                 logger.info(f"Launch date {what} for goal {goal.id}")
 
+            # And the sharper wording, onto the goal beside the title rather
+            # than into it.
+            #
+            # `title_offer` and NOT `title`. That is the whole of this change:
+            # GoalUpdateView stays the only line in this codebase that renames a
+            # goal, it is reached by a press, and the transcript row a real
+            # rename earns (guidance.TITLE_SHARPENED) is written there and
+            # nowhere else. A model writing straight to `title` would rename the
+            # idea every accepted proof was filed as evidence for, in the one
+            # window the product keeps open for the BUILDER to sharpen it.
+            #
+            # The lock is re-read HERE, against the row, rather than trusted
+            # from `may_reword` — which was measured before the stream, on a
+            # turn that can take a while. Belt and braces with the `and`
+            # alongside it: the flag is what keeps the tool out of the schema,
+            # and this is what keeps a draft off a goal the record has since
+            # closed. A press on it would meet the 409 anyway, but an offer
+            # sitting under a control that is no longer there is a draft with
+            # nowhere to land.
+            #
+            # Keyed off the CALL rather than off the draft, so a turn that came
+            # back with nothing usable clears the box instead of leaving a
+            # stale sentence in it.
+            if (
+                wording_called
+                and may_reword
+                and gates.accepted_proofs_total(goal) == 0
+            ):
+                goal.title_offer = wording_draft
+                goal.save(update_fields=["title_offer", "updated_at"])
+                span.set_attribute("wording.offered", bool(wording_draft))
+                what = "drafted" if wording_draft else "cleared"
+                logger.info(f"Goal wording {what} for goal {goal.id}")
+
             # A drafted proof is a row, not a wire event: the client refetches
             # state the moment the turn ends and reads the offer off the
             # check-in with everything else. One source of truth, and an offer
@@ -2722,6 +2838,18 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
                 # something that is not in the box.
                 yield _line({"t": "delta", "text": guidance.LAUNCH_DATE_LANDED})
                 content = guidance.LAUNCH_DATE_LANDED
+            elif wording_draft and may_reword and not content:
+                # And the last of them, for the wording. Reached only when the
+                # whole turn was this tool call — #270 / #310: a builder who
+                # just said the sharper sentence out loud and got a blank screen
+                # back has been answered by a control on the other pane.
+                #
+                # Guarded on the draft rather than the call, so a turn that came
+                # back with nothing usable — an empty title, or the words
+                # already on the card — cannot get a receipt pointing at a box
+                # this turn just emptied.
+                yield _line({"t": "delta", "text": guidance.GOAL_WORDING_LANDED})
+                content = guidance.GOAL_WORDING_LANDED
             if advance_proposed:
                 advanced, detail = gates.try_advance(goal)
                 span.set_attribute("gate.advanced", advanced)

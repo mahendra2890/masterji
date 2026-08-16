@@ -717,6 +717,21 @@ LAUNCH_DATE_LANDED = (
     "they're on the record. Nothing's committed until you do."
 )
 
+# And the goal's wording, the last of them. This receipt has a job the others
+# don't: it must not read like the goal has been renamed. The title is on every
+# screen the builder looks at, so a receipt they misread is one they check
+# against the card two seconds later — which is fine — but the sentence should
+# be the one that was true when they read it either way.
+#
+# It also names the window rather than the button alone. The control is gone the
+# moment a proof banks, and a builder who is told to press something that will
+# not be there tomorrow has been told half of it.
+GOAL_WORDING_LANDED = (
+    "That sharper wording is on the goal card, at reword — press Save wording "
+    "and it's the sentence. Nothing's changed until you do, and it's yours to "
+    "change only until the first proof banks against it."
+)
+
 # On the wire when the model drops the turn, and in the transcript too when it
 # drops it before the first token. Those turns used to save no reply at all,
 # and the refetch that ends every turn then replaced the bubble the builder

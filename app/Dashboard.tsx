@@ -1120,6 +1120,57 @@ export default function Dashboard({
               </div>
             )}
 
+            {/* The sharper wording as Masterji heard them arrive at it in
+                chat. Same bargain as the morning's task, the evening's proof
+                and the launch day — he writes it down, they press it — and
+                the press here is Save wording, through GoalUpdateView, the
+                one endpoint that has ever renamed a goal.
+
+                BELOW the title rather than above it, which is the opposite of
+                where the other three sit, and deliberately. Those render above
+                a form control because the label under them is the question and
+                the draft is the answer. There is no question here: the line
+                above is the goal, the card's job is to say where you stand,
+                and a coach's alternative sitting over the sentence would be
+                the app leading with somebody else's phrasing of the builder's
+                idea. Under it, it is what it is — a suggestion about the line
+                you just read.
+
+                Outside the ternary, so it is on the card whether or not the
+                box is open: the reword control is a text link, and a draft
+                visible only after finding that link is a draft behind the hunt
+                this whole direction exists to remove. Tapping it opens the box
+                already holding the words — one control, both jobs.
+
+                Not guarded on `titleLocked` here. The server stops serving the
+                offer at the same count that hides the control and 409s the
+                press, so this string is empty exactly when the control is
+                gone. One lock, read in one place.
+
+                "edit it before you save" rather than the other three's "edit
+                it below": those sit above their control and this one does not,
+                and the box the press opens takes the title's place ABOVE it.
+                Driven at 360px, where the instruction pointed at the stepper.
+                */}
+            {goal.titleOffer && (
+              <div className={styles.proofOffer}>
+                <p className={styles.proofOfferLabel}>
+                  Masterji heard a sharper version
+                </p>
+                <p className={styles.proofOfferText}>{goal.titleOffer}</p>
+                <button
+                  type="button"
+                  className={styles.proofOfferBtn}
+                  onClick={() => {
+                    setTitleText(goal.titleOffer);
+                    setEditingTitle(true);
+                  }}
+                >
+                  Use this — edit it before you save
+                </button>
+              </div>
+            )}
+
             {/* The idea under its own headline. Absent on every goal committed
                 before the field existed, and on any goal still short of IDEA's
                 proof — so it appears the evening the idea is cleared rather

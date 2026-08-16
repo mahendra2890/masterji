@@ -206,6 +206,30 @@ class Goal(SoftDeleteModel):
     # check is therefore the date itself — see views._launch_offer_payload.
     launch_date_offer = models.DateField(null=True, blank=True)
     launch_pond_offer = models.CharField(max_length=8, blank=True)
+    # The sharpened wording as Masterji heard the builder arrive at it in chat,
+    # waiting to fill the reword box. An OFFER, never a record — `title` above
+    # is the record, and GoalUpdateView is the only line in this codebase that
+    # has ever written it.
+    #
+    # The distance between these two fields is unusually short — the offer is a
+    # string and the record is a string, one press apart — so the rule holding
+    # them apart is worth stating twice. What a press writes is the sentence the
+    # coach quotes back, the sentence the transcript records a rename against
+    # (guidance.TITLE_SHARPENED), and the one every accepted proof from here on
+    # is evidence FOR. Written straight onto `title`, this tool would be the
+    # model renaming a builder's idea in a window the product deliberately keeps
+    # open for the builder.
+    #
+    # Same width as `title`, so the box can never open holding a sentence the
+    # column would truncate. Blank is the ordinary state, and it is what a press
+    # leaves behind (GoalUpdateView spends the draft).
+    #
+    # No `_date` stamp beside it, unlike the declaration above, and no bound of
+    # its own: what makes this draft stale is not a clock but the record. The
+    # moment `gates.accepted_proofs_total` is non-zero the wording is locked,
+    # the serializer stops serving the offer, and the press 409s — one lock,
+    # read in all three places rather than three rules that could disagree.
+    title_offer = models.CharField(max_length=200, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

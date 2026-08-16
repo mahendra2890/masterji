@@ -43,6 +43,13 @@ export type Goal = {
    * Defaulted true for a browser holding a payload older than the field: not
    * offering an edit is the safe half of that guess. */
   titleLocked: boolean;
+  /** The sharper wording as Masterji heard the builder arrive at it in chat,
+   * waiting to fill the reword box. An offer on `proofOffer`'s terms: "" is the
+   * ordinary state, nothing reads it but the control on the goal card, and
+   * `title` above is the only one of the two that is the record — this becomes
+   * that when they press Save wording. Never served once `titleLocked`, because
+   * the press would 409 and a draft with nowhere to land is worse than none. */
+  titleOffer: string;
   /** The idea itself, as opposed to its headline — the builder's own words from
    * the evening IDEA was cleared, or what they wrote before anything banked.
    * Empty string until something has written one, which is every goal created
@@ -434,6 +441,7 @@ type ServerGoal = {
   status: string;
   created_at: string;
   title_locked?: boolean;
+  title_offer?: string;
   brief?: { text?: string } | null;
   considered?: string[] | null;
 };
@@ -635,6 +643,7 @@ const fromServerGoal = (g: ServerGoal): Goal => ({
   status: g.status,
   createdAt: g.created_at,
   titleLocked: g.title_locked ?? true,
+  titleOffer: g.title_offer ?? "",
   // Flattened at the boundary: the server's shape carries provenance the screen
   // has no use for (which parts the gate saw, who wrote it, when), and every
   // reader here wants the words.
