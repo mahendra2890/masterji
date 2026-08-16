@@ -2750,8 +2750,16 @@ export default function Dashboard({
                     if (!opening || !daysMissing) return;
                     setAllDaysFailedFor(null);
                     try {
-                      const { checkins: rows } = await getGoalHistory(goal.id);
+                      const { checkins: rows, complete } = await getGoalHistory(
+                        goal.id
+                      );
                       setAllDays({ goalId: goal.id, rows });
+                      // The record is fetched a page at a time now. A walk that
+                      // gave up partway still hands back the days it got, and
+                      // this is the same line as an outright failure because it
+                      // is the same fact for the reader: what is on screen is
+                      // fewer days than the record has.
+                      if (!complete) setAllDaysFailedFor(goal.id);
                     } catch {
                       setAllDaysFailedFor(goal.id);
                     }

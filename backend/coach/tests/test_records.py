@@ -65,7 +65,9 @@ class SharedRecordTests(CoachTestCase):
         self.assertIsNone(retirement.share_slug)
         self.client.logout()
         self.client.force_authenticate(None)
-        self.assertEqual(self.client.get("/api/coach/record/anything/").status_code, 404)
+        self.assertEqual(
+            self.client.get("/api/coach/record/anything/").status_code, 404
+        )
 
     def test_a_stranger_holding_the_link_reads_the_numbers(self):
         retirement = self.close_goal()
@@ -119,8 +121,12 @@ class SharedRecordTests(CoachTestCase):
         self.assertNotEqual(first, second)
 
         self.client.force_authenticate(None)
-        self.assertEqual(self.client.get(f"/api/coach/record/{first}/").status_code, 404)
-        self.assertEqual(self.client.get(f"/api/coach/record/{second}/").status_code, 200)
+        self.assertEqual(
+            self.client.get(f"/api/coach/record/{first}/").status_code, 404
+        )
+        self.assertEqual(
+            self.client.get(f"/api/coach/record/{second}/").status_code, 200
+        )
 
     def test_the_slug_is_the_access_control_and_is_not_walkable(self):
         """Unguessable rather than sequential: a numeric id would make every
@@ -172,18 +178,106 @@ class GoalHistoryTests(CoachTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIsNone(response.data["retirement"])
 
-    def test_history_is_not_capped_at_the_dashboard_limit(self):
-        """CHECKIN_HISTORY is a payload budget for the dashboard, and this view
-        is the one that exists because the whole record is too much to send on
-        every page load. It used to apply the same 90-row slice, so a goal that
-        ran past three months lost its first weeks from the panel that is
-        supposed to be the product's memory — and from the export, which reads
-        these rows and calls itself the whole story.
+    def _walk(self, goal) -> list[dict]:
+        """Every check-in the endpoint will give up, followed to exhaustion the
+        way a reader is meant to: keep asking while `next_before` is not null.
+        """
+        rows, cursor, pages = [], None, 0
+        while True:
+            query = (
+                f"?before={cursor['date']}&before_id={cursor['id']}" if cursor else ""
+            )
+            response = self.client.get(f"/api/coach/goals/{goal.pk}/history/{query}")
+            self.assertEqual(response.status_code, 200)
+            rows += response.data["checkins"]
+            cursor = response.data["next_before"]
+            pages += 1
+            # A cursor that fails to advance is the loop this endpoint must
+            # never hand a client. Bounded well above any page count these
+            # tests build, so a real regression trips it and a slow test does
+            # not.
+            self.assertLess(pages, 20, "next_before is not advancing")
+            if cursor is None:
+                return rows
+
+    def test_one_page_is_bounded_and_says_what_it_is_short_by(self):
+        """A page is not a cap. #88 was filed because the record silently
+        dropped its own first weeks, and #140 answered it by removing every
+        ceiling — which left one response carrying an entire goal's check-ins
+        with their attempts prefetched. Both hand back an answer the caller
+        cannot tell is short. This one is bounded AND legible: the total beside
+        the page, and a cursor that is null only when there is nothing further.
         """
         goal = self.make_goal()
-        self._days(goal, views.CHECKIN_HISTORY + 5)
+        self._days(goal, views.HISTORY_PAGE + 5)
         response = self.client.get(f"/api/coach/goals/{goal.pk}/history/")
-        self.assertEqual(len(response.data["checkins"]), views.CHECKIN_HISTORY + 5)
+        self.assertEqual(len(response.data["checkins"]), views.HISTORY_PAGE)
+        self.assertEqual(response.data["checkins_total"], views.HISTORY_PAGE + 5)
+        self.assertIsNotNone(response.data["next_before"])
+
+    def test_paging_to_the_end_yields_the_whole_record_exactly_once(self):
+        """The promise #88 extracted, restated against the cursor: nothing is
+        dropped and nothing is served twice. The record is the product's
+        memory, so a page break that repeats a day is as wrong as one that
+        loses it.
+        """
+        goal = self.make_goal()
+        self._days(goal, views.HISTORY_PAGE + 5)
+        rows = self._walk(goal)
+        self.assertEqual(len(rows), views.HISTORY_PAGE + 5)
+        ids = [row["id"] for row in rows]
+        self.assertEqual(len(set(ids)), len(ids))
+        # Newest first, unbroken across the page seam.
+        self.assertEqual(
+            [row["date"] for row in rows],
+            sorted((r["date"] for r in rows), reverse=True),
+        )
+
+    def test_a_day_with_two_cycles_survives_the_page_boundary(self):
+        """The reason the cursor is `(date, id)` and not `?before=<date>` as #88
+        sketched it. `CheckIn`'s own constraint permits many finished cycles in
+        one day, so a boundary date names rows on both sides of the break: a
+        date-only cursor either serves that day twice or drops whatever part of
+        it fell past the edge.
+
+        Built so the doubled day lands exactly on the seam.
+        """
+        goal = self.make_goal()
+        self._days(goal, views.HISTORY_PAGE + 5)
+        # A second cycle on the day the first page ends on.
+        seam = date.today() - timedelta(days=views.HISTORY_PAGE - 1)
+        CheckIn.objects.create(
+            goal=goal,
+            date=seam,
+            phase=goal.phase,
+            am_declaration="the second thing that day",
+            pm_proof_text="done",
+        )
+        rows = self._walk(goal)
+        ids = [row["id"] for row in rows]
+        self.assertEqual(len(set(ids)), len(ids), "a row was served twice")
+        self.assertEqual(len(rows), views.HISTORY_PAGE + 6, "a row was lost")
+        self.assertEqual(sum(1 for row in rows if row["date"] == seam.isoformat()), 2)
+
+    def test_half_a_cursor_is_refused_rather_than_restarted(self):
+        """A malformed cursor that quietly returned page one would hand the
+        reader the newest ninety days a second time and call it the rest —
+        #88's failure again, wearing a different hat. Loud beats plausible.
+        """
+        goal = self.make_goal()
+        self._days(goal, 3)
+        for query in (
+            "?before=2026-08-14",
+            "?before_id=7",
+            "?before=nonsense&before_id=7",
+        ):
+            self.assertEqual(
+                self.client.get(
+                    f"/api/coach/goals/{goal.pk}/history/{query}"
+                ).status_code,
+                400,
+                query,
+            )
 
     def test_foreign_goal_history_404s(self):
         bobs = self.make_goal(user=self.bob)
@@ -236,7 +330,10 @@ class GoalExportTests(CoachTestCase):
             response["Content-Disposition"],
             f'attachment; filename="{export.filename(goal, date.today())}"',
         )
-        return response.content.decode()
+        # `streaming_content`, because the export is a StreamingHttpResponse:
+        # the file has no ceiling by design, so it is never built whole in
+        # memory. Joined here because a test wants the document entire.
+        return b"".join(response.streaming_content).decode()
 
     def test_export_carries_the_whole_story(self):
         """Declaration, proof, verdict, the try that was pushed back, the phase
@@ -391,7 +488,9 @@ class ChangelogTests(APITestCase):
         self.new.is_active = False
         self.new.save(update_fields=["is_active"])
         response = self.client.get("/api/coach/changelog/")
-        self.assertEqual([e["title"] for e in response.json()["entries"]], ["first build"])
+        self.assertEqual(
+            [e["title"] for e in response.json()["entries"]], ["first build"]
+        )
 
     def test_soft_deleted_entries_are_not_served(self):
         self.old.delete()
@@ -574,7 +673,9 @@ class ChangelogFileTests(TestCase):
         with tempfile.TemporaryDirectory() as d:
             write(d, "2026-08-14-how-long.md", ENTRY)
             self.load(d)
-        row = ChangelogEntry.all_objects.get(title="The coach knows how long it has been")
+        row = ChangelogEntry.all_objects.get(
+            title="The coach knows how long it has been"
+        )
         self.assertEqual(row.shipped_on, date(2026, 8, 14))
         self.assertEqual(row.kind, "CHANGED")
         self.assertTrue(row.is_active)
@@ -649,8 +750,16 @@ class ChangelogFileTests(TestCase):
         is the order a reader sees. Sorting the glob is what makes that
         predictable instead of filesystem-dependent."""
         with tempfile.TemporaryDirectory() as d:
-            write(d, "2026-08-14-a-first.md", ENTRY.replace("The coach knows how long it has been", "First"))
-            write(d, "2026-08-14-b-second.md", ENTRY.replace("The coach knows how long it has been", "Second"))
+            write(
+                d,
+                "2026-08-14-a-first.md",
+                ENTRY.replace("The coach knows how long it has been", "First"),
+            )
+            write(
+                d,
+                "2026-08-14-b-second.md",
+                ENTRY.replace("The coach knows how long it has been", "Second"),
+            )
             self.load(d)
         titles = list(
             ChangelogEntry.objects.filter(shipped_on=date(2026, 8, 14)).values_list(
@@ -676,11 +785,20 @@ class ChangelogFileTests(TestCase):
         for label, text in (
             ("no header", "shipped_on: 2026-08-14\n\nBody.\n"),
             ("unclosed header", "---\nshipped_on: 2026-08-14\nkind: NEW\n"),
-            ("missing title", ENTRY.replace("title: The coach knows how long it has been\n", "")),
+            (
+                "missing title",
+                ENTRY.replace("title: The coach knows how long it has been\n", ""),
+            ),
             ("not a date", ENTRY.replace("2026-08-14", "the fourteenth")),
             ("empty body", "---\nshipped_on: 2026-08-14\nkind: NEW\ntitle: T\n---\n\n"),
-            ("long title", ENTRY.replace("The coach knows how long it has been", "T" * 121)),
-            ("bad is_active", ENTRY.replace("kind: CHANGED", "kind: CHANGED\nis_active: maybe")),
+            (
+                "long title",
+                ENTRY.replace("The coach knows how long it has been", "T" * 121),
+            ),
+            (
+                "bad is_active",
+                ENTRY.replace("kind: CHANGED", "kind: CHANGED\nis_active: maybe"),
+            ),
         ):
             with self.subTest(label):
                 with self.assertRaises(CommandError) as caught:
@@ -783,14 +901,20 @@ class LoopReportTests(CoachTestCase):
         did about it."""
         goal = self.make_goal()
         won = CheckIn.objects.create(
-            goal=goal, date=date.today(), phase=goal.phase,
-            am_declaration="x", pm_proof_text="second try",
+            goal=goal,
+            date=date.today(),
+            phase=goal.phase,
+            am_declaration="x",
+            pm_proof_text="second try",
             proof_status=CheckIn.ProofStatus.ACCEPTED,
         )
         ProofAttempt.objects.create(checkin=won, text="first try", reaction="no")
         lost = CheckIn.objects.create(
-            goal=goal, date=date.today() - timedelta(days=1), phase=goal.phase,
-            am_declaration="x", pm_proof_text="still not",
+            goal=goal,
+            date=date.today() - timedelta(days=1),
+            phase=goal.phase,
+            am_declaration="x",
+            pm_proof_text="still not",
             proof_status=CheckIn.ProofStatus.PUSHED_BACK,
         )
         ProofAttempt.objects.create(checkin=lost, text="first try", reaction="no")

@@ -23,14 +23,20 @@ top. A dashboard is read for what happened yesterday; a document handed to
 somebody is read from the beginning.
 """
 
+from collections.abc import Iterator
 from datetime import date
 
 from . import gates, streaks
 from .models import CheckIn, Goal, GoalRetirement, Phase
 
+# How many check-ins the export pulls from the database at a time. Small
+# enough that a long record never has all of itself resident, large enough
+# that a few hundred days is a handful of queries rather than a hundred.
+_EXPORT_CHUNK = 50
+
 
 def _day(d: date) -> str:
-    """"10 Aug 2026" — the same shape as the app's `formatDay`, which is what
+    """ "10 Aug 2026" — the same shape as the app's `formatDay`, which is what
     the builder has been reading their own record in all along."""
     return f"{d.day} {d:%b %Y}"
 
@@ -121,14 +127,27 @@ def _day_block(checkin: CheckIn) -> list[str]:
     return out
 
 
-def render(goal: Goal, today: date) -> str:
-    """The whole file, as Markdown.
+def stream(goal: Goal, today: date) -> Iterator[str]:
+    """The same file, a piece at a time.
 
-    Uncapped on purpose. `views.CHECKIN_HISTORY` is a budget for a payload sent
-    on every dashboard load; this is a file the builder asked for once, and an
-    export that quietly dropped a four-month goal's first weeks while calling
-    itself the record would be the one failure this artifact cannot have —
-    nobody checks a file for the days it is missing.
+    Uncapped on purpose, and it is the one reader that cannot become paged.
+    `views.CHECKIN_HISTORY` is a budget for a payload sent on every dashboard
+    load; this is a file the builder asked for once, and an export that quietly
+    dropped a four-month goal's first weeks while calling itself the record
+    would be the one failure this artifact cannot have — nobody checks a file
+    for the days it is missing. A file has to be whole, so where the panel
+    answers length with a cursor, this answers it by never holding the whole
+    of itself at once.
+
+    Yielded rather than returned because both costs here are the same shape:
+    the process was building every day of the record into a list of strings,
+    joining it into one string, and handing that to a response that copied it
+    again — three times the file, resident, on an instance with one worker.
+    The rows go the same way, in chunks, instead of a `list()` of every
+    check-in with its attempts attached.
+
+    `render` below still exists and still returns one string. Nothing about
+    the document changed — same order, same sections, same bytes.
     """
     retirement = GoalRetirement.objects.filter(goal=goal).first()
     lines = [
@@ -151,19 +170,39 @@ def render(goal: Goal, today: date) -> str:
             f"- {t.from_phase} → {t.to_phase} · {_day(t.created_at.date())}"
             for t in transitions
         ]
+    yield "\n".join(lines)
 
-    # Oldest first — see the module docstring. `.all()` rather than a slice: the
-    # queryset's default ordering is newest-first for the screens.
-    checkins = list(goal.checkins.prefetch_related("attempts").all())[::-1]
-    if checkins:
-        lines += ["", "## The days"]
-        for checkin in checkins:
-            lines += _day_block(checkin)
+    # Oldest first — see the module docstring. Ordered here rather than
+    # reversed after the fact: `[::-1]` over a `list()` of the whole record is
+    # exactly the materialisation this function exists to avoid, and the
+    # model's default ordering is newest-first for the screens. `id` breaks the
+    # tie so a day the builder ran two cycles in reads in the order they
+    # happened, which `-date` alone never promised.
+    #
+    # `chunk_size` is required for `.iterator()` to keep the prefetch: without
+    # it Django refuses, and dropping the prefetch would trade this function's
+    # memory for a query per day.
+    days = goal.checkins.prefetch_related("attempts").order_by("date", "id")
+    first = True
+    for checkin in days.iterator(chunk_size=_EXPORT_CHUNK):
+        if first:
+            yield "\n\n## The days"
+            first = False
+        yield "\n" + "\n".join(_day_block(checkin))
 
     if retirement:
-        lines += _closing(retirement)
+        yield "\n" + "\n".join(_closing(retirement))
+    yield "\n"
 
-    return "\n".join(lines) + "\n"
+
+def render(goal: Goal, today: date) -> str:
+    """The whole file, as Markdown, in one string.
+
+    The reader for anything that needs the document entire — tests, and any
+    caller that is not an HTTP response. `GoalExportView` streams `stream`
+    instead, which is the path a real export takes.
+    """
+    return "".join(stream(goal, today))
 
 
 def filename(goal: Goal, today: date) -> str:

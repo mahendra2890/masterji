@@ -930,24 +930,72 @@ export type GoalHistory = {
   checkins: CheckIn[];
   transitions: PhaseTransition[];
   bestStreak: number;
+  /** How many check-ins the goal actually has, which is not always how many
+   * arrived — see `complete`. */
+  checkinsTotal: number;
+  /** Whether `checkins` is the whole record. False when a later page failed:
+   * the rows that did arrive are still worth showing, and the caller owes the
+   * reader a line saying it is short. A record that quietly hands back fewer
+   * days than it has is the failure this endpoint was twice fixed for. */
+  complete: boolean;
+};
+
+type ServerHistoryPage = {
+  goal: ServerGoal;
+  retirement: ServerRetirement | null;
+  checkins: ServerCheckIn[];
+  transitions: ServerTransition[];
+  streak: number;
+  checkins_total: number;
+  next_before: { date: string; id: number } | null;
 };
 
 /** The full day-by-day record of one goal, closed or current. Fetched lazily —
- * it's a lot of rows for a panel that's usually shut. */
+ * it's a lot of rows for a panel that's usually shut.
+ *
+ * The server pages it (`HISTORY_PAGE` days at a time) and this follows the
+ * cursor to the end, so callers still get the whole record from one call. The
+ * paging is the server's memory budget, not a smaller promise to the builder:
+ * "Show all 240" still shows all 240.
+ *
+ * A first page that fails throws, because there is nothing to show. A LATER
+ * page that fails does not — it returns what arrived with `complete: false`,
+ * since a builder looking for their own first week is better served by 90 days
+ * and an honest line than by an error where their record used to be.
+ */
 export async function getGoalHistory(id: number): Promise<GoalHistory> {
-  const data = await request<{
-    goal: ServerGoal;
-    retirement: ServerRetirement | null;
-    checkins: ServerCheckIn[];
-    transitions: ServerTransition[];
-    streak: number;
-  }>(`goals/${id}/history/`);
+  const first = await request<ServerHistoryPage>(`goals/${id}/history/`);
+  const checkins = [...first.checkins];
+  let cursor = first.next_before;
+  let complete = true;
+
+  // A bound on the walk, not on the record: at 90 days a page this is a
+  // 45-year goal, so it can only be reached by a cursor that stopped
+  // advancing. That would be a server bug, and the client's job when it meets
+  // one is to stop and say the record is short — not to spin.
+  for (let page_no = 0; cursor && page_no < 200; page_no++) {
+    const query = `before=${cursor.date}&before_id=${cursor.id}`;
+    let page: ServerHistoryPage;
+    try {
+      page = await request<ServerHistoryPage>(`goals/${id}/history/?${query}`);
+    } catch {
+      complete = false;
+      break;
+    }
+    checkins.push(...page.checkins);
+    cursor = page.next_before;
+  }
+  // Fell out of the loop with somewhere still to go.
+  if (cursor) complete = false;
+
   return {
-    goal: fromServerGoal(data.goal),
-    retirement: data.retirement ? fromServerRetirement(data.retirement) : null,
-    checkins: data.checkins.map(fromServerCheckIn),
-    transitions: data.transitions.map(fromServerTransition),
-    bestStreak: data.streak,
+    goal: fromServerGoal(first.goal),
+    retirement: first.retirement ? fromServerRetirement(first.retirement) : null,
+    checkins: checkins.map(fromServerCheckIn),
+    transitions: first.transitions.map(fromServerTransition),
+    bestStreak: first.streak,
+    checkinsTotal: first.checkins_total,
+    complete,
   };
 }
 

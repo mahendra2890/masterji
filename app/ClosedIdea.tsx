@@ -218,13 +218,26 @@ export default function ClosedIdea({
         ) : (
           /* One block per day, not a one-line row: the proof IS the record,
              so it can't live in a hover tooltip or behind an ellipsis. */
-          <ol className={styles.dayList}>
-            {history.checkins.map((c) => (
-              <li key={c.id} className={styles.day}>
-                <DayRecord checkin={c} />
-              </li>
-            ))}
-          </ol>
+          <>
+            {/* Said out loud rather than left as a short list, the same rule
+                the live record card follows. The history is fetched a page at
+                a time; a walk that gave up partway shows the days it got, and
+                a panel headed "Every day of it" that is quietly missing some
+                is the one thing this record must never be. */}
+            {!history.complete && (
+              <p className={styles.modalEmpty}>
+                Couldn&apos;t load the earlier days — showing the{" "}
+                {history.checkins.length} most recent of {history.checkinsTotal}.
+              </p>
+            )}
+            <ol className={styles.dayList}>
+              {history.checkins.map((c) => (
+                <li key={c.id} className={styles.day}>
+                  <DayRecord checkin={c} />
+                </li>
+              ))}
+            </ol>
+          </>
         )}
       </div>
     </div>
