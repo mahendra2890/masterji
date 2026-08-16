@@ -315,7 +315,7 @@ Browser ──► Next.js 16 (Vercel) ── /api/* rewrite ──► Django 5 +
   tracing (`coach.turn` span per interaction with phase/model/gate
   attributes) — a no-op unless `OTEL_EXPORTER_OTLP_ENDPOINT` is set.
 - **Soft delete everywhere**, tenancy by queryset (foreign ids 404).
-- **Tests:** `backend/coach/tests.py` — the gate, tenancy, the
+- **Tests:** `backend/coach/tests/` — the gate, tenancy, the
   one-goal constraint, and the LLM-down fallback are all pinned.
 
 ## Run it locally
