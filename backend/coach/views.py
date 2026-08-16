@@ -17,7 +17,6 @@ from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.http import (
     Http404,
-    HttpResponse,
     HttpResponseRedirect,
     StreamingHttpResponse,
 )
@@ -79,6 +78,15 @@ HISTORY_LIMIT = 30
 # Generous enough that a phase completed weeks ago still has its proofs
 # available for the stepper drill-in, not just the current phase's recent few.
 CHECKIN_HISTORY = 90
+# How many days of the record one `GoalHistoryView` response carries.
+#
+# Deliberately NOT `CHECKIN_HISTORY`, despite being the same number today.
+# That one is a budget for a payload nobody asked for — it rides on every
+# dashboard load and its job is to be small. This is a page of a record
+# somebody pressed a button for, and its job is to be a bounded unit of a
+# whole that the caller keeps asking for until it has all of it. The two
+# numbers answer different questions and moving one must not move the other.
+HISTORY_PAGE = 90
 
 
 def _active_goal(user) -> Goal | None:
@@ -146,9 +154,7 @@ def _open_workshop(user, create: bool = False) -> Workshop | None:
     goal = _active_goal(user)
     if goal is not None:
         return _reopened_workshop(goal, create=create)
-    workshop = Workshop.objects.filter(
-        user=user, status=Workshop.Status.OPEN
-    ).first()
+    workshop = Workshop.objects.filter(user=user, status=Workshop.Status.OPEN).first()
     if workshop is not None or not create:
         return workshop
     try:
@@ -158,9 +164,7 @@ def _open_workshop(user, create: bool = False) -> Workshop | None:
         # conditional-unique constraint is the truth, and two near-simultaneous
         # first turns (a double tap, or the client's 401→refresh→replay) must
         # not 500 the one screen a builder has.
-        return Workshop.objects.filter(
-            user=user, status=Workshop.Status.OPEN
-        ).first()
+        return Workshop.objects.filter(user=user, status=Workshop.Status.OPEN).first()
 
 
 def _reopened_workshop(goal: Goal, create: bool = False) -> Workshop | None:
@@ -327,9 +331,7 @@ def _workshop_payload(workshop: Workshop | None) -> dict | None:
         # Sent computed rather than left to the client, so the meter on screen
         # and the refusal from the server can never disagree about what's left.
         "turns_left": max(total - used, 0),
-        "messages": WorkshopMessageSerializer(
-            workshop.messages.all(), many=True
-        ).data,
+        "messages": WorkshopMessageSerializer(workshop.messages.all(), many=True).data,
     }
 
 
@@ -909,8 +911,7 @@ class StateView(APIView):
                 "launch_offer": _launch_offer_payload(goal, today),
                 "can_set_launch": Phase(goal.phase) in LAUNCH_PHASES,
                 "ponds": [
-                    {"value": p.value, "label": p.label}
-                    for p in LaunchCommitment.Pond
+                    {"value": p.value, "label": p.label} for p in LaunchCommitment.Pond
                 ],
                 # The one number they chose to watch, and every reading of it.
                 # Null until they name one — same rule as the launch date, and for
@@ -987,6 +988,36 @@ class StateView(APIView):
         )
 
 
+def _history_cursor(request) -> tuple[date, int] | None:
+    """Where the last page of the record stopped: `?before=<date>&before_id=<pk>`.
+
+    Both parameters or neither. A date alone cannot be a cursor over this
+    table, which is why #88's sketch of `?before=<date>` is not what shipped:
+    `CheckIn`'s own constraint permits many finished cycles in one day, so a
+    boundary date names rows on both sides of the page break. Paging by date
+    alone either serves that day twice or drops whatever part of it fell past
+    the edge, and the second one is a record with a hole in it.
+
+    `(date, id)` is the sort key `GoalHistoryView` orders by, so the cursor is
+    a position in that order rather than a fact about the calendar.
+
+    Malformed is a 400, not a silent first page. This endpoint is the product's
+    memory; a cursor that quietly restarts hands the reader the newest ninety
+    days a second time and calls it the rest — which is #88's failure again,
+    wearing a different hat.
+    """
+    raw_date = request.query_params.get("before")
+    raw_id = request.query_params.get("before_id")
+    if raw_date is None and raw_id is None:
+        return None
+    if raw_date is None or raw_id is None:
+        raise ParseError("before and before_id go together — send both or neither.")
+    try:
+        return date.fromisoformat(raw_date), int(raw_id)
+    except ValueError:
+        raise ParseError("before must be YYYY-MM-DD and before_id a row id.")
+
+
 class GoalHistoryView(APIView):
     """The full record of one of the builder's goals — including closed ones.
 
@@ -997,6 +1028,20 @@ class GoalHistoryView(APIView):
     Kept out of StateView because every retired goal's day-by-day record in
     every dashboard payload is a lot of rows to send for a panel that is
     usually closed.
+
+    Paged, and the distinction that matters is that a page is not a cap. #88
+    was filed because the record silently dropped its own first weeks; #140
+    answered it by removing the ceiling entirely, which left one response
+    carrying every check-in a goal ever had with its attempts prefetched. Both
+    of those hand back an answer the caller cannot tell is short. This hands
+    back a bounded page plus the two things that make the shortfall legible —
+    `checkins_total`, and a `next_before` cursor that is null exactly when
+    there is nothing further. The readers keep asking until it is.
+
+    So no ceiling has been reintroduced: everything is still reachable, one
+    press still yields the whole record. What changed is that a builder proud
+    enough of a long record to open it no longer waits on a single response
+    that has to serialize all of it before any of it moves.
     """
 
     permission_classes = [IsAuthenticated]
@@ -1004,28 +1049,49 @@ class GoalHistoryView(APIView):
     def get(self, request, pk: int):
         goal = get_object_or_404(Goal.objects.filter(user=request.user), pk=pk)
         retirement = GoalRetirement.objects.filter(goal=goal).first()
+
+        # `-date, -id` rather than the model's `-date` alone: the default
+        # ordering leaves rows that share a day in whatever order the database
+        # returns them, and a page break inside such a day would then land in
+        # a different place on each request. A cursor needs a total order.
+        rows = goal.checkins.prefetch_related("attempts").order_by("-date", "-id")
+        cursor = _history_cursor(request)
+        if cursor:
+            before_date, before_id = cursor
+            rows = rows.filter(
+                Q(date__lt=before_date) | Q(date=before_date, id__lt=before_id)
+            )
+        # One extra row, discarded: it answers "is there another page" without
+        # a second query, and without the off-by-one of comparing this page's
+        # length against the total on a record somebody is still writing.
+        page = list(rows[: HISTORY_PAGE + 1])
+        has_more = len(page) > HISTORY_PAGE
+        page = page[:HISTORY_PAGE]
+
         return Response(
             {
                 "goal": GoalSerializer(goal).data,
                 "retirement": RetirementSerializer(retirement).data
                 if retirement
                 else None,
-                # Uncapped, unlike StateView. This endpoint exists precisely
-                # because the whole record is too much to send on every page
-                # load — it is the one a builder opens when they went looking for
-                # something, so applying the dashboard's budget here meant the
-                # panel that is supposed to be the product's memory forgot the
-                # first weeks of any goal that ran past three months. Bounded in
-                # practice by the altitude: this product's stretch is idea to
-                # first users, which is months rather than years.
-                "checkins": CheckInSerializer(
-                    goal.checkins.prefetch_related("attempts").all(),
-                    many=True,
-                ).data,
+                "checkins": CheckInSerializer(page, many=True).data,
                 "transitions": PhaseTransitionSerializer(
                     goal.transitions.all(), many=True
                 ).data,
                 "streak": streaks.best_streak(goal),
+                # The honesty half, and the same one `StateView` and
+                # `ChangelogView` already send: a count of what exists, beside
+                # a payload of what was sent.
+                "checkins_total": goal.checkins.count(),
+                # Null means this was the last page — the only signal a reader
+                # should stop on. Deriving "am I done" from a short page is
+                # wrong on a record that grew between two requests.
+                "next_before": {
+                    "date": page[-1].date.isoformat(),
+                    "id": page[-1].id,
+                }
+                if has_more and page
+                else None,
             }
         )
 
@@ -1104,8 +1170,15 @@ class GoalExportView(APIView):
         # it fetches through the same client that knows how to refresh an
         # expired session — but a record the builder can only get by pressing a
         # button in one app is a smaller promise than the one being made here.
-        response = HttpResponse(
-            export.render(goal, today), content_type="text/markdown; charset=utf-8"
+        #
+        # Streamed rather than rendered into one string: the record has no
+        # ceiling by design (see `export.stream`), and the version of this that
+        # builds the whole file, joins it, and hands the result to a response
+        # that copies it again holds three of it at once — on a free-tier
+        # instance with one worker, at the moment a builder with the longest
+        # record in the database presses the button.
+        response = StreamingHttpResponse(
+            export.stream(goal, today), content_type="text/markdown; charset=utf-8"
         )
         response["Content-Disposition"] = (
             f'attachment; filename="{export.filename(goal, today)}"'
@@ -1188,9 +1261,9 @@ class GoalsView(APIView):
         # something else entirely still used the room. The next one opens when
         # this goal closes, which is what stops the vestibule from being
         # somewhere to go back to instead of forward.
-        Workshop.objects.filter(
-            user=request.user, status=Workshop.Status.OPEN
-        ).update(status=Workshop.Status.SPENT)
+        Workshop.objects.filter(user=request.user, status=Workshop.Status.OPEN).update(
+            status=Workshop.Status.SPENT
+        )
         logger.info(f"Goal {goal.id} created for user {request.user.id}")
         return Response(GoalSerializer(goal).data, status=status.HTTP_201_CREATED)
 
@@ -1269,7 +1342,9 @@ class GoalUpdateView(APIView):
                 goal=goal,
                 role=Message.Role.COACH,
                 phase=goal.phase,
-                content=guidance.TITLE_SHARPENED.format(before=before, after=goal.title),
+                content=guidance.TITLE_SHARPENED.format(
+                    before=before, after=goal.title
+                ),
             )
             logger.info(f"Goal {goal.id} reworded before anything was banked")
         return Response(GoalSerializer(goal).data)
@@ -1365,12 +1440,16 @@ class LaunchDateView(APIView):
             when = date.fromisoformat(str(request.data.get("date") or ""))
         except ValueError:
             return Response(
-                {"detail": "Give a real date — the day you'll put it in front of them."},
+                {
+                    "detail": "Give a real date — the day you'll put it in front of them."
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
         if when < today:
             return Response(
-                {"detail": "That's already been. Pick a day you can still work toward."},
+                {
+                    "detail": "That's already been. Pick a day you can still work toward."
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
         if (when - today).days > self.MAX_DAYS_OUT:
@@ -1473,7 +1552,9 @@ class MetricView(APIView):
         name = " ".join(str(request.data.get("name") or "").split())
         if not name:
             return Response(
-                {"detail": "Name the number — the one that means somebody got the value."},
+                {
+                    "detail": "Name the number — the one that means somebody got the value."
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
         if len(name) > self.MAX_CHARS:
@@ -1576,8 +1657,7 @@ class PhaseIntentView(APIView):
             return Response(
                 {
                     "detail": (
-                        "Nothing unlocked this phase yet — this is where you "
-                        "started."
+                        "Nothing unlocked this phase yet — this is where you started."
                     )
                 },
                 status=status.HTTP_409_CONFLICT,
@@ -1749,9 +1829,7 @@ class DeclareView(APIView):
         try:
             day = _parse_date(request.data.get("date"))
         except ValueError:
-            return Response(
-                {"detail": "Bad date."}, status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({"detail": "Bad date."}, status=status.HTTP_400_BAD_REQUEST)
         try:
             due_hour = _parse_due_hour(request.data.get("due_hour"))
         except ValueError:
@@ -1924,15 +2002,15 @@ class ProveView(throttles.VoicedThrottleMixin, APIView):
             )
         if len(text) > settings.PROOF_MAX_CHARS:
             return Response(
-                {"detail": "That's a lot to read. The evidence, not everything around it."},
+                {
+                    "detail": "That's a lot to read. The evidence, not everything around it."
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
         try:
             day = _parse_date(request.data.get("date"))
         except ValueError:
-            return Response(
-                {"detail": "Bad date."}, status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({"detail": "Bad date."}, status=status.HTTP_400_BAD_REQUEST)
         checkin = _on_the_hook(goal, day)
         if checkin is None or not checkin.am_declaration:
             return Response(
@@ -1976,7 +2054,10 @@ class ProveView(throttles.VoicedThrottleMixin, APIView):
         # instead would hold a database transaction open across that same
         # model call, twelve threads deep, which is the worse trade.
         archived_try = None
-        if checkin.pm_proof_text and checkin.proof_status == CheckIn.ProofStatus.PUSHED_BACK:
+        if (
+            checkin.pm_proof_text
+            and checkin.proof_status == CheckIn.ProofStatus.PUSHED_BACK
+        ):
             archived_try = ProofAttempt(
                 checkin=checkin,
                 text=checkin.pm_proof_text,
@@ -1997,7 +2078,9 @@ class ProveView(throttles.VoicedThrottleMixin, APIView):
         # Recomputed on every submission rather than carried: a resubmission is
         # a different link as often as it is different words, and the answer the
         # last try got has already been archived onto its ProofAttempt above.
-        checkin.url_alive = links.check(checkin.proof_url) if checkin.proof_url else None
+        checkin.url_alive = (
+            links.check(checkin.proof_url) if checkin.proof_url else None
+        )
         # Only stamped when there is an answer to stamp. A check that never
         # happened leaves both fields NULL, and the row makes no claim.
         checkin.url_checked_at = (
@@ -2056,7 +2139,9 @@ class ProveView(throttles.VoicedThrottleMixin, APIView):
                 logger.info(f"Goal {goal.id} gained a brief from checkin {checkin.id}")
         # The row's own date, not the client's: after midnight they differ, and
         # the log should name the evening the proof landed on.
-        logger.info(f"Proof {checkin.proof_status} for goal {goal.id} on {checkin.date}")
+        logger.info(
+            f"Proof {checkin.proof_status} for goal {goal.id} on {checkin.date}"
+        )
         return Response(
             {
                 "checkin": CheckInSerializer(checkin).data,
@@ -2416,9 +2501,7 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
                         # builder has named their number, it simply is not in the
                         # schema. Wrong-phase silence as a schema fact rather
                         # than a sentence in a prompt.
-                        prompts.suggest_proof_tool(
-                            Phase(goal.phase), goal.metric_name
-                        ),
+                        prompts.suggest_proof_tool(Phase(goal.phase), goal.metric_name),
                     ],
                 ):
                     if kind == "delta":
@@ -2449,8 +2532,7 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
                                 payload.get("arguments", {}).get("task") or ""
                             ).strip()
                         elif (
-                            name == "suggest_phase_intent"
-                            and intent_target is not None
+                            name == "suggest_phase_intent" and intent_target is not None
                         ):
                             # One line, replaced by a later call in the same
                             # turn the way the two drafts above are — a builder
@@ -2686,11 +2768,7 @@ class ChatView(throttles.VoicedThrottleMixin, APIView):
             # Keyed off the CALL rather than off the draft, so a turn that came
             # back with nothing usable clears the box instead of leaving a
             # stale sentence in it.
-            if (
-                wording_called
-                and may_reword
-                and gates.accepted_proofs_total(goal) == 0
-            ):
+            if wording_called and may_reword and gates.accepted_proofs_total(goal) == 0:
                 goal.title_offer = wording_draft
                 goal.save(update_fields=["title_offer", "updated_at"])
                 span.set_attribute("wording.offered", bool(wording_draft))
@@ -2988,9 +3066,7 @@ class WorkshopChatView(throttles.VoicedThrottleMixin, APIView):
             system_role=WorkshopMessage.Role.SYSTEM,
         )
         return _ndjson(
-            self._events(
-                workshop, system, history, reopened=reopened, turn_id=turn.id
-            )
+            self._events(workshop, system, history, reopened=reopened, turn_id=turn.id)
         )
 
     def _events(
@@ -3570,9 +3646,7 @@ class CohortMembershipView(APIView):
     permission_classes = [IsAuthenticated]
 
     def delete(self, request, pk: int):
-        member = CohortMember.objects.filter(
-            cohort_id=pk, user=request.user
-        ).first()
+        member = CohortMember.objects.filter(cohort_id=pk, user=request.user).first()
         if member is None:
             return Response(
                 {"detail": "No cohort here."}, status=status.HTTP_404_NOT_FOUND
