@@ -11,6 +11,7 @@ from datetime import timedelta
 from pathlib import Path
 
 import dj_database_url
+from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -113,13 +114,39 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "config.wsgi.application"
 
-# Remove ALL whitespace from pasted connection strings — stray spaces or
-# newlines make psycopg refuse to connect. Only the env value: the SQLite
-# fallback path may legitimately contain spaces.
-_db_url = os.environ.get("DATABASE_URL")
+
+def db_url_or_sqlite(raw: str | None, sqlite_path: Path) -> str:
+    """The connection string to open, or the local SQLite file when there is none.
+
+    Remove ALL whitespace from pasted connection strings — stray spaces or
+    newlines make psycopg refuse to connect. Only the env value: the SQLite
+    fallback path may legitimately contain spaces.
+
+    Set-but-empty is a mistake, never a request for SQLite. It is what a shell
+    prefix leaves behind when the variable it interpolates is unset —
+    `DATABASE_URL="$PROD_NEON_URL" manage.py loop_report` with PROD_NEON_URL
+    never exported — and falling back there points a command aimed at
+    production at an unmigrated local file, which reports itself minutes later
+    as a missing table naming neither DATABASE_URL nor SQLite. Absent stays the
+    ordinary local path, because that is what .env.example documents and what
+    CI runs on; blank stops the boot.
+    """
+    if raw is None:
+        return f"sqlite:///{sqlite_path}"
+    cleaned = "".join(raw.split())
+    if not cleaned:
+        raise ImproperlyConfigured(
+            "DATABASE_URL is set but empty. The usual cause is a shell prefix "
+            'like DATABASE_URL="$SOME_VAR" where SOME_VAR is unset. Pass a real '
+            "connection string, or remove DATABASE_URL from the environment and "
+            "from backend/.env to use the local SQLite database."
+        )
+    return cleaned
+
+
 DATABASES = {
     "default": dj_database_url.parse(
-        "".join(_db_url.split()) if _db_url else f"sqlite:///{BASE_DIR / 'db.sqlite3'}",
+        db_url_or_sqlite(os.environ.get("DATABASE_URL"), BASE_DIR / "db.sqlite3"),
         conn_max_age=600,
         # Serverless Postgres (Neon) drops idle connections on autosuspend;
         # ping before reuse so the first request after a pause doesn't 500.
