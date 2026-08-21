@@ -1,18 +1,23 @@
 """The backend's own guards: every table has an admin reader, one migration
-leaf, the four indexes, and multi-write paths landing whole or not at all.
+leaf, the four indexes, a blank DATABASE_URL refused rather than quietly
+replaced, and multi-write paths landing whole or not at all.
 """
 
 from datetime import date, timedelta
 from io import StringIO
+from pathlib import Path
 from unittest import mock
 
 from django.apps import apps
 from django.contrib import admin
+from django.core.exceptions import ImproperlyConfigured
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.db import IntegrityError, connection
 from django.db.migrations.loader import MigrationLoader
 from django.test import SimpleTestCase, TestCase
+
+from config import settings as settings_module
 
 from .. import admin as coach_admin
 from .. import (
@@ -161,6 +166,57 @@ class MigrationLeafTests(SimpleTestCase):
         message = str(caught.exception)
         self.assertIn("0064_a", message)
         self.assertIn("0064_b", message)
+
+
+# --- which database a command opens ------------------------------------------
+
+
+class DatabaseUrlTests(SimpleTestCase):
+    """Decided from the env value alone, so it is readable without a boot.
+
+    The trap this closes: `DATABASE_URL="$PROD_NEON_URL" manage.py loop_report`
+    with PROD_NEON_URL never exported. The prefix expands to blank, blank used
+    to read as "no env value", and a report aimed at production opened an
+    unmigrated local SQLite file instead — reporting itself twelve frames deep
+    as `no such table: coach_workshop`, which names neither DATABASE_URL nor
+    SQLite and reads as a migration problem in the app.
+    """
+
+    def test_no_env_value_opens_the_local_sqlite_file(self):
+        """Absent has to keep working: it is the documented local path and the
+        one CI runs on. Spaces in the path survive — this project's own checkout
+        sits under `Personal Projects`, so stripping them breaks every run.
+        """
+        self.assertEqual(
+            settings_module.db_url_or_sqlite(
+                None, Path("/Personal Projects/db.sqlite3")
+            ),
+            "sqlite:////Personal Projects/db.sqlite3",
+        )
+
+    def test_a_pasted_connection_string_loses_its_whitespace(self):
+        self.assertEqual(
+            settings_module.db_url_or_sqlite(
+                "postgresql://u:p@host\n  /db?sslmode=require", Path("/db.sqlite3")
+            ),
+            "postgresql://u:p@host/db?sslmode=require",
+        )
+
+    def test_set_but_empty_stops_the_boot(self):
+        with self.assertRaises(ImproperlyConfigured) as caught:
+            settings_module.db_url_or_sqlite("", Path("/db.sqlite3"))
+        message = str(caught.exception)
+        self.assertIn("DATABASE_URL is set but empty", message)
+        # The message has to name the cause, not only the symptom: the whole
+        # cost of the old behaviour was an error that pointed somewhere else.
+        self.assertIn("unset", message)
+
+    def test_whitespace_only_stops_the_boot_too(self):
+        """It lands in the same place as empty rather than one frame later: the
+        strip runs first, so a space-only value would reach the parser as "".
+        """
+        with self.assertRaises(ImproperlyConfigured):
+            settings_module.db_url_or_sqlite(" \n\t ", Path("/db.sqlite3"))
 
 
 # --- the first indexes in the project ----------------------------------------
